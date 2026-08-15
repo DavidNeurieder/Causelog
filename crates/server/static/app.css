@@ -166,3 +166,27 @@ summary { cursor: pointer; color: var(--muted); font-size: 14px; }
 details { margin-top: 8px; }
 details form { margin-top: 8px; }
 .small { font-size: 13px; }
+
+a.btn {
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+  text-decoration: none;
+}
+a.btn:hover { border-color: var(--accent); }
+
+ol.timeline { list-style: none; padding-left: 0; margin: 18px 0; }
+ol.timeline li {
+  border-left: 2px solid var(--border);
+  padding: 4px 0 18px 18px;
+  margin-left: 4px;
+}
+ol.timeline li:last-child { border-left-color: transparent; }
+
+.kind-observation { color: var(--accent); border-color: var(--accent); }
+.kind-measurement { color: #7bc96f; border-color: #7bc96f55; }
+.kind-milestone { color: #d8a34c; border-color: #d8a34c55; }
+.kind-experiment_started, .kind-experiment_ended { color: var(--muted); }

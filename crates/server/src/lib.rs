@@ -50,6 +50,18 @@ fn router(state: AppState) -> Router {
         )
         .route("/decisions/{id}/resolve", post(pages::decision_resolve))
         .route("/decisions/{id}/delete", post(pages::decision_delete))
+        .route("/projects/{id}/experiments", post(pages::experiment_create))
+        .route("/projects/{id}/timeline", get(pages::timeline_page))
+        .route(
+            "/experiments/{id}",
+            get(pages::experiment_page).post(pages::experiment_update),
+        )
+        .route("/experiments/{id}/delete", post(pages::experiment_delete))
+        .route("/experiments/{id}/events", post(pages::event_create))
+        .route(
+            "/experiments/{id}/events/{event_id}/delete",
+            post(pages::event_delete),
+        )
         .route("/static/{name}", get(pages::static_file))
         .route("/health", get(routes::health))
         .with_state(state)

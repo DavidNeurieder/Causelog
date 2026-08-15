@@ -91,3 +91,38 @@ pub struct Revision {
     pub snapshot: String,
     pub created_at_ms: i64,
 }
+
+#[derive(Debug, Clone)]
+pub struct Experiment {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub goal_id: Option<Uuid>,
+    /// Decision this experiment was designed to resolve, if any.
+    pub decision_id: Option<Uuid>,
+    pub title: String,
+    /// Markdown; the falsifiable claim being tested.
+    pub hypothesis: String,
+    /// `planned` | `running` | `done` | `abandoned`
+    pub status: String,
+    pub started_at_ms: Option<i64>,
+    pub ended_at_ms: Option<i64>,
+    /// Markdown; what the experiment showed.
+    pub result: String,
+    /// Markdown; the durable lesson extracted from the result.
+    pub lesson: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExperimentEvent {
+    pub id: Uuid,
+    pub experiment_id: Uuid,
+    /// `observation` | `measurement` | `milestone`
+    pub kind: String,
+    /// When the event happened (defaults to now).
+    pub at_ms: i64,
+    /// Markdown.
+    pub note: String,
+    pub created_at_ms: i64,
+}

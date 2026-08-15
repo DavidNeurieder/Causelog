@@ -161,4 +161,54 @@
 
   <button type="submit">Create decision</button>
 </form>
+
+<h2>Experiments</h2>
+<p class="muted">An experiment tests a falsifiable hypothesis. Its lifecycle and observations make up this project's <a href="/projects/{{ project.id }}/timeline">timeline</a>.</p>
+
+{% if experiments.is_empty() %}
+<p class="muted">No experiments yet.</p>
+{% else %}
+<section class="list">
+  {% for ev in experiments %}
+  <div class="row item">
+    <div>
+      <a class="strong" href="/experiments/{{ ev.id }}">{{ ev.title }}</a>
+      <span class="tag status-{{ ev.status }}">{{ ev.status }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<h3>New experiment</h3>
+<form method="post" action="/projects/{{ project.id }}/experiments">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <field>
+    <label for="enew-title">Title</label>
+    <input id="enew-title" name="title" placeholder="e.g. Try SQLite with WAL for six weeks" required>
+  </field>
+  <field>
+    <label for="enew-hypothesis">Hypothesis (Markdown, optional)</label>
+    <textarea id="enew-hypothesis" name="hypothesis" rows="3" placeholder="The falsifiable claim this experiment tests…"></textarea>
+  </field>
+  <field>
+    <label for="enew-goal">Serves goal (optional)</label>
+    <select id="enew-goal" name="goal_id">
+      <option value="">— none —</option>
+      {% for goal in goals %}
+      <option value="{{ goal.id }}">{{ goal.title }}</option>
+      {% endfor %}
+    </select>
+  </field>
+  <field>
+    <label for="enew-decision">Resolves decision (optional)</label>
+    <select id="enew-decision" name="decision_id">
+      <option value="">— none —</option>
+      {% for d in decisions %}
+      <option value="{{ d.id }}">{{ d.title }}</option>
+      {% endfor %}
+    </select>
+  </field>
+  <button type="submit">Start experiment</button>
+</form>
 {% endblock %}

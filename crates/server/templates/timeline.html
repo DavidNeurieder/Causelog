@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Timeline · {{ project.title }} · Kaizen{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    <h1>Timeline</h1>
+    <p class="muted"><a href="/projects/{{ project.id }}">{{ project.title }}</a></p>
+  </div>
+  <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
+</div>
+
+{% if entries.is_empty() %}
+<p class="muted">Nothing here yet. Start an experiment and log observations to build the story of this project.</p>
+{% else %}
+<ol class="timeline">
+  {% for entry in entries %}
+  <li>
+    <div class="row">
+      <span class="muted small">{{ entry.at }}</span>
+      <span class="tag kind-{{ entry.kind }}">{{ entry.kind }}</span>
+    </div>
+    <a class="strong" href="/experiments/{{ entry.experiment_id }}">{{ entry.note }}</a>
+  </li>
+  {% endfor %}
+</ol>
+{% endif %}
+{% endblock %}

@@ -11,14 +11,14 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use kaizen_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
-use kaizen_model::{Decision, DecisionOption, Goal, Project};
+use kaizen_model::{Decision, DecisionOption, Experiment, Goal, Project};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth;
 use crate::error::ApiError;
-use crate::repository::{ProjectCounts, RepositoryError};
+use crate::repository::{ProjectCounts, RepositoryError, TimelineEntry};
 
 // ---------------------------------------------------------------------------
 // Template structs
@@ -146,6 +146,7 @@ struct ProjectTemplate {
     counts: ProjectCountsView,
     goals: Vec<Goal>,
     decisions: Vec<DecisionItemView>,
+    experiments: Vec<ExperimentItemView>,
 }
 
 struct ProjectCountsView {
@@ -153,6 +154,65 @@ struct ProjectCountsView {
     total_goals: i64,
     decisions: i64,
     open_decisions: i64,
+}
+
+/// Experiment row on a project page.
+struct ExperimentItemView {
+    id: String,
+    title: String,
+    status: String,
+}
+
+#[derive(Template)]
+#[template(path = "experiment.html")]
+struct ExperimentTemplate {
+    authed: bool,
+    flash: String,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    experiment: Experiment,
+    view: ExperimentView,
+    events: Vec<EventView>,
+}
+
+/// Rendered display of an experiment; the edit form is pre-filled from raw
+/// Markdown, so render the fields separately for display.
+struct ExperimentView {
+    started_at: String,
+    ended_at: String,
+    hypothesis_html: String,
+    result_html: String,
+    lesson_html: String,
+    goal_title: String,
+    decision_title: String,
+}
+
+struct EventView {
+    id: String,
+    kind: String,
+    at: String,
+    note_html: String,
+}
+
+#[derive(Template)]
+#[template(path = "timeline.html")]
+struct TimelineTemplate {
+    authed: bool,
+    flash: String,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    entries: Vec<TimelineView>,
+}
+
+struct TimelineView {
+    at: String,
+    kind: String,
+    note: String,
+    experiment_id: String,
 }
 
 /// Decision row on a project page.
@@ -591,6 +651,7 @@ pub(crate) async fn project_page(
         .ok_or_else(|| not_found("project"))?;
     let goals = state.repo.list_goals(project_id).await?;
     let decisions = state.repo.list_decisions(project_id).await?;
+    let experiments = state.repo.list_experiments(project_id).await?;
     let pc: ProjectCounts = state.repo.project_counts(project_id).await?;
     page(&ProjectTemplate {
         authed: true,
@@ -616,6 +677,14 @@ pub(crate) async fn project_page(
                     status: d.status,
                     decided_label,
                 }
+            })
+            .collect(),
+        experiments: experiments
+            .into_iter()
+            .map(|e| ExperimentItemView {
+                id: e.id.to_string(),
+                title: e.title,
+                status: e.status,
             })
             .collect(),
     })
@@ -1013,4 +1082,290 @@ pub(crate) async fn decision_delete(
         .project_id;
     state.repo.delete_decision(decision_id).await?;
     Ok(Redirect::to(&format!("/projects/{project_id}?flash=decision_deleted")).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Experiments & events
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub(crate) struct ExperimentForm {
+    pub csrf_token: Option<String>,
+    title: String,
+    hypothesis: String,
+    goal_id: String,
+    decision_id: String,
+}
+
+pub(crate) async fn experiment_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<ExperimentForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&id)?;
+    if body.title.trim().is_empty() {
+        return Ok(
+            Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
+        );
+    }
+    let goal_id = parse_goal_id(&body.goal_id);
+    let decision_id = parse_goal_id(&body.decision_id);
+    state
+        .repo
+        .create_experiment(
+            project_id,
+            goal_id,
+            decision_id,
+            body.title.trim(),
+            body.hypothesis.trim(),
+        )
+        .await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}?flash=experiment_created")).into_response())
+}
+
+pub(crate) async fn experiment_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let experiment_id = parse_uuid(&id)?;
+    let experiment = state
+        .repo
+        .find_experiment(experiment_id)
+        .await?
+        .ok_or_else(|| not_found("experiment"))?;
+    let project = state
+        .repo
+        .find_project(experiment.project_id)
+        .await?
+        .ok_or_else(|| not_found("project"))?;
+    let goal_title = match experiment.goal_id {
+        Some(goal_id) => state
+            .repo
+            .find_goal(goal_id)
+            .await?
+            .map(|g| g.title)
+            .unwrap_or_default(),
+        None => String::new(),
+    };
+    let decision_title = match experiment.decision_id {
+        Some(decision_id) => state
+            .repo
+            .find_decision(decision_id)
+            .await?
+            .map(|d| d.title)
+            .unwrap_or_default(),
+        None => String::new(),
+    };
+    let events = state.repo.list_events(experiment.id).await?;
+    let view = ExperimentView {
+        started_at: experiment
+            .started_at_ms
+            .map(format_date_ms)
+            .unwrap_or_default(),
+        ended_at: experiment
+            .ended_at_ms
+            .map(format_date_ms)
+            .unwrap_or_default(),
+        hypothesis_html: render_markdown(&experiment.hypothesis),
+        result_html: render_markdown(&experiment.result),
+        lesson_html: render_markdown(&experiment.lesson),
+        goal_title,
+        decision_title,
+    };
+    let events_view: Vec<EventView> = events
+        .into_iter()
+        .map(|ev| EventView {
+            id: ev.id.to_string(),
+            kind: ev.kind,
+            at: format_date_ms(ev.at_ms),
+            note_html: render_markdown(&ev.note),
+        })
+        .collect();
+    page(&ExperimentTemplate {
+        authed: true,
+        flash: flash_message(flash.flash.as_deref()),
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        experiment,
+        view,
+        events: events_view,
+    })
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ExperimentUpdateForm {
+    pub csrf_token: Option<String>,
+    title: String,
+    hypothesis: String,
+    status: String,
+    result: String,
+    lesson: String,
+}
+
+pub(crate) async fn experiment_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<ExperimentUpdateForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let experiment_id = parse_uuid(&id)?;
+    if body.title.trim().is_empty() {
+        return Ok(
+            Redirect::to(&format!("/experiments/{experiment_id}?flash=invalid_title"))
+                .into_response(),
+        );
+    }
+    let status = if matches!(
+        body.status.as_str(),
+        "planned" | "running" | "done" | "abandoned"
+    ) {
+        body.status.as_str()
+    } else {
+        "planned"
+    };
+    state
+        .repo
+        .update_experiment(
+            experiment_id,
+            body.title.trim(),
+            body.hypothesis.trim(),
+            status,
+            body.result.trim(),
+            body.lesson.trim(),
+        )
+        .await?;
+    Ok(Redirect::to(&format!(
+        "/experiments/{experiment_id}?flash=experiment_updated"
+    ))
+    .into_response())
+}
+
+pub(crate) async fn experiment_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let experiment_id = parse_uuid(&id)?;
+    let project_id = state
+        .repo
+        .find_experiment(experiment_id)
+        .await?
+        .ok_or_else(|| not_found("experiment"))?
+        .project_id;
+    state.repo.delete_experiment(experiment_id).await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}?flash=experiment_deleted")).into_response())
+}
+
+#[derive(Deserialize)]
+pub(crate) struct EventForm {
+    pub csrf_token: Option<String>,
+    kind: String,
+    at_date: String,
+    note: String,
+}
+
+pub(crate) async fn event_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<EventForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let experiment_id = parse_uuid(&id)?;
+    let kind = if matches!(
+        body.kind.as_str(),
+        "observation" | "measurement" | "milestone"
+    ) {
+        body.kind.as_str()
+    } else {
+        "observation"
+    };
+    if body.note.trim().is_empty() {
+        return Ok(
+            Redirect::to(&format!("/experiments/{experiment_id}?flash=invalid_event"))
+                .into_response(),
+        );
+    }
+    let at_ms = parse_date_ms(body.at_date.trim()).unwrap_or_else(now_ms);
+    state
+        .repo
+        .create_event(experiment_id, kind, at_ms, body.note.trim())
+        .await?;
+    Ok(Redirect::to(&format!("/experiments/{experiment_id}?flash=event_created")).into_response())
+}
+
+pub(crate) async fn event_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, event_id)): Path<(String, String)>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let experiment_id = parse_uuid(&id)?;
+    let event_id = parse_uuid(&event_id)?;
+    state.repo.delete_event(event_id).await?;
+    Ok(Redirect::to(&format!("/experiments/{experiment_id}?flash=event_deleted")).into_response())
+}
+
+pub(crate) async fn timeline_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project_id = parse_uuid(&id)?;
+    let project = state
+        .repo
+        .find_project(project_id)
+        .await?
+        .ok_or_else(|| not_found("project"))?;
+    let entries = state.repo.timeline(project_id).await?;
+    let entries_view = entries
+        .into_iter()
+        .map(|e: TimelineEntry| TimelineView {
+            at: format_date_ms(e.at_ms),
+            kind: e.kind,
+            note: e.note,
+            experiment_id: e.experiment_id.to_string(),
+        })
+        .collect();
+    page(&TimelineTemplate {
+        authed: true,
+        flash: flash_message(flash.flash.as_deref()),
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        entries: entries_view,
+    })
 }

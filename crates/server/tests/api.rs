@@ -526,3 +526,158 @@ async fn decision_lifecycle_with_history() {
     assert!(body.contains("Which datastore?"), "got: {body}");
     assert!(body.contains("status-decided"), "got: {body}");
 }
+
+#[tokio::test]
+async fn experiment_lifecycle_and_timeline() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+
+    let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    let csrf = extract_csrf(&body_string(dash).await);
+
+    // Create a project.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                "/projects",
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "SQLite trial"),
+                    ("summary", ""),
+                    ("status", "active"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let project_url = redirect_to(&res);
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Create an experiment.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/experiments"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL trial"),
+                    ("hypothesis", "WAL speeds up reads."),
+                    ("goal_id", ""),
+                    ("decision_id", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        redirect_to(&res),
+        format!("{project_url}?flash=experiment_created")
+    );
+
+    // The project page links to the experiment.
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    let exp_url = extract_href(&body, "/experiments/");
+    assert!(exp_url.starts_with("/experiments/"), "got: {body}");
+
+    // Experiment page shows title, hypothesis, planned status.
+    let page = send(&app, with_cookie(get(&exp_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("WAL trial"), "got: {body}");
+    assert!(body.contains("WAL speeds up reads."), "got: {body}");
+    assert!(body.contains("status-planned"), "got: {body}");
+
+    // Start running.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &exp_url,
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL trial"),
+                    ("hypothesis", "WAL speeds up reads."),
+                    ("status", "running"),
+                    ("result", ""),
+                    ("lesson", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Log a measurement.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{exp_url}/events"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("kind", "measurement"),
+                    ("at_date", ""),
+                    ("note", "Read latency halved."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Finish it with a result and lesson.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &exp_url,
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL trial"),
+                    ("hypothesis", "WAL speeds up reads."),
+                    ("status", "done"),
+                    ("result", "Reads got 2x faster."),
+                    ("lesson", "WAL is worth enabling."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // The page now shows result, lesson, the measurement, and lifecycle dates.
+    let page = send(&app, with_cookie(get(&exp_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Reads got 2x faster."), "got: {body}");
+    assert!(body.contains("WAL is worth enabling."), "got: {body}");
+    assert!(body.contains("Read latency halved."), "got: {body}");
+    assert!(body.contains("started"), "got: {body}");
+    assert!(body.contains("ended"), "got: {body}");
+
+    // The timeline tells the story in order.
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/timeline")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    let started = body
+        .find("kind-experiment_started")
+        .expect("started marker");
+    let measured = body.find("kind-measurement").expect("measurement");
+    let ended = body.find("kind-experiment_ended").expect("ended marker");
+    assert!(
+        ended < measured && measured < started,
+        "timeline is newest-first, got started={started} measured={measured} ended={ended}"
+    );
+    assert!(body.contains("Completed “WAL trial”"), "got: {body}");
+    assert!(body.contains("Read latency halved."), "got: {body}");
+}

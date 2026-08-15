@@ -5,7 +5,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use kaizen_model::{Decision, DecisionOption, Goal, Project, Revision, Session, User};
+use kaizen_model::{
+    Decision, DecisionOption, Experiment, ExperimentEvent, Goal, Project, Revision, Session, User,
+};
 use sqlx::Row;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
@@ -145,6 +147,61 @@ pub trait Repository: Send + Sync {
         entity_type: &str,
         entity_id: Uuid,
     ) -> Result<Vec<Revision>, RepositoryError>;
+
+    // -----------------------------------------------------------------------
+    // Experiments & events (the timeline)
+    // -----------------------------------------------------------------------
+
+    async fn list_experiments(&self, project_id: Uuid) -> Result<Vec<Experiment>, RepositoryError>;
+    async fn find_experiment(&self, id: Uuid) -> Result<Option<Experiment>, RepositoryError>;
+    async fn create_experiment(
+        &self,
+        project_id: Uuid,
+        goal_id: Option<Uuid>,
+        decision_id: Option<Uuid>,
+        title: &str,
+        hypothesis: &str,
+    ) -> Result<Experiment, RepositoryError>;
+    /// Update editable fields plus status; `started_at`/`ended_at` are set the
+    /// first time status moves to `running`/`done|abandoned`.
+    async fn update_experiment(
+        &self,
+        id: Uuid,
+        title: &str,
+        hypothesis: &str,
+        status: &str,
+        result: &str,
+        lesson: &str,
+    ) -> Result<Experiment, RepositoryError>;
+    async fn delete_experiment(&self, id: Uuid) -> Result<(), RepositoryError>;
+
+    async fn list_events(
+        &self,
+        experiment_id: Uuid,
+    ) -> Result<Vec<ExperimentEvent>, RepositoryError>;
+    async fn create_event(
+        &self,
+        experiment_id: Uuid,
+        kind: &str,
+        at_ms: i64,
+        note: &str,
+    ) -> Result<ExperimentEvent, RepositoryError>;
+    async fn delete_event(&self, id: Uuid) -> Result<(), RepositoryError>;
+
+    /// Chronological story of a project: experiment start/end markers plus
+    /// every recorded event, newest first.
+    async fn timeline(&self, project_id: Uuid) -> Result<Vec<TimelineEntry>, RepositoryError>;
+}
+
+/// One row of a project's timeline.
+#[derive(Debug, Clone)]
+pub struct TimelineEntry {
+    pub at_ms: i64,
+    /// `experiment_started` | `experiment_ended` | one of the event kinds.
+    pub kind: String,
+    pub note: String,
+    pub experiment_id: Uuid,
+    pub experiment_title: String,
 }
 
 /// Aggregate counters for the dashboard.
@@ -733,6 +790,247 @@ impl Repository for SqliteRepository {
             })
             .collect())
     }
+
+    // -----------------------------------------------------------------------
+    // Experiments & events (the timeline)
+    // -----------------------------------------------------------------------
+
+    async fn list_experiments(&self, project_id: Uuid) -> Result<Vec<Experiment>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, goal_id, decision_id, title, hypothesis, status,
+                    started_at_ms, ended_at_ms, result, lesson, created_at_ms, updated_at_ms
+             FROM experiments WHERE project_id = ? ORDER BY updated_at_ms DESC",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_experiment).collect())
+    }
+
+    async fn find_experiment(&self, id: Uuid) -> Result<Option<Experiment>, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT id, project_id, goal_id, decision_id, title, hypothesis, status,
+                    started_at_ms, ended_at_ms, result, lesson, created_at_ms, updated_at_ms
+             FROM experiments WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| row_to_experiment(&r)))
+    }
+
+    async fn create_experiment(
+        &self,
+        project_id: Uuid,
+        goal_id: Option<Uuid>,
+        decision_id: Option<Uuid>,
+        title: &str,
+        hypothesis: &str,
+    ) -> Result<Experiment, RepositoryError> {
+        let id = Uuid::new_v4();
+        let now = kaizen_content::now_ms();
+        sqlx::query(
+            "INSERT INTO experiments (id, project_id, goal_id, decision_id, title, hypothesis,
+                    status, started_at_ms, ended_at_ms, result, lesson, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, '', '', ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(project_id.to_string())
+        .bind(goal_id.map(|g| g.to_string()))
+        .bind(decision_id.map(|d| d.to_string()))
+        .bind(title)
+        .bind(hypothesis)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(Experiment {
+            id,
+            project_id,
+            goal_id,
+            decision_id,
+            title: title.to_string(),
+            hypothesis: hypothesis.to_string(),
+            status: "planned".into(),
+            started_at_ms: None,
+            ended_at_ms: None,
+            result: String::new(),
+            lesson: String::new(),
+            created_at_ms: now,
+            updated_at_ms: now,
+        })
+    }
+
+    async fn update_experiment(
+        &self,
+        id: Uuid,
+        title: &str,
+        hypothesis: &str,
+        status: &str,
+        result: &str,
+        lesson: &str,
+    ) -> Result<Experiment, RepositoryError> {
+        let existing = self
+            .find_experiment(id)
+            .await?
+            .ok_or_else(|| RepositoryError::NotFound("experiment".into()))?;
+        let now = kaizen_content::now_ms();
+        let mut started = existing.started_at_ms;
+        let mut ended = existing.ended_at_ms;
+        match status {
+            "running" => {
+                if started.is_none() {
+                    started = Some(now);
+                }
+                ended = None;
+            }
+            "done" | "abandoned" => {
+                if ended.is_none() {
+                    ended = Some(now);
+                }
+            }
+            _ => {}
+        }
+        sqlx::query(
+            "UPDATE experiments SET title = ?, hypothesis = ?, status = ?,
+                    started_at_ms = ?, ended_at_ms = ?, result = ?, lesson = ?,
+                    updated_at_ms = ?
+             WHERE id = ?",
+        )
+        .bind(title)
+        .bind(hypothesis)
+        .bind(status)
+        .bind(started)
+        .bind(ended)
+        .bind(result)
+        .bind(lesson)
+        .bind(now)
+        .bind(id.to_string())
+        .execute(&self.pool)
+        .await?;
+        self.find_experiment(id)
+            .await?
+            .ok_or_else(|| RepositoryError::NotFound("experiment".into()))
+    }
+
+    async fn delete_experiment(&self, id: Uuid) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM experiments WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_events(
+        &self,
+        experiment_id: Uuid,
+    ) -> Result<Vec<ExperimentEvent>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, experiment_id, kind, at_ms, note, created_at_ms
+             FROM events WHERE experiment_id = ? ORDER BY at_ms ASC",
+        )
+        .bind(experiment_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| ExperimentEvent {
+                id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+                experiment_id: Uuid::from_str(&r.get::<String, _>("experiment_id"))
+                    .unwrap_or_default(),
+                kind: r.get("kind"),
+                at_ms: r.get("at_ms"),
+                note: r.get("note"),
+                created_at_ms: r.get("created_at_ms"),
+            })
+            .collect())
+    }
+
+    async fn create_event(
+        &self,
+        experiment_id: Uuid,
+        kind: &str,
+        at_ms: i64,
+        note: &str,
+    ) -> Result<ExperimentEvent, RepositoryError> {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO events (id, experiment_id, kind, at_ms, note, created_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(experiment_id.to_string())
+        .bind(kind)
+        .bind(at_ms)
+        .bind(note)
+        .bind(kaizen_content::now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(ExperimentEvent {
+            id,
+            experiment_id,
+            kind: kind.to_string(),
+            at_ms,
+            note: note.to_string(),
+            created_at_ms: kaizen_content::now_ms(),
+        })
+    }
+
+    async fn delete_event(&self, id: Uuid) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM events WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn timeline(&self, project_id: Uuid) -> Result<Vec<TimelineEntry>, RepositoryError> {
+        let mut entries = Vec::new();
+        for e in self.list_experiments(project_id).await? {
+            if let Some(started) = e.started_at_ms {
+                entries.push(TimelineEntry {
+                    at_ms: started,
+                    kind: "experiment_started".into(),
+                    note: format!("Started “{}”", e.title),
+                    experiment_id: e.id,
+                    experiment_title: e.title.clone(),
+                });
+            }
+            if let Some(ended) = e.ended_at_ms {
+                entries.push(TimelineEntry {
+                    at_ms: ended,
+                    kind: "experiment_ended".into(),
+                    note: if e.status == "done" {
+                        format!("Completed “{}”", e.title)
+                    } else {
+                        format!("Abandoned “{}”", e.title)
+                    },
+                    experiment_id: e.id,
+                    experiment_title: e.title.clone(),
+                });
+            }
+        }
+        let rows = sqlx::query(
+            "SELECT e.at_ms, e.kind, e.note, e.experiment_id, x.title AS experiment_title
+             FROM events e JOIN experiments x ON x.id = e.experiment_id
+             WHERE x.project_id = ?",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        for r in &rows {
+            entries.push(TimelineEntry {
+                at_ms: r.get("at_ms"),
+                kind: r.get("kind"),
+                note: r.get("note"),
+                experiment_id: Uuid::from_str(&r.get::<String, _>("experiment_id"))
+                    .unwrap_or_default(),
+                experiment_title: r.get("experiment_title"),
+            });
+        }
+        entries.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
+        Ok(entries)
+    }
 }
 
 /// Load a decision inside an existing transaction.
@@ -858,6 +1156,28 @@ fn row_to_decision(r: &sqlx::sqlite::SqliteRow) -> Decision {
         rationale: r.get("rationale"),
         decided_at_ms: r.get("decided_at_ms"),
         review_at_ms: r.get("review_at_ms"),
+        created_at_ms: r.get("created_at_ms"),
+        updated_at_ms: r.get("updated_at_ms"),
+    }
+}
+
+fn row_to_experiment(r: &sqlx::sqlite::SqliteRow) -> Experiment {
+    Experiment {
+        id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+        project_id: Uuid::from_str(&r.get::<String, _>("project_id")).unwrap_or_default(),
+        goal_id: r
+            .get::<Option<String>, _>("goal_id")
+            .and_then(|s| Uuid::from_str(&s).ok()),
+        decision_id: r
+            .get::<Option<String>, _>("decision_id")
+            .and_then(|s| Uuid::from_str(&s).ok()),
+        title: r.get("title"),
+        hypothesis: r.get("hypothesis"),
+        status: r.get("status"),
+        started_at_ms: r.get("started_at_ms"),
+        ended_at_ms: r.get("ended_at_ms"),
+        result: r.get("result"),
+        lesson: r.get("lesson"),
         created_at_ms: r.get("created_at_ms"),
         updated_at_ms: r.get("updated_at_ms"),
     }
