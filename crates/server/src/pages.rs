@@ -91,6 +91,9 @@ struct SetupTemplate {
     display_name: String,
     csrf_token: String,
     error: String,
+    /// Re-submitted values so the form survives a failed attempt.
+    username: String,
+    display: String,
 }
 
 #[derive(Template)]
@@ -102,6 +105,8 @@ struct LoginTemplate {
     display_name: String,
     csrf_token: String,
     error: String,
+    /// Re-submitted username so a failed login keeps what you typed.
+    username: String,
 }
 
 #[derive(Template)]
@@ -483,6 +488,8 @@ pub(crate) async fn setup_page(State(state): State<AppState>) -> Result<Response
         display_name: String::new(),
         csrf_token: String::new(),
         error: String::new(),
+        username: String::new(),
+        display: String::new(),
     })
 }
 
@@ -499,6 +506,8 @@ pub(crate) async fn setup_form(
             display_name: String::new(),
             csrf_token: String::new(),
             error,
+            username: body.username.trim().to_string(),
+            display: body.display.trim().to_string(),
         });
     }
     if state.repo.is_setup_complete().await? {
@@ -519,6 +528,8 @@ pub(crate) async fn setup_form(
                 display_name: String::new(),
                 csrf_token: String::new(),
                 error: msg,
+                username: body.username.trim().to_string(),
+                display: body.display.trim().to_string(),
             });
         }
         Err(e) => return Err(e.into()),
@@ -580,6 +591,7 @@ pub(crate) async fn login_page(
         display_name: String::new(),
         csrf_token: String::new(),
         error: String::new(),
+        username: String::new(),
     })
 }
 
@@ -603,6 +615,7 @@ pub(crate) async fn login_form(
         display_name: String::new(),
         csrf_token: String::new(),
         error,
+        username: username.to_string(),
     })
 }
 

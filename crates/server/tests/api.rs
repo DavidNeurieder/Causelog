@@ -194,6 +194,77 @@ async fn setup_validates_input() {
 }
 
 #[tokio::test]
+async fn setup_preserves_username_on_error() {
+    let app = test_app().await;
+    let res = send(
+        &app,
+        post_form(
+            "/setup",
+            &[
+                ("username", "dev"),
+                ("display", "Dev"),
+                ("password", "short"),
+                ("confirm", "short"),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+
+    // What you typed survives so the failure isn't wasted.
+    assert!(body.contains(r#"value="dev""#), "username kept: {body}");
+    assert!(body.contains(r#"value="Dev""#), "display kept: {body}");
+
+    // The password field has the visibility toggle but stays masked by default
+    // and is never echoed back.
+    assert_eq!(
+        body.matches("class=\"toggle-pw\"").count(),
+        2,
+        "one toggle per password field: {body}"
+    );
+    assert!(
+        body.contains(r#"data-target="password""#),
+        "toggle targets the field: {body}"
+    );
+    assert!(
+        body.contains(r#"type="password""#),
+        "password stays masked: {body}"
+    );
+    assert!(
+        !body.contains(r#"value="short""#),
+        "password must not be echoed: {body}"
+    );
+}
+
+#[tokio::test]
+async fn login_keeps_username_on_failure() {
+    let app = test_app().await;
+    setup_via_form(&app).await;
+
+    let res = send(
+        &app,
+        post_form("/login", &[("username", "dev"), ("password", "wrongpass")]),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+    assert!(body.contains("invalid username or password"), "got: {body}");
+    assert!(
+        body.contains(r#"value="dev""#),
+        "username kept on failure: {body}"
+    );
+    assert!(
+        body.contains("class=\"toggle-pw\""),
+        "toggle present: {body}"
+    );
+    assert!(
+        !body.contains(r#"value="wrongpass""#),
+        "password must not be echoed: {body}"
+    );
+}
+
+#[tokio::test]
 async fn login_flow() {
     let app = test_app().await;
     let cookie = setup_via_form(&app).await;

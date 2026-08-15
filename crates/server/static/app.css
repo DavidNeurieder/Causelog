@@ -76,6 +76,30 @@ input {
 }
 input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 
+.password-wrap {
+  position: relative;
+  display: block;
+  max-width: 420px;
+}
+.password-wrap input {
+  padding-right: 38px;
+}
+.toggle-pw {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.toggle-pw svg { width: 18px; height: 18px; display: block; }
+.toggle-pw:hover { color: var(--fg); }
+
 textarea {
   width: 100%;
   max-width: 620px;
