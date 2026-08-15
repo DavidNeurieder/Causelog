@@ -753,28 +753,11 @@ fn decided_label(d: &Decision) -> String {
         .unwrap_or_default()
 }
 
-/// Build the option list from the create/edit form's three slots, skipping
-/// blank labels.
-fn options_from_form(
-    title_1: &str,
-    pros_1: &str,
-    cons_1: &str,
-    title_2: &str,
-    pros_2: &str,
-    cons_2: &str,
-    title_3: &str,
-    pros_3: &str,
-    cons_3: &str,
-) -> Vec<DecisionOption> {
-    let mut options = Vec::with_capacity(3);
-    for (i, (label, pros, cons)) in [
-        (title_1, pros_1, cons_1),
-        (title_2, pros_2, cons_2),
-        (title_3, pros_3, cons_3),
-    ]
-    .iter()
-    .enumerate()
-    {
+/// Build the option list from the create/edit form's slots, skipping blank
+/// labels. Each slot is `(label, pros, cons)`.
+fn options_from_form(slots: &[(&str, &str, &str)]) -> Vec<DecisionOption> {
+    let mut options = Vec::with_capacity(slots.len());
+    for (i, (label, pros, cons)) in slots.iter().enumerate() {
         if !label.trim().is_empty() {
             options.push(DecisionOption {
                 id: format!("o{}", i + 1),
@@ -815,17 +798,11 @@ pub(crate) struct DecisionForm {
 
 impl DecisionForm {
     fn options(&self) -> Vec<DecisionOption> {
-        options_from_form(
-            &self.opt_1_label,
-            &self.opt_1_pros,
-            &self.opt_1_cons,
-            &self.opt_2_label,
-            &self.opt_2_pros,
-            &self.opt_2_cons,
-            &self.opt_3_label,
-            &self.opt_3_pros,
-            &self.opt_3_cons,
-        )
+        options_from_form(&[
+            (&self.opt_1_label, &self.opt_1_pros, &self.opt_1_cons),
+            (&self.opt_2_label, &self.opt_2_pros, &self.opt_2_cons),
+            (&self.opt_3_label, &self.opt_3_pros, &self.opt_3_cons),
+        ])
     }
 }
 
