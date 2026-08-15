@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Set up · Kaizen{% endblock %}
+{% block content %}
+<h1>Welcome to Kaizen</h1>
+<p class="muted">Kaizen keeps the decisions behind your project — the goals, the trade-offs, and the experiments that resolved them. Create your account to begin. You will be the only user of this instance.</p>
+<form method="post" action="/setup">
+  <field>
+    <label for="username">Username</label>
+    <input id="username" name="username" autocomplete="username" pattern="[a-z0-9_-]+" required>
+  </field>
+  <field>
+    <label for="display">Display name</label>
+    <input id="display" name="display" autocomplete="name">
+  </field>
+  <field>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+  </field>
+  <field>
+    <label for="confirm">Confirm password</label>
+    <input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="8" required>
+  </field>
+  {% if !error.is_empty() %}<p class="error">{{ error }}</p>{% endif %}
+  <button type="submit">Create account</button>
+</form>
+{% endblock %}

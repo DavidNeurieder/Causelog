@@ -1,13 +1,15 @@
 //! Server library: application wiring and the repository layer.
 
+pub mod auth;
 pub mod error;
+pub mod pages;
 pub mod repository;
 pub mod routes;
 
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, post};
 
 use crate::repository::Repository;
 
@@ -19,25 +21,30 @@ pub struct AppState {
     pub secure_cookies: bool,
 }
 
-/// Build the Axum router (plain HTTP; cookies without the `Secure` flag).
-pub fn app(repo: Arc<dyn Repository>) -> Router {
-    let state = AppState {
-        repo,
-        secure_cookies: false,
-    };
+fn router(state: AppState) -> Router {
     Router::new()
+        .route("/", get(pages::home_page))
+        .route("/setup", get(pages::setup_page).post(pages::setup_form))
+        .route("/login", get(pages::login_page).post(pages::login_form))
+        .route("/logout", post(pages::logout_form))
+        .route("/static/{name}", get(pages::static_file))
         .route("/health", get(routes::health))
         .with_state(state)
+}
+
+/// Build the Axum router (plain HTTP; cookies without the `Secure` flag).
+pub fn app(repo: Arc<dyn Repository>) -> Router {
+    router(AppState {
+        repo,
+        secure_cookies: false,
+    })
 }
 
 /// Build the router for HTTPS serving: session cookies carry the `Secure`
 /// flag.
 pub fn app_secure(repo: Arc<dyn Repository>) -> Router {
-    let state = AppState {
+    router(AppState {
         repo,
         secure_cookies: true,
-    };
-    Router::new()
-        .route("/health", get(routes::health))
-        .with_state(state)
+    })
 }

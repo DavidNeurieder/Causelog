@@ -9,6 +9,7 @@ use axum::{
 
 use crate::repository::RepositoryError;
 
+#[derive(Debug)]
 pub struct ApiError(pub RepositoryError);
 
 impl ApiError {
