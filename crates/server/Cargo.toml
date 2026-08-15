@@ -3,7 +3,7 @@ name = "kaizen-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Kaizen server: Axum API + askama templates + auth"
+description = "Kaizen server: Axum app + askama templates + auth"
 
 [[bin]]
 name = "kaizen"
@@ -15,10 +15,16 @@ argon2 = { workspace = true }
 askama = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
+axum-server = { workspace = true }
 clap = { workspace = true }
-kaizen-model = { path = "../model" }
+futures = { workspace = true }
+hex = { workspace = true }
 kaizen-content = { path = "../content" }
+kaizen-model = { path = "../model" }
 kaizen-search = { path = "../search" }
+libsqlite3-sys = { version = "0.30", features = ["bundled"] }
+rustls = { workspace = true }
+rustls-acme = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -28,3 +34,9 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+tokio = { workspace = true }
