@@ -86,3 +86,58 @@ button[type="submit"] {
   cursor: pointer;
 }
 button[type="submit"]:hover { filter: brightness(1.1); }
+button.danger { background: var(--error); }
+button.link.danger { color: var(--error); }
+
+.row { display: flex; align-items: center; gap: 12px; }
+.row.space-between { justify-content: space-between; }
+.row.item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  justify-content: space-between;
+}
+a.strong { color: var(--fg); font-weight: 600; text-decoration: none; }
+a.strong:hover { color: var(--accent); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin: 18px 0; }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat { font-size: 26px; font-weight: 700; }
+.label { color: var(--muted); font-size: 13px; }
+
+.tag {
+  display: inline-block;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 1px 10px;
+  margin-left: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-transform: lowercase;
+}
+.status-active { color: #7bc96f; border-color: #7bc96f55; }
+.status-paused { color: #d8a34c; border-color: #d8a34c55; }
+.status-archived, .status-dropped { color: var(--muted); }
+.status-done { color: #7bc96f; border-color: #7bc96f55; }
+
+select {
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  max-width: 420px;
+}
+summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+details { margin-top: 8px; }
+details form { margin-top: 8px; }
+.small { font-size: 13px; }

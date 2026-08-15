@@ -27,6 +27,22 @@ fn router(state: AppState) -> Router {
         .route("/setup", get(pages::setup_page).post(pages::setup_form))
         .route("/login", get(pages::login_page).post(pages::login_form))
         .route("/logout", post(pages::logout_form))
+        .route("/dashboard", get(pages::dashboard_page))
+        .route(
+            "/projects",
+            get(pages::dashboard_page).post(pages::project_create),
+        )
+        .route(
+            "/projects/{id}",
+            get(pages::project_page).post(pages::project_update),
+        )
+        .route("/projects/{id}/delete", post(pages::project_delete))
+        .route("/projects/{id}/goals", post(pages::goal_create))
+        .route("/projects/{id}/goals/{goal_id}", post(pages::goal_update))
+        .route(
+            "/projects/{id}/goals/{goal_id}/delete",
+            post(pages::goal_delete),
+        )
         .route("/static/{name}", get(pages::static_file))
         .route("/health", get(routes::health))
         .with_state(state)

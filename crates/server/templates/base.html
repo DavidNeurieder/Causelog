@@ -14,6 +14,7 @@
     <a class="brand" href="/">Kaizen</a>
     {% if authed %}
     <nav class="site">
+      <a href="/dashboard">Dashboard</a>
       <span class="who">{{ display_name }}</span>
       <form method="post" action="/logout" class="inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

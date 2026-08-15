@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Kaizen{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <h1>Dashboard</h1>
+  <form method="post" action="/projects" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="title" value="">
+    <input type="hidden" name="summary" value="">
+    <input type="hidden" name="status" value="active">
+    <button type="submit" name="create" value="1">New project</button>
+  </form>
+</div>
+
+<div class="cards">
+  <div class="card"><span class="stat">{{ counts.projects }}</span><span class="label">projects</span></div>
+  <div class="card"><span class="stat">{{ counts.open_goals }}</span><span class="label">open goals</span></div>
+  <div class="card"><span class="stat">{{ counts.done_goals }}</span><span class="label">goals done</span></div>
+  <div class="card"><span class="stat">{{ counts.decisions }}</span><span class="label">decisions</span></div>
+  <div class="card"><span class="stat">{{ counts.open_decisions }}</span><span class="label">open decisions</span></div>
+</div>
+
+{% if projects.is_empty() %}
+<p class="muted">No projects yet — create your first one with the “New project” button. A project is a container for goals, decisions, and experiments.</p>
+{% else %}
+<section class="list">
+  {% for pv in projects %}
+  <div class="row item">
+    <div>
+      <a class="strong" href="/projects/{{ pv.project.id }}">{{ pv.project.title }}</a>
+      <span class="tag status-{{ pv.project.status }}">{{ pv.project.status }}</span>
+      {% if !pv.project.summary.is_empty() %}<p class="muted">{{ pv.project.summary }}</p>{% endif %}
+    </div>
+    <div class="muted small">
+      {{ pv.open_goals }}/{{ pv.total_goals }} goals · {{ pv.decisions }} decisions
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

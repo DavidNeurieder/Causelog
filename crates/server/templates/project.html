@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }} · Kaizen{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    <h1>{{ project.title }}</h1>
+    <p class="muted">
+      {{ counts.open_goals }}/{{ counts.total_goals }} goals open ·
+      {{ counts.decisions }} decisions ({{ counts.open_decisions }} open)
+    </p>
+  </div>
+  <form method="post" action="/projects/{{ project.id }}/delete" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="danger" onclick="return confirm('Delete this project and everything in it?')">Delete project</button>
+  </form>
+</div>
+
+{% if !project.summary.is_empty() %}
+<p class="muted">{{ project.summary }}</p>
+{% endif %}
+
+<details>
+  <summary>Edit project</summary>
+  <form method="post" action="/projects/{{ project.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <field>
+      <label for="title">Title</label>
+      <input id="title" name="title" value="{{ project.title }}" required>
+    </field>
+    <field>
+      <label for="summary">Summary</label>
+      <input id="summary" name="summary" value="{{ project.summary }}">
+    </field>
+    <field>
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        <option value="active" {% if project.status == "active" %}selected{% endif %}>active</option>
+        <option value="paused" {% if project.status == "paused" %}selected{% endif %}>paused</option>
+        <option value="archived" {% if project.status == "archived" %}selected{% endif %}>archived</option>
+      </select>
+    </field>
+    <button type="submit">Save changes</button>
+  </form>
+</details>
+
+<h2>Goals</h2>
+<p class="muted">Goals say what “done” looks like for this project. Decisions answer how you get there.</p>
+
+{% if goals.is_empty() %}
+<p class="muted">No goals yet.</p>
+{% else %}
+<section class="list">
+  {% for gv in goals %}
+  <div class="row item">
+    <div>
+      <span class="strong">{{ gv.goal.title }}</span>
+      <span class="tag status-{{ gv.goal.status }}">{{ gv.goal.status }}</span>
+      {% if !gv.goal.body.is_empty() %}<p class="muted">{{ gv.goal.body }}</p>{% endif %}
+    </div>
+    <details>
+      <summary>Edit</summary>
+      <form method="post" action="/projects/{{ project.id }}/goals/{{ gv.goal.id }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <field>
+          <label for="gtitle-{{ gv.goal.id }}">Title</label>
+          <input id="gtitle-{{ gv.goal.id }}" name="title" value="{{ gv.goal.title }}" required>
+        </field>
+        <field>
+          <label for="gbody-{{ gv.goal.id }}">Details</label>
+          <input id="gbody-{{ gv.goal.id }}" name="body" value="{{ gv.goal.body }}">
+        </field>
+        <field>
+          <label for="gstatus-{{ gv.goal.id }}">Status</label>
+          <select id="gstatus-{{ gv.goal.id }}" name="status">
+            <option value="open" {% if gv.goal.status == "open" %}selected{% endif %}>open</option>
+            <option value="done" {% if gv.goal.status == "done" %}selected{% endif %}>done</option>
+            <option value="dropped" {% if gv.goal.status == "dropped" %}selected{% endif %}>dropped</option>
+          </select>
+        </field>
+        <button type="submit">Save</button>
+      </form>
+      <form method="post" action="/projects/{{ project.id }}/goals/{{ gv.goal.id }}/delete" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="link danger">Delete goal</button>
+      </form>
+    </details>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<h3>Add goal</h3>
+<form method="post" action="/projects/{{ project.id }}/goals">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="status" value="open">
+  <field>
+    <label for="gnew-title">Goal</label>
+    <input id="gnew-title" name="title" placeholder="e.g. Reduce time-to-recall of past decisions to under a minute" required>
+  </field>
+  <field>
+    <label for="gnew-body">Details (optional)</label>
+    <input id="gnew-body" name="body" placeholder="How success will be measured…">
+  </field>
+  <button type="submit">Add goal</button>
+</form>
+{% endblock %}

@@ -286,3 +286,118 @@ async fn anonymous_logout_redirects_to_login() {
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
     assert_eq!(redirect_to(&res), "/login");
 }
+
+/// Pull the session's CSRF token out of a rendered page (it lives in hidden
+/// form fields).
+fn extract_csrf(html: &str) -> String {
+    let marker = r#"name="csrf_token" value=""#;
+    let start = html.find(marker).expect("csrf field present") + marker.len();
+    let rest = &html[start..];
+    let end = rest.find('"').expect("closing quote");
+    rest[..end].to_string()
+}
+
+#[tokio::test]
+async fn project_and_goal_crud() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+
+    // Dashboard is behind auth.
+    let res = send(&app, get("/dashboard")).await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/login?flash=not_authorized");
+
+    // Grab the CSRF token from the (authed) dashboard.
+    let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    assert_eq!(dash.status(), StatusCode::OK);
+    let csrf = extract_csrf(&body_string(dash).await);
+
+    // Create a project.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                "/projects",
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Kaizen MVP"),
+                    ("summary", "Build the whole thing"),
+                    ("status", "active"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let project_url = redirect_to(&res);
+    assert!(project_url.starts_with("/projects/"));
+
+    // Project page renders the title.
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let body = body_string(page).await;
+    assert!(body.contains("Kaizen MVP"), "got: {body}");
+
+    // Add a goal.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Reduce recall time"),
+                    ("body", "Find a past decision in under a minute"),
+                    ("status", "open"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Reduce recall time"), "got: {body}");
+
+    // Dashboard shows the project.
+    let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    let body = body_string(dash).await;
+    assert!(body.contains("Kaizen MVP"), "got: {body}");
+
+    // Missing CSRF on a mutating request is rejected.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &project_url,
+                &[
+                    ("csrf_token", ""),
+                    ("title", "x"),
+                    ("summary", ""),
+                    ("status", "active"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // Delete the project.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(&format!("{project_url}/delete"), &[("csrf_token", &csrf)]),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/dashboard?flash=deleted");
+
+    // Project page now 404s.
+    let res = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}

@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use kaizen_model::{Session, User};
+use kaizen_model::{Goal, Project, Session, User};
 use sqlx::Row;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
@@ -61,6 +61,68 @@ pub trait Repository: Send + Sync {
     async fn session_by_token(&self, token: &str) -> Result<Option<Session>, RepositoryError>;
     /// Delete a session by its raw token (logout).
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError>;
+
+    // -----------------------------------------------------------------------
+    // Projects & goals
+    // -----------------------------------------------------------------------
+
+    async fn list_projects(&self) -> Result<Vec<Project>, RepositoryError>;
+    async fn find_project(&self, id: Uuid) -> Result<Option<Project>, RepositoryError>;
+    async fn create_project(
+        &self,
+        title: &str,
+        summary: &str,
+        status: &str,
+    ) -> Result<Project, RepositoryError>;
+    async fn update_project(
+        &self,
+        id: Uuid,
+        title: &str,
+        summary: &str,
+        status: &str,
+    ) -> Result<(), RepositoryError>;
+    async fn delete_project(&self, id: Uuid) -> Result<(), RepositoryError>;
+
+    async fn list_goals(&self, project_id: Uuid) -> Result<Vec<Goal>, RepositoryError>;
+    async fn find_goal(&self, id: Uuid) -> Result<Option<Goal>, RepositoryError>;
+    async fn create_goal(
+        &self,
+        project_id: Uuid,
+        title: &str,
+        body: &str,
+    ) -> Result<Goal, RepositoryError>;
+    async fn update_goal(
+        &self,
+        id: Uuid,
+        title: &str,
+        body: &str,
+        status: &str,
+    ) -> Result<(), RepositoryError>;
+    async fn delete_goal(&self, id: Uuid) -> Result<(), RepositoryError>;
+
+    /// Counts shown on the dashboard.
+    async fn dashboard_counts(&self) -> Result<DashboardCounts, RepositoryError>;
+    /// Counts shown on a project page.
+    async fn project_counts(&self, project_id: Uuid) -> Result<ProjectCounts, RepositoryError>;
+}
+
+/// Aggregate counters for the dashboard.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DashboardCounts {
+    pub projects: i64,
+    pub open_goals: i64,
+    pub done_goals: i64,
+    pub decisions: i64,
+    pub open_decisions: i64,
+}
+
+/// Aggregate counters for a single project.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProjectCounts {
+    pub open_goals: i64,
+    pub total_goals: i64,
+    pub decisions: i64,
+    pub open_decisions: i64,
 }
 
 /// SQLite-backed repository (solo mode).
@@ -234,6 +296,231 @@ impl Repository for SqliteRepository {
             .await?;
         Ok(())
     }
+
+    // -----------------------------------------------------------------------
+    // Projects & goals
+    // -----------------------------------------------------------------------
+
+    async fn list_projects(&self) -> Result<Vec<Project>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, title, summary, status, created_at_ms, updated_at_ms
+             FROM projects ORDER BY updated_at_ms DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_project).collect())
+    }
+
+    async fn find_project(&self, id: Uuid) -> Result<Option<Project>, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT id, title, summary, status, created_at_ms, updated_at_ms
+             FROM projects WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| row_to_project(&r)))
+    }
+
+    async fn create_project(
+        &self,
+        title: &str,
+        summary: &str,
+        status: &str,
+    ) -> Result<Project, RepositoryError> {
+        let id = Uuid::new_v4();
+        let now = kaizen_content::now_ms();
+        sqlx::query(
+            "INSERT INTO projects (id, title, summary, status, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(title)
+        .bind(summary)
+        .bind(status)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(Project {
+            id,
+            title: title.to_string(),
+            summary: summary.to_string(),
+            status: status.to_string(),
+            created_at_ms: now,
+            updated_at_ms: now,
+        })
+    }
+
+    async fn update_project(
+        &self,
+        id: Uuid,
+        title: &str,
+        summary: &str,
+        status: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "UPDATE projects SET title = ?, summary = ?, status = ?, updated_at_ms = ?
+             WHERE id = ?",
+        )
+        .bind(title)
+        .bind(summary)
+        .bind(status)
+        .bind(kaizen_content::now_ms())
+        .bind(id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_project(&self, id: Uuid) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM projects WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_goals(&self, project_id: Uuid) -> Result<Vec<Goal>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, title, body, status, created_at_ms, updated_at_ms
+             FROM goals WHERE project_id = ? ORDER BY updated_at_ms DESC",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_goal).collect())
+    }
+
+    async fn find_goal(&self, id: Uuid) -> Result<Option<Goal>, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT id, project_id, title, body, status, created_at_ms, updated_at_ms
+             FROM goals WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| row_to_goal(&r)))
+    }
+
+    async fn create_goal(
+        &self,
+        project_id: Uuid,
+        title: &str,
+        body: &str,
+    ) -> Result<Goal, RepositoryError> {
+        let id = Uuid::new_v4();
+        let now = kaizen_content::now_ms();
+        sqlx::query(
+            "INSERT INTO goals (id, project_id, title, body, status, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, 'open', ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(project_id.to_string())
+        .bind(title)
+        .bind(body)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(Goal {
+            id,
+            project_id,
+            title: title.to_string(),
+            body: body.to_string(),
+            status: "open".into(),
+            created_at_ms: now,
+            updated_at_ms: now,
+        })
+    }
+
+    async fn update_goal(
+        &self,
+        id: Uuid,
+        title: &str,
+        body: &str,
+        status: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "UPDATE goals SET title = ?, body = ?, status = ?, updated_at_ms = ?
+             WHERE id = ?",
+        )
+        .bind(title)
+        .bind(body)
+        .bind(status)
+        .bind(kaizen_content::now_ms())
+        .bind(id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_goal(&self, id: Uuid) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM goals WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn dashboard_counts(&self) -> Result<DashboardCounts, RepositoryError> {
+        let projects: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects")
+            .fetch_one(&self.pool)
+            .await?;
+        let open_goals: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM goals WHERE status = 'open'")
+                .fetch_one(&self.pool)
+                .await?;
+        let done_goals: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM goals WHERE status = 'done'")
+                .fetch_one(&self.pool)
+                .await?;
+        let decisions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
+            .fetch_one(&self.pool)
+            .await?;
+        let open_decisions: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE status = 'open'")
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(DashboardCounts {
+            projects,
+            open_goals,
+            done_goals,
+            decisions,
+            open_decisions,
+        })
+    }
+
+    async fn project_counts(&self, project_id: Uuid) -> Result<ProjectCounts, RepositoryError> {
+        let open_goals: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM goals WHERE project_id = ? AND status = 'open'",
+        )
+        .bind(project_id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        let total_goals: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM goals WHERE project_id = ?")
+                .bind(project_id.to_string())
+                .fetch_one(&self.pool)
+                .await?;
+        let decisions: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE project_id = ?")
+                .bind(project_id.to_string())
+                .fetch_one(&self.pool)
+                .await?;
+        let open_decisions: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM decisions WHERE project_id = ? AND status = 'open'",
+        )
+        .bind(project_id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(ProjectCounts {
+            open_goals,
+            total_goals,
+            decisions,
+            open_decisions,
+        })
+    }
 }
 
 fn row_to_user(r: &sqlx::sqlite::SqliteRow) -> User {
@@ -243,6 +530,29 @@ fn row_to_user(r: &sqlx::sqlite::SqliteRow) -> User {
         display_name: r.get("display_name"),
         password_hash: r.get("password_hash"),
         created_at_ms: r.get("created_at_ms"),
+    }
+}
+
+fn row_to_project(r: &sqlx::sqlite::SqliteRow) -> Project {
+    Project {
+        id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+        title: r.get("title"),
+        summary: r.get("summary"),
+        status: r.get("status"),
+        created_at_ms: r.get("created_at_ms"),
+        updated_at_ms: r.get("updated_at_ms"),
+    }
+}
+
+fn row_to_goal(r: &sqlx::sqlite::SqliteRow) -> Goal {
+    Goal {
+        id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+        project_id: Uuid::from_str(&r.get::<String, _>("project_id")).unwrap_or_default(),
+        title: r.get("title"),
+        body: r.get("body"),
+        status: r.get("status"),
+        created_at_ms: r.get("created_at_ms"),
+        updated_at_ms: r.get("updated_at_ms"),
     }
 }
 

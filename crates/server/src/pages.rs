@@ -11,12 +11,14 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use kaizen_content::now_ms;
+use kaizen_model::{Goal, Project};
 use serde::Deserialize;
+use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth;
 use crate::error::ApiError;
-use crate::repository::RepositoryError;
+use crate::repository::{ProjectCounts, RepositoryError};
 
 // ---------------------------------------------------------------------------
 // Template structs
@@ -112,6 +114,58 @@ struct ErrorTemplate {
     message: String,
 }
 
+#[derive(Template)]
+#[template(path = "dashboard.html")]
+struct DashboardTemplate {
+    authed: bool,
+    flash: String,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    counts: DashboardCountsView,
+    projects: Vec<ProjectView>,
+}
+
+struct DashboardCountsView {
+    projects: i64,
+    open_goals: i64,
+    done_goals: i64,
+    decisions: i64,
+    open_decisions: i64,
+}
+
+#[derive(Template)]
+#[template(path = "project.html")]
+struct ProjectTemplate {
+    authed: bool,
+    flash: String,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    counts: ProjectCountsView,
+    goals: Vec<GoalView>,
+}
+
+struct ProjectCountsView {
+    open_goals: i64,
+    total_goals: i64,
+    decisions: i64,
+    open_decisions: i64,
+}
+
+/// Project row on the dashboard, with goal/decision counts.
+struct ProjectView {
+    project: Project,
+    open_goals: i64,
+    total_goals: i64,
+    decisions: i64,
+}
+
+struct GoalView {
+    goal: Goal,
+}
+
 #[derive(Deserialize)]
 pub(crate) struct FlashQuery {
     pub flash: Option<String>,
@@ -139,8 +193,27 @@ fn flash_message(key: Option<&str>) -> String {
     match key {
         Some("logged_out") => "You have been logged out.".into(),
         Some("not_authorized") => "You need to be signed in to do that.".into(),
+        Some("created") => "Project created.".into(),
+        Some("updated") => "Changes saved.".into(),
+        Some("deleted") => "Project deleted.".into(),
+        Some("goal_created") => "Goal added.".into(),
+        Some("goal_updated") => "Goal updated.".into(),
+        Some("goal_deleted") => "Goal removed.".into(),
+        Some("invalid_title") => "A title is required.".into(),
         _ => String::new(),
     }
+}
+
+fn not_found(msg: impl Into<String>) -> ApiError {
+    ApiError(RepositoryError::NotFound(msg.into()))
+}
+
+fn parse_uuid(s: &str) -> Result<Uuid, ApiError> {
+    Uuid::parse_str(s).map_err(|_| ApiError::bad_request("invalid id"))
+}
+
+fn login_redirect() -> Response {
+    Redirect::to("/login?flash=not_authorized").into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -348,4 +421,225 @@ pub(crate) async fn static_file(Path(name): Path<String>) -> Result<Response, Pa
         }
     };
     Ok(([(header::CONTENT_TYPE, content_type)], body.to_string()).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard & projects
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn dashboard_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let counts = state.repo.dashboard_counts().await?;
+    let projects = state.repo.list_projects().await?;
+    let mut views = Vec::with_capacity(projects.len());
+    for p in projects {
+        let pc = state.repo.project_counts(p.id).await?;
+        views.push(ProjectView {
+            project: p,
+            open_goals: pc.open_goals,
+            total_goals: pc.total_goals,
+            decisions: pc.decisions,
+        });
+    }
+    page(&DashboardTemplate {
+        authed: true,
+        flash: flash_message(flash.flash.as_deref()),
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        counts: DashboardCountsView {
+            projects: counts.projects,
+            open_goals: counts.open_goals,
+            done_goals: counts.done_goals,
+            decisions: counts.decisions,
+            open_decisions: counts.open_decisions,
+        },
+        projects: views,
+    })
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ProjectForm {
+    pub csrf_token: Option<String>,
+    title: String,
+    summary: String,
+    status: String,
+}
+
+pub(crate) async fn project_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(body): Form<ProjectForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    if body.title.trim().is_empty() {
+        return Ok(Redirect::to("/dashboard?flash=invalid_title").into_response());
+    }
+    let project = state
+        .repo
+        .create_project(body.title.trim(), body.summary.trim(), "active")
+        .await?;
+    Ok(Redirect::to(&format!("/projects/{}", project.id)).into_response())
+}
+
+pub(crate) async fn project_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project_id = parse_uuid(&id)?;
+    let project = state
+        .repo
+        .find_project(project_id)
+        .await?
+        .ok_or_else(|| not_found("project"))?;
+    let goals = state.repo.list_goals(project_id).await?;
+    let pc: ProjectCounts = state.repo.project_counts(project_id).await?;
+    page(&ProjectTemplate {
+        authed: true,
+        flash: flash_message(flash.flash.as_deref()),
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        counts: ProjectCountsView {
+            open_goals: pc.open_goals,
+            total_goals: pc.total_goals,
+            decisions: pc.decisions,
+            open_decisions: pc.open_decisions,
+        },
+        goals: goals.into_iter().map(|goal| GoalView { goal }).collect(),
+    })
+}
+
+pub(crate) async fn project_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<ProjectForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&id)?;
+    if body.title.trim().is_empty() {
+        return Ok(
+            Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
+        );
+    }
+    let status = if matches!(body.status.as_str(), "active" | "paused" | "archived") {
+        body.status.as_str()
+    } else {
+        "active"
+    };
+    state
+        .repo
+        .update_project(project_id, body.title.trim(), body.summary.trim(), status)
+        .await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}?flash=updated")).into_response())
+}
+
+pub(crate) async fn project_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&id)?;
+    state.repo.delete_project(project_id).await?;
+    Ok(Redirect::to("/dashboard?flash=deleted").into_response())
+}
+
+#[derive(Deserialize)]
+pub(crate) struct GoalForm {
+    pub csrf_token: Option<String>,
+    title: String,
+    body: String,
+    status: String,
+}
+
+pub(crate) async fn goal_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<GoalForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&id)?;
+    if body.title.trim().is_empty() {
+        return Ok(
+            Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
+        );
+    }
+    state
+        .repo
+        .create_goal(project_id, body.title.trim(), body.body.trim())
+        .await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}?flash=goal_created")).into_response())
+}
+
+pub(crate) async fn goal_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((project_id, goal_id)): Path<(String, String)>,
+    Form(body): Form<GoalForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&project_id)?;
+    let goal_id = parse_uuid(&goal_id)?;
+    if body.title.trim().is_empty() {
+        return Ok(
+            Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
+        );
+    }
+    let status = if matches!(body.status.as_str(), "open" | "done" | "dropped") {
+        body.status.as_str()
+    } else {
+        "open"
+    };
+    state
+        .repo
+        .update_goal(goal_id, body.title.trim(), body.body.trim(), status)
+        .await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}?flash=goal_updated")).into_response())
+}
+
+pub(crate) async fn goal_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((project_id, goal_id)): Path<(String, String)>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&project_id)?;
+    let goal_id = parse_uuid(&goal_id)?;
+    state.repo.delete_goal(goal_id).await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}?flash=goal_deleted")).into_response())
 }

@@ -23,3 +23,26 @@ pub struct Session {
     pub user_id: Uuid,
     pub expires_at_ms: i64,
 }
+
+#[derive(Debug, Clone)]
+pub struct Project {
+    pub id: Uuid,
+    pub title: String,
+    pub summary: String,
+    /// `active` | `paused` | `archived`
+    pub status: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Goal {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub title: String,
+    pub body: String,
+    /// `open` | `done` | `dropped`
+    pub status: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
