@@ -121,6 +121,23 @@ docker compose -f deploy/docker-compose.yml start
 - **AGPL-3.0-only.** This is a tool for thinking out loud about engineering;
   it ships under the same copyleft as the reference implementation it mirrors.
 
+## Testing
+
+Three layers, run with a single `cargo test --workspace`:
+
+- **Unit** — pure functions in the `content` crate (markdown sanitising,
+  date parsing) and server helpers (options/link parsing, snippet
+  highlighting, password hashing, cookie/CSRF behaviour).
+- **Integration** (`crates/server/tests/api.rs`) — the full HTTP surface
+  against an in-memory SQLite database, from setup to search.
+- **E2E** (`crates/server/tests/e2e.rs`) — boots the real `kaizen` binary on
+  a free port with a temporary database, drives the golden path over HTTP
+  with a cookie jar, then restarts the process to prove data survives, plus
+  `seed-demo` and CLI smoke tests.
+
+`cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings`
+must stay clean; GitHub Actions enforces all of it on every push and PR.
+
 ## License
 
 AGPL-3.0-only. See [LICENSE](LICENSE) for details.

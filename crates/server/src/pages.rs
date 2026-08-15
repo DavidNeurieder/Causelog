@@ -1126,15 +1126,23 @@ pub(crate) async fn decision_resolve(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let decision_id = parse_uuid(&id)?;
-    let status = if matches!(body.status.as_str(), "open" | "decided" | "rejected") {
-        body.status.as_str()
-    } else {
-        "open"
-    };
-    let decided_option = if status == "decided" && !body.decided_option.is_empty() {
+    let requested = body.status.as_str();
+    let decided_option = if requested == "decided" && !body.decided_option.is_empty() {
         Some(body.decided_option.clone())
     } else {
         None
+    };
+    // A decision cannot be "decided" without a chosen option; fall back to open.
+    let status = if decided_option.is_some() {
+        if matches!(requested, "decided" | "rejected") {
+            requested
+        } else {
+            "open"
+        }
+    } else if matches!(requested, "open" | "rejected") {
+        requested
+    } else {
+        "open"
     };
     let review_at = parse_date_ms(body.review_at.trim());
     state
@@ -1873,4 +1881,209 @@ fn highlight_snippet(raw: &str) -> String {
     escape_html(raw)
         .replace('\u{1}', "<mark>")
         .replace('\u{2}', "</mark>")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn uuid() -> Uuid {
+        Uuid::new_v4()
+    }
+
+    // -- options_from_form -------------------------------------------------
+
+    #[test]
+    fn options_from_form_trims_and_drops_blanks() {
+        let out = options_from_form(&[
+            ("  PostgreSQL  ", " easy ", " heavy "),
+            ("   ", "ignored", "ignored"),
+            ("SQLite", "one binary", ""),
+            ("", "ignored", "ignored"),
+        ]);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].id, "o1");
+        assert_eq!(out[0].label, "PostgreSQL");
+        assert_eq!(out[0].pros, "easy");
+        assert_eq!(out[0].cons, "heavy");
+        assert_eq!(
+            out[1].id, "o3",
+            "ids follow the form slot, not the kept count"
+        );
+        assert_eq!(out[1].label, "SQLite");
+        assert_eq!(out[1].cons, "");
+    }
+
+    #[test]
+    fn options_from_form_empty() {
+        assert!(options_from_form(&[]).is_empty());
+        assert!(options_from_form(&[("", "", "")]).is_empty());
+    }
+
+    // -- split_entity ------------------------------------------------------
+
+    #[test]
+    fn split_entity_parses_valid_values() {
+        let id = uuid();
+        for t in ["note", "decision", "experiment"] {
+            let (kind, parsed) = split_entity(&format!("{t}:{id}")).unwrap();
+            assert_eq!(kind, t);
+            assert_eq!(parsed, id);
+        }
+    }
+
+    #[test]
+    fn split_entity_rejects_bad_values() {
+        let id = uuid();
+        assert!(split_entity("").is_none());
+        assert!(split_entity(":foo").is_none());
+        assert!(
+            split_entity(&format!("goal:{id}")).is_none(),
+            "goals aren't linkable"
+        );
+        assert!(split_entity("note:not-a-uuid").is_none());
+        assert!(split_entity(&format!("note:{id}:extra")).is_none());
+    }
+
+    // -- escape_html / highlight_snippet -----------------------------------
+
+    #[test]
+    fn escape_html_escapes_special_chars() {
+        assert_eq!(
+            escape_html(r#"<a href="x"> & </a>"#),
+            "&lt;a href=&quot;x&quot;&gt; &amp; &lt;/a&gt;"
+        );
+    }
+
+    #[test]
+    fn highlight_snippet_escapes_then_marks() {
+        let raw = "a \u{1}<b>\u{2} & c";
+        let out = highlight_snippet(raw);
+        assert_eq!(out, "a <mark>&lt;b&gt;</mark> &amp; c");
+        assert!(!out.contains('\u{1}') && !out.contains('\u{2}'));
+    }
+
+    #[test]
+    fn highlight_snippet_without_marks_is_plain() {
+        assert_eq!(
+            highlight_snippet("just text & more"),
+            "just text &amp; more"
+        );
+    }
+
+    // -- decided_label -----------------------------------------------------
+
+    #[test]
+    fn decided_label_finds_chosen_option() {
+        let mut d = Decision {
+            id: uuid(),
+            project_id: uuid(),
+            goal_id: None,
+            title: "t".into(),
+            context: String::new(),
+            options: vec![
+                DecisionOption {
+                    id: "o1".into(),
+                    label: "One".into(),
+                    pros: String::new(),
+                    cons: String::new(),
+                },
+                DecisionOption {
+                    id: "o2".into(),
+                    label: "Two".into(),
+                    pros: String::new(),
+                    cons: String::new(),
+                },
+            ],
+            status: "decided".into(),
+            decided_option: Some("o2".into()),
+            rationale: String::new(),
+            decided_at_ms: None,
+            review_at_ms: None,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        };
+        assert_eq!(decided_label(&d), "Two");
+        d.decided_option = Some("missing".into());
+        assert_eq!(decided_label(&d), "", "unknown id → empty");
+        d.decided_option = None;
+        assert_eq!(decided_label(&d), "", "unresolved → empty");
+    }
+
+    // -- parse_goal_id -----------------------------------------------------
+
+    #[test]
+    fn parse_goal_id_empty_is_none() {
+        assert_eq!(parse_goal_id(""), None);
+    }
+
+    #[test]
+    fn parse_goal_id_valid_uuid() {
+        let id = uuid();
+        assert_eq!(parse_goal_id(&id.to_string()), Some(id));
+    }
+
+    #[test]
+    fn parse_goal_id_invalid_is_none() {
+        assert_eq!(parse_goal_id("not-a-uuid"), None);
+    }
+
+    // -- validate_setup ----------------------------------------------------
+
+    fn setup_form(username: &str, display: &str, password: &str, confirm: &str) -> SetupForm {
+        SetupForm {
+            username: username.into(),
+            display: display.into(),
+            password: password.into(),
+            confirm: confirm.into(),
+        }
+    }
+
+    #[test]
+    fn validate_setup_accepts_valid() {
+        assert_eq!(
+            validate_setup(&setup_form("dev", "Dev", "longenough1", "longenough1")),
+            ""
+        );
+        assert_eq!(
+            validate_setup(&setup_form("dev_2-x", "D", "longenough1", "longenough1")),
+            ""
+        );
+    }
+
+    #[test]
+    fn validate_setup_rejects_bad_username() {
+        let base = |u: &str| setup_form(u, "Dev", "longenough1", "longenough1");
+        assert!(!validate_setup(&base("")).is_empty());
+        assert!(!validate_setup(&base("Dev")).is_empty(), "uppercase");
+        assert!(!validate_setup(&base("dev name")).is_empty(), "space");
+        assert!(!validate_setup(&base("de")).is_empty(), "too short");
+        assert!(!validate_setup(&base("dév")).is_empty(), "non-ascii");
+    }
+
+    #[test]
+    fn validate_setup_rejects_password_issues() {
+        assert!(!validate_setup(&setup_form("dev", "", "longenough1", "longenough1")).is_empty());
+        assert!(!validate_setup(&setup_form("dev", "Dev", "short1", "short1")).is_empty());
+        assert!(
+            !validate_setup(&setup_form("dev", "Dev", "longenough1", "longenough2")).is_empty()
+        );
+    }
+
+    // -- edit_option -------------------------------------------------------
+
+    #[test]
+    fn edit_option_pads_missing_slots() {
+        let opt = edit_option(&[], 0);
+        assert_eq!(opt.label, "");
+        let with = DecisionOption {
+            id: "o1".into(),
+            label: "A".into(),
+            pros: "p".into(),
+            cons: "c".into(),
+        };
+        let opt = edit_option(&[with], 0);
+        assert_eq!(opt.label, "A");
+        assert_eq!(opt.pros, "p");
+    }
 }

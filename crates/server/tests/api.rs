@@ -1030,3 +1030,552 @@ async fn full_text_search() {
     let page = send(&app, with_cookie(get("/search?q="), &cookie)).await;
     assert_eq!(page.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn setup_cannot_create_second_user() {
+    let app = test_app().await;
+    let first = setup_via_form(&app).await;
+    assert!(!first.is_empty());
+
+    // POSTing /setup again after completion redirects to /login; no second
+    // account is created.
+    let res = send(
+        &app,
+        post_form(
+            "/setup",
+            &[
+                ("username", "other"),
+                ("display", "Other"),
+                ("password", "longenough1"),
+                ("confirm", "longenough1"),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/login");
+}
+
+#[tokio::test]
+async fn secure_mode_sets_secure_cookie() {
+    use kaizen_server::app_secure;
+
+    let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
+    repo.migrate().await.unwrap();
+    let app = app_secure(repo_box(repo));
+
+    let res = send(
+        &app,
+        post_form(
+            "/setup",
+            &[
+                ("username", "dev"),
+                ("display", "Dev"),
+                ("password", "longenough1"),
+                ("confirm", "longenough1"),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let set_cookie = res
+        .headers()
+        .get(header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        set_cookie.contains("; Secure"),
+        "HTTPS mode must set Secure cookies: {set_cookie}"
+    );
+}
+
+/// Create a project and return `(project_url, csrf, cookie)`.
+async fn setup_project(app: &axum::Router, cookie: &str) -> (String, String, String) {
+    let dash = send(app, with_cookie(get("/dashboard"), cookie)).await;
+    let csrf = extract_csrf(&body_string(dash).await);
+    let res = send(
+        app,
+        with_cookie(
+            post_form(
+                "/projects",
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Storage"),
+                    ("summary", ""),
+                    ("status", "active"),
+                ],
+            ),
+            cookie,
+        ),
+    )
+    .await;
+    let project_url = redirect_to(&res);
+    (project_url, csrf, cookie.to_string())
+}
+
+#[tokio::test]
+async fn decision_update_appends_revision() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Which datastore?"),
+                    ("context", "Original context."),
+                    ("goal_id", ""),
+                    ("opt_1_label", "SQLite"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", ""),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    let decision_url = extract_href(&body, "/decisions/");
+
+    // Edit the title + context.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &decision_url,
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Which datastore? (rev 2)"),
+                    ("context", "Edited context."),
+                    ("goal_id", ""),
+                    ("opt_1_label", "SQLite"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", ""),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Which datastore? (rev 2)"), "got: {body}");
+    // History keeps both snapshots: the original context and the edited one.
+    assert!(body.contains("Original context."), "got: {body}");
+    assert!(body.contains("Edited context."), "got: {body}");
+}
+
+#[tokio::test]
+async fn resolve_without_chosen_option_reverts_to_open() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Which datastore?"),
+                    ("context", ""),
+                    ("goal_id", ""),
+                    ("opt_1_label", "SQLite"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", ""),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER, "decision created");
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let decision_url = extract_href(&body_string(page).await, "/decisions/");
+
+    // status=decided but an empty decided_option: must not stick.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{decision_url}/resolve"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("status", "decided"),
+                    ("decided_option", ""),
+                    ("rationale", "oops"),
+                    ("review_at", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(
+        body.contains("status-open"),
+        "resolve without a choice must leave the decision open: {body}"
+    );
+    assert!(!body.contains("status-decided"), "got: {body}");
+}
+
+#[tokio::test]
+async fn experiment_delete_removes_it_and_its_events() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/experiments"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL trial"),
+                    ("hypothesis", "WAL is faster."),
+                    ("goal_id", ""),
+                    ("decision_id", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER, "experiment created");
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let exp_url = extract_href(&body_string(page).await, "/experiments/");
+
+    // Log an event so the cascade has something to delete.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{exp_url}/events"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("kind", "measurement"),
+                    ("at_date", ""),
+                    ("note", "Reads 2x."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get(&exp_url), &cookie)).await;
+    assert!(body_string(page).await.contains("Reads 2x."));
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(&format!("{exp_url}/delete"), &[("csrf_token", &csrf)]),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        redirect_to(&res),
+        format!("{project_url}?flash=experiment_deleted")
+    );
+
+    let res = send(&app, with_cookie(get(&exp_url), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND, "experiment gone");
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/timeline")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(
+        !body.contains("Reads 2x."),
+        "event must be gone from timeline: {body}"
+    );
+}
+
+#[tokio::test]
+async fn note_update_appends_revision_and_delete_removes() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/notes"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL lesson"),
+                    ("body", "First draft body."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let note_url = redirect_to(&res);
+    assert!(note_url.starts_with("/notes/"));
+
+    // Update: history must keep the first draft.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &note_url,
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL lesson"),
+                    ("body", "Second draft body."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get(&note_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Second draft body."), "got: {body}");
+    assert!(
+        body.contains("First draft body."),
+        "history keeps the draft: {body}"
+    );
+
+    // Delete.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{}/delete", note_url.split('?').next().unwrap()),
+                &[("csrf_token", &csrf)],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let res = send(&app, with_cookie(get(&note_url), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn links_reject_self_and_bad_entities() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    // Create two notes to link.
+    let mut ids = Vec::new();
+    for title in ["Alpha", "Beta"] {
+        let res = send(
+            &app,
+            with_cookie(
+                post_form(
+                    &format!("{project_url}/notes"),
+                    &[("csrf_token", &csrf), ("title", title), ("body", "body")],
+                ),
+                &cookie,
+            ),
+        )
+        .await;
+        let url = redirect_to(&res);
+        ids.push(
+            url.split('?')
+                .next()
+                .unwrap()
+                .strip_prefix("/notes/")
+                .unwrap()
+                .to_string(),
+        );
+    }
+
+    // Self-link is rejected as invalid.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/links"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("from", &format!("note:{}", ids[0])),
+                    ("to", &format!("note:{}", ids[0])),
+                    ("kind", "supports"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(
+        redirect_to(&res),
+        format!("{project_url}/graph?flash=invalid_link")
+    );
+
+    // Non-linkable entity type (goal) is rejected.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/links"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("from", &format!("note:{}", ids[0])),
+                    ("to", "goal:not-a-uuid"),
+                    ("kind", "supports"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(
+        redirect_to(&res),
+        format!("{project_url}/graph?flash=invalid_link")
+    );
+
+    // A valid link between two notes works.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/links"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("from", &format!("note:{}", ids[0])),
+                    ("to", &format!("note:{}", ids[1])),
+                    ("kind", "follows"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(
+        redirect_to(&res),
+        format!("{project_url}/graph?flash=link_created")
+    );
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/graph")), &cookie),
+    )
+    .await;
+    assert!(body_string(page).await.contains("edge-follows"));
+}
+
+#[tokio::test]
+async fn search_is_isolated_per_project() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let (project_a, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    // Note in project A with a distinctive token.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_a}/notes"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "A secret"),
+                    ("body", "Only zorq here."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Second project, different title.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                "/projects",
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Other"),
+                    ("summary", ""),
+                    ("status", "active"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let project_b = redirect_to(&res);
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_b}/notes"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "B secret"),
+                    ("body", "Only zorq here."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // The same token appears in both projects' notes: both must be found.
+    let page = send(&app, with_cookie(get("/search?q=zorq"), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("A secret"), "got: {body}");
+    assert!(body.contains("B secret"), "got: {body}");
+
+    // Deleting note A must not disturb note B's index entry.
+    let page = send(&app, with_cookie(get(&project_a), &cookie)).await;
+    let body = body_string(page).await;
+    let note_url = extract_href(&body, "/notes/");
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(&format!("{note_url}/delete"), &[("csrf_token", &csrf)]),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get("/search?q=zorq"), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(!body.contains("A secret"), "got: {body}");
+    assert!(body.contains("B secret"), "got: {body}");
+}

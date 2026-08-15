@@ -154,3 +154,106 @@ impl FromRequestParts<AppState> for AuthUser {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers() -> HeaderMap {
+        HeaderMap::new()
+    }
+
+    #[test]
+    fn hash_and_verify_round_trip() {
+        let hash = hash_password("correct horse battery staple").unwrap();
+        assert!(verify_password(&hash, "correct horse battery staple"));
+        assert!(!verify_password(&hash, "wrong"));
+        assert!(!verify_password("not-a-hash", "anything"));
+    }
+
+    #[test]
+    fn hashes_are_salted() {
+        let a = hash_password("same").unwrap();
+        let b = hash_password("same").unwrap();
+        assert_ne!(a, b, "argon2 salts must differ between hashes");
+    }
+
+    #[test]
+    fn sha256_hex_known_vector() {
+        assert_eq!(
+            sha256_hex("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn cookie_parses_single_and_among_others() {
+        let mut h = headers();
+        h.insert(header::COOKIE, "kaizen_session=abc123".parse().unwrap());
+        assert_eq!(cookie(&h, "kaizen_session"), Some("abc123".into()));
+
+        let mut h = headers();
+        h.insert(
+            header::COOKIE,
+            "other=x; kaizen_session=tok; foo=y".parse().unwrap(),
+        );
+        assert_eq!(cookie(&h, "kaizen_session"), Some("tok".into()));
+    }
+
+    #[test]
+    fn cookie_missing_or_other_name() {
+        let h = headers();
+        assert_eq!(cookie(&h, "kaizen_session"), None);
+        let mut h = headers();
+        h.insert(header::COOKIE, "kaizen_session=abc".parse().unwrap());
+        assert_eq!(cookie(&h, "other"), None);
+    }
+
+    #[test]
+    fn session_cookie_flags_and_secure() {
+        let insecure = set_session_cookie_secure("tok", false)
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(insecure.starts_with("kaizen_session=tok"));
+        assert!(insecure.contains("HttpOnly"));
+        assert!(insecure.contains("SameSite=Lax"));
+        assert!(
+            !insecure.contains("Secure"),
+            "no Secure flag over plain HTTP"
+        );
+
+        let secure = set_session_cookie_secure("tok", true)
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(secure.contains("Secure"), "Secure flag once TLS is active");
+    }
+
+    #[test]
+    fn clear_cookie_expires() {
+        let c = clear_session_cookie_secure(false)
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(c.contains("Max-Age=0"));
+        assert!(c.contains("kaizen_session="));
+    }
+
+    #[test]
+    fn verify_csrf_form_accepts_header_or_field() {
+        let headers_with = |h: &HeaderMap| h.clone();
+        let mut h = headers_with(&headers());
+        h.insert(CSRF_HEADER, "tok".parse().unwrap());
+        assert!(verify_csrf_form(&h, None, "tok").is_ok());
+        assert!(verify_csrf_form(&headers(), Some("tok"), "tok").is_ok());
+        assert!(
+            verify_csrf_form(&headers(), None, "tok").is_err(),
+            "no token → reject"
+        );
+        assert!(
+            verify_csrf_form(&h, None, "other").is_err(),
+            "mismatch → reject"
+        );
+    }
+}
