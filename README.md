@@ -1,34 +1,126 @@
 # Kaizen
 
-> Never lose the reason behind your decisions.
+Self-hosted engineering decision memory. A place to record the trade-offs you
+weigh, the experiments that test them, and the lessons you'd otherwise
+re-learn the hard way.
 
-A self-hosted engineering decision memory: capture decisions, experiments, and
-lessons so a project's reasoning survives its creator.
+Kaizen is a single Rust binary with an embedded SQLite database — no external
+services, one machine, one backup to care about.
 
-**Status:** MVP planned (`MVP_PLAN.md`), build starts after the Embrig MVP.
-**License:** AGPL-3.0-only.
+## What it does
 
-## What it is
+The golden path is: **goal → decision → experiment → lesson → timeline & graph**.
 
-Projects, decisions, experiments, lessons, and notes — linked into a timeline
-and graph that answers "why is this system built this way?"
+- **Projects & goals** — what "done" looks like, per project.
+- **Decisions** — the options you weighed (pros/cons), the choice you made,
+  and the rationale. Every change is kept as an immutable revision.
+- **Experiments** — a falsifiable hypothesis, a lifecycle
+  (planned → running → done/abandoned), and timestamped observations. When
+  you finish, capture the lesson as a note.
+- **Notes** — durable knowledge, extracted from experiments or written
+  directly, with the same revision history.
+- **Timeline** — the story of a project: when things started, ended, and what
+  you measured along the way.
+- **Graph** — how entities connect: what serves a goal, what an experiment
+  tests, where a note came from, plus explicit typed links
+  (`supports`/`rejects`/`follows`/`related`).
+- **Search** — full-text over every entity, kept in sync automatically.
 
-## Build
+## Quickstart (local)
 
-```bash
-cargo build --release      # single binary: target/release/kaizen
-cargo run -- migrate       # apply schema (SQLite)
-cargo test                 # tests
+```sh
+cargo run -- serve
+# → http://127.0.0.1:8080/setup — create your account
 ```
 
-Requires Rust 1.85+. No external services; one binary, SQLite on disk.
+Or skip the setup dance with a seeded demo:
 
-## Deploy
+```sh
+cargo run -- seed-demo
+# logs in as demo / demo-password
+```
 
-See `deploy/` (Docker + docker-compose). TLS via automatic HTTPS (rustls-acme);
-serve behind Caddy if preferred.
+## Run it
 
-## Docs
+```
+Usage: kaizen [COMMAND]
 
-- `MVP_PLAN.md` — product definition, scope, data model, milestones, validation.
-- `docs/` — user + admin documentation (planned).
+Commands:
+  serve       Start the Kaizen server (default)
+  seed-demo   Create a first user and a demo project, then exit
+```
+
+`serve` flags (all also settable via env):
+
+| Flag | Env | Default | Meaning |
+| --- | --- | --- | --- |
+| `--database-url` | `DATABASE_URL` | `sqlite://kaizen.db` | DB file or `sqlite::memory:` |
+| `--addr` | `KAIZEN_ADDR` | `127.0.0.1:8080` | Bind address |
+| `--tls-domain` | `KAIZEN_TLS_DOMAIN` | — | Automatic HTTPS via Let's Encrypt |
+| `--tls-cert` / `--tls-key` | `KAIZEN_TLS_CERT/KEY` | — | Bring your own cert |
+| `--tls-cache-dir` | `KAIZEN_TLS_CACHE_DIR` | `./tls` | ACME cache |
+| `--no-http-redirect` | — | off | Skip the 80→443 redirect |
+
+The Let's Encrypt path is the easiest production setup behind a public IP:
+
+```sh
+DATABASE_URL=sqlite:///srv/kaizen/kaizen.db \
+KAIZEN_ADDR=0.0.0.0:8443 \
+KAIZEN_TLS_DOMAIN=kaizen.example.com \
+kaizen serve
+```
+
+Certificates are renewed automatically and hot-reloaded. Behind a reverse
+proxy (Caddy, nginx, Traefik), run plain HTTP on the loopback and let the
+proxy terminate TLS.
+
+## Deploy with Docker
+
+```sh
+docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml run --rm kaizen seed-demo
+# → http://localhost:8080 (demo / demo-password)
+```
+
+Data lives in `./data/kaizen.db` on the host.
+
+## Backups
+
+SQLite is a single file — back it up consistently with the included script:
+
+```sh
+./deploy/backup.sh data/kaizen.db data/backups 14   # retention: 14 daily copies
+```
+
+The script uses `sqlite3 .backup` (safe against a live writer) when available
+and falls back to a plain copy. Schedule it with cron:
+
+```
+0 3 * * * /srv/kaizen/deploy/backup.sh /srv/kaizen/data/kaizen.db /srv/kaizen/data/backups 14
+```
+
+### Restore
+
+Stop the container, replace the database file, start it again:
+
+```sh
+docker compose -f deploy/docker-compose.yml stop
+cp data/backups/kaizen-2026-08-15.db data/kaizen.db
+docker compose -f deploy/docker-compose.yml start
+```
+
+## Design notes
+
+- **One user.** Kaizen starts un-set-up: the first account created at
+  `/setup` becomes the only user. No teams, no roles — that's the scope.
+- **Immutable history.** Decisions and notes append a Markdown snapshot to a
+  `revisions` table on every change, so the record of *what you decided and
+  why* can't be silently rewritten.
+- **Everything is searchable** through an FTS5 index kept in sync by database
+  triggers, including content written before the index existed.
+- **AGPL-3.0-only.** This is a tool for thinking out loud about engineering;
+  it ships under the same copyleft as the reference implementation it mirrors.
+
+## License
+
+AGPL-3.0-only. See [LICENSE](LICENSE) for details.

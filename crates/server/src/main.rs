@@ -4,6 +4,9 @@
 //! (`--tls-cert`/`--tls-key`) or with automatic Let's Encrypt issuance
 //! (`--tls-domain`). When TLS is active an HTTP redirect listener starts on
 //! port 80 unless `--no-http-redirect` is given.
+//!
+//! `seed-demo` creates a first user and a demo project so you can poke around
+//! before using the app for real.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -14,7 +17,9 @@ use axum::{
 };
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser, Subcommand};
-use kaizen_server::repository::{SqliteRepository, repo_box};
+use kaizen_model::DecisionOption;
+use kaizen_server::auth;
+use kaizen_server::repository::{Repository as _, SqliteRepository, repo_box};
 use rustls_acme::AcmeConfig;
 use rustls_acme::caches::DirCache;
 use tokio::net::TcpListener;
@@ -36,6 +41,12 @@ struct Cli {
 enum Command {
     /// Start the Kaizen server (default).
     Serve(ServeArgs),
+    /// Create a first user and a demo project, then exit.
+    SeedDemo {
+        /// SQLite database URL or file path.
+        #[arg(long, env = "DATABASE_URL", default_value = "sqlite://kaizen.db")]
+        database_url: String,
+    },
 }
 
 #[derive(Args)]
@@ -97,11 +108,124 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let args = match cli.command {
-        Some(Command::Serve(args)) => args,
-        None => ServeArgs::default(),
-    };
-    serve(args).await
+    match cli.command {
+        Some(Command::SeedDemo { database_url }) => seed_demo(&database_url).await,
+        Some(Command::Serve(args)) => serve(args).await,
+        None => serve(ServeArgs::default()).await,
+    }
+}
+
+/// First-run friendliness: create a demo user (if none exists) and a small
+/// project showing the whole golden path — goal → decision → experiment →
+/// note, with a link between them.
+async fn seed_demo(database_url: &str) -> anyhow::Result<()> {
+    let repo = SqliteRepository::connect(database_url).await?;
+    repo.migrate().await?;
+
+    let (username, password) = ("demo", "demo-password");
+    if repo.find_user_by_username(username).await?.is_none() {
+        let hash = auth::hash_password(password)
+            .map_err(|e| anyhow::anyhow!("failed to hash password: {e:?}"))?;
+        repo.create_first_user(username, "Demo", &hash).await?;
+        tracing::info!("created demo user '{username}' (password '{password}')");
+    } else {
+        tracing::info!("demo user already exists");
+    }
+
+    // Skip if a demo project already exists.
+    let projects = repo.list_projects().await?;
+    if projects.iter().any(|p| p.title == "SQLite + Rust API") {
+        tracing::info!("demo project already seeded");
+        return Ok(());
+    }
+
+    let project = repo
+        .create_project(
+            "SQLite + Rust API",
+            "A worked example: choosing a datastore for a small self-hosted service.",
+            "active",
+        )
+        .await?;
+    let goal = repo
+        .create_goal(
+            project.id,
+            "Ship the MVP with the least operational surface",
+            "One machine, one binary, no external services.",
+        )
+        .await?;
+
+    let decision = repo
+        .create_decision(
+            project.id,
+            Some(goal.id),
+            "Which datastore?",
+            "The API keeps one user's history; writes are rare and local.",
+            &[
+                DecisionOption {
+                    id: "o1".into(),
+                    label: "SQLite".into(),
+                    pros: "Zero ops, single file, transactional, fast enough for one writer."
+                        .into(),
+                    cons: "Single-writer semantics.".into(),
+                },
+                DecisionOption {
+                    id: "o2".into(),
+                    label: "Postgres".into(),
+                    pros: "Concurrent writers, familiar ops.".into(),
+                    cons: "A whole server to run and back up.".into(),
+                },
+            ],
+        )
+        .await?;
+    repo.resolve_decision(
+        decision.id,
+        "decided",
+        Some("o1".into()),
+        "One writer is the actual load; SQLite removes the operational surface.",
+        None,
+    )
+    .await?;
+
+    let experiment = repo
+        .create_experiment(
+            project.id,
+            Some(goal.id),
+            Some(decision.id),
+            "WAL for six weeks",
+            "WAL mode keeps reads fast while a single writer applies changes.",
+        )
+        .await?;
+    repo.update_experiment(
+        experiment.id,
+        "WAL for six weeks",
+        "WAL mode keeps reads fast while a single writer applies changes.",
+        "done",
+        "Reads stayed responsive and no locking incidents occurred.",
+        "SQLite WAL is a free win for single-writer workloads.",
+    )
+    .await?;
+
+    let note = repo
+        .create_note(
+            project.id,
+            &format!("Lesson: {}", experiment.title),
+            "SQLite WAL is a free win for single-writer workloads. Re-evaluate if a second writer ever appears.",
+            Some("experiment"),
+            Some(experiment.id),
+        )
+        .await?;
+    repo.create_link(
+        project.id,
+        "note",
+        note.id,
+        "decision",
+        decision.id,
+        "supports",
+    )
+    .await?;
+
+    tracing::info!("demo project seeded — log in at /login with '{username}' / '{password}'");
+    Ok(())
 }
 
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
