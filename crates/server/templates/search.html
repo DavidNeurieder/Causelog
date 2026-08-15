@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Search · Kaizen{% endblock %}
+{% block content %}
+<h1>Search</h1>
+<form method="get" action="/search" class="row">
+  <input type="search" name="q" value="{{ query }}" placeholder="Search decisions, experiments, notes…" autofocus required>
+  <button type="submit">Search</button>
+</form>
+
+{% if !query.is_empty() %}
+  {% if results.is_empty() %}
+  <p class="muted">Nothing found for “{{ query }}”.</p>
+  {% else %}
+  <section class="list">
+    {% for r in results %}
+    <div class="row item">
+      <div>
+        <a class="strong" href="{{ r.url }}">{{ r.title }}</a>
+        <span class="tag node-{{ r.entity_type }}">{{ r.entity_type }}</span>
+        {% if !r.project_title.is_empty() %}<span class="muted small">in {{ r.project_title }}</span>{% endif %}
+        {% if !r.snippet_html.is_empty() %}
+        <p class="muted small">{{ r.snippet_html|safe }}</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+{% endif %}
+{% endblock %}

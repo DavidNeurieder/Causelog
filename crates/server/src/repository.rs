@@ -229,6 +229,22 @@ pub trait Repository: Send + Sync {
     /// themselves; edges include both explicit links and the implicit
     /// references between them (goal/decision/experiment/note relationships).
     async fn graph(&self, project_id: Uuid) -> Result<GraphData, RepositoryError>;
+
+    /// Full-text search over every entity, most relevant first.
+    async fn search(&self, query: &str) -> Result<Vec<SearchRow>, RepositoryError>;
+}
+
+/// One full-text search hit.
+#[derive(Debug, Clone)]
+pub struct SearchRow {
+    /// `project` | `goal` | `decision` | `experiment` | `note`
+    pub entity_type: String,
+    pub entity_id: Uuid,
+    pub project_id: Uuid,
+    pub project_title: String,
+    pub title: String,
+    /// Plain-text excerpt from the indexed body, ready to be escaped.
+    pub snippet: String,
 }
 
 /// One node of the project graph.
@@ -1316,6 +1332,41 @@ impl Repository for SqliteRepository {
             });
         }
         Ok(data)
+    }
+
+    async fn search(&self, query: &str) -> Result<Vec<SearchRow>, RepositoryError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Phrase-match the whole query so malformed FTS5 syntax can't cause a
+        // 500; embedded quotes are escaped by doubling.
+        let phrase = format!("\"{}\"", query.replace('"', "\"\""));
+        let rows = sqlx::query(
+            "SELECT entity_type, entity_id, project_id, title,
+                    (SELECT title FROM projects WHERE id = kaizen_search.project_id) AS project_title,
+                    snippet(kaizen_search, 4, char(1), char(2), '…', 12) AS snippet
+             FROM kaizen_search
+             WHERE kaizen_search MATCH ?
+             ORDER BY rank
+             LIMIT 50",
+        )
+        .bind(phrase)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| SearchRow {
+                entity_type: r.get("entity_type"),
+                entity_id: Uuid::from_str(&r.get::<String, _>("entity_id")).unwrap_or_default(),
+                project_id: Uuid::from_str(&r.get::<String, _>("project_id")).unwrap_or_default(),
+                project_title: r
+                    .get::<Option<String>, _>("project_title")
+                    .unwrap_or_default(),
+                title: r.get("title"),
+                snippet: r.get::<Option<String>, _>("snippet").unwrap_or_default(),
+            })
+            .collect())
     }
 }
 

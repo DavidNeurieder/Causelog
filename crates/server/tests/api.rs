@@ -926,3 +926,107 @@ async fn knowledge_capture_and_graph() {
     let body = body_string(page).await;
     assert!(!body.contains("edge-supports"), "got: {body}");
 }
+
+#[tokio::test]
+async fn full_text_search() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+
+    let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    let csrf = extract_csrf(&body_string(dash).await);
+
+    // A project and a note whose body has a distinctive token.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                "/projects",
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Storage"),
+                    ("summary", "The storage experiment series."),
+                    ("status", "active"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let project_url = redirect_to(&res);
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/notes"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL lesson"),
+                    ("body", "Zorbium wal improves reads enormously."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let note_url = redirect_to(&res);
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Searching for the distinctive token finds the note via FTS.
+    let page = send(&app, with_cookie(get("/search?q=zorbium"), &cookie)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let body = body_string(page).await;
+    assert!(body.contains("WAL lesson"), "got: {body}");
+    assert!(body.contains("node-note"), "got: {body}");
+    assert!(body.contains("<mark>Zorbium</mark>"), "got: {body}");
+
+    // The trigger keeps the index in sync on update.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &note_url,
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL lesson"),
+                    ("body", "Now it's all about quxple reads."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get("/search?q=zorbium"), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(
+        !body.contains("WAL lesson"),
+        "stale index after update: {body}"
+    );
+    let page = send(&app, with_cookie(get("/search?q=quxple"), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("WAL lesson"), "got: {body}");
+
+    // ...and on delete.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{}/delete", note_url.split('?').next().unwrap()),
+                &[("csrf_token", &csrf)],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get("/search?q=quxple"), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(
+        !body.contains("WAL lesson"),
+        "stale index after delete: {body}"
+    );
+
+    // Empty query renders the empty state without errors.
+    let page = send(&app, with_cookie(get("/search?q="), &cookie)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+}

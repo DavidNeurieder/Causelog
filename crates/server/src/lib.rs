@@ -75,6 +75,7 @@ fn router(state: AppState) -> Router {
             post(pages::link_delete),
         )
         .route("/projects/{id}/graph", get(pages::graph_page))
+        .route("/search", get(pages::search_page))
         .route("/static/{name}", get(pages::static_file))
         .route("/health", get(routes::health))
         .with_state(state)

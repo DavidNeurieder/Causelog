@@ -20,7 +20,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::auth;
 use crate::error::ApiError;
-use crate::repository::{GraphData, ProjectCounts, RepositoryError, TimelineEntry};
+use crate::repository::{GraphData, ProjectCounts, RepositoryError, SearchRow, TimelineEntry};
 
 // ---------------------------------------------------------------------------
 // Template structs
@@ -367,6 +367,26 @@ struct GraphEdgeView {
     from_label: String,
     to_label: String,
     kind: String,
+}
+
+#[derive(Template)]
+#[template(path = "search.html")]
+struct SearchTemplate {
+    authed: bool,
+    flash: String,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    query: String,
+    results: Vec<SearchItemView>,
+}
+
+struct SearchItemView {
+    url: String,
+    title: String,
+    entity_type: String,
+    project_title: String,
+    snippet_html: String,
 }
 
 #[derive(Deserialize)]
@@ -1787,4 +1807,70 @@ fn label_for(
         .get(&(node_type.to_string(), id))
         .cloned()
         .unwrap_or_else(|| format!("{fallback}…"))
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub(crate) struct SearchQuery {
+    q: Option<String>,
+}
+
+pub(crate) async fn search_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<SearchQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let raw = query.q.unwrap_or_default();
+    let results: Vec<SearchRow> = state.repo.search(&raw).await?;
+    let results_view = results
+        .into_iter()
+        .map(|r| {
+            let url = match r.entity_type.as_str() {
+                "decision" => format!("/decisions/{}", r.entity_id),
+                "experiment" => format!("/experiments/{}", r.entity_id),
+                "note" => format!("/notes/{}", r.entity_id),
+                "project" => format!("/projects/{}", r.entity_id),
+                _ => format!("/projects/{}", r.project_id),
+            };
+            SearchItemView {
+                url,
+                title: r.title,
+                entity_type: r.entity_type,
+                project_title: r.project_title,
+                snippet_html: highlight_snippet(&r.snippet),
+            }
+        })
+        .collect();
+    page(&SearchTemplate {
+        authed: true,
+        flash: String::new(),
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        query: raw,
+        results: results_view,
+    })
+}
+
+/// HTML-escape a string for safe inline display.
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Take a raw FTS snippet whose matches are wrapped in control chars
+/// (char(1)/char(2) from the SQL `snippet()` call), escape it, then convert
+/// the markers into `<mark>` tags. Safe to emit with `|safe`.
+fn highlight_snippet(raw: &str) -> String {
+    escape_html(raw)
+        .replace('\u{1}', "<mark>")
+        .replace('\u{2}', "</mark>")
 }
