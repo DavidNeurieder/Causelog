@@ -1,0 +1,30 @@
+[package]
+name = "kaizen-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Kaizen server: Axum API + askama templates + auth"
+
+[[bin]]
+name = "kaizen"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+argon2 = { workspace = true }
+askama = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+kaizen-model = { path = "../model" }
+kaizen-content = { path = "../content" }
+kaizen-search = { path = "../search" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }

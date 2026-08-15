@@ -1,0 +1,11 @@
+[package]
+name = "kaizen-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Kaizen SQLite FTS5 search"
+
+[dependencies]
+kaizen-model = { path = "../model" }
+serde = { workspace = true }
+thiserror = { workspace = true }

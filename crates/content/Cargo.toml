@@ -1,0 +1,6 @@
+[package]
+name = "kaizen-content"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Kaizen markdown content handling"
