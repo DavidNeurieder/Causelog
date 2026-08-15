@@ -76,6 +76,31 @@ input {
 }
 input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 
+textarea {
+  width: 100%;
+  max-width: 620px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  resize: vertical;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.prose { color: var(--fg); }
+.prose h1, .prose h2, .prose h3, .prose h4 { color: var(--fg); }
+.prose code, .prose pre { background: var(--panel); border-radius: 4px; padding: 1px 5px; }
+.prose pre { padding: 10px; overflow-x: auto; }
+h4 { margin-bottom: 2px; }
+
 button[type="submit"] {
   background: var(--accent);
   color: var(--accent-fg);

@@ -44,42 +44,42 @@
 </details>
 
 <h2>Goals</h2>
-<p class="muted">Goals say what “done” looks like for this project. Decisions answer how you get there.</p>
+<p class="muted">Goals say what “done” looks like for this project.</p>
 
 {% if goals.is_empty() %}
 <p class="muted">No goals yet.</p>
 {% else %}
 <section class="list">
-  {% for gv in goals %}
+  {% for goal in goals %}
   <div class="row item">
     <div>
-      <span class="strong">{{ gv.goal.title }}</span>
-      <span class="tag status-{{ gv.goal.status }}">{{ gv.goal.status }}</span>
-      {% if !gv.goal.body.is_empty() %}<p class="muted">{{ gv.goal.body }}</p>{% endif %}
+      <span class="strong">{{ goal.title }}</span>
+      <span class="tag status-{{ goal.status }}">{{ goal.status }}</span>
+      {% if !goal.body.is_empty() %}<p class="muted">{{ goal.body }}</p>{% endif %}
     </div>
     <details>
       <summary>Edit</summary>
-      <form method="post" action="/projects/{{ project.id }}/goals/{{ gv.goal.id }}">
+      <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <field>
-          <label for="gtitle-{{ gv.goal.id }}">Title</label>
-          <input id="gtitle-{{ gv.goal.id }}" name="title" value="{{ gv.goal.title }}" required>
+          <label for="gtitle-{{ goal.id }}">Title</label>
+          <input id="gtitle-{{ goal.id }}" name="title" value="{{ goal.title }}" required>
         </field>
         <field>
-          <label for="gbody-{{ gv.goal.id }}">Details</label>
-          <input id="gbody-{{ gv.goal.id }}" name="body" value="{{ gv.goal.body }}">
+          <label for="gbody-{{ goal.id }}">Details</label>
+          <input id="gbody-{{ goal.id }}" name="body" value="{{ goal.body }}">
         </field>
         <field>
-          <label for="gstatus-{{ gv.goal.id }}">Status</label>
-          <select id="gstatus-{{ gv.goal.id }}" name="status">
-            <option value="open" {% if gv.goal.status == "open" %}selected{% endif %}>open</option>
-            <option value="done" {% if gv.goal.status == "done" %}selected{% endif %}>done</option>
-            <option value="dropped" {% if gv.goal.status == "dropped" %}selected{% endif %}>dropped</option>
+          <label for="gstatus-{{ goal.id }}">Status</label>
+          <select id="gstatus-{{ goal.id }}" name="status">
+            <option value="open" {% if goal.status == "open" %}selected{% endif %}>open</option>
+            <option value="done" {% if goal.status == "done" %}selected{% endif %}>done</option>
+            <option value="dropped" {% if goal.status == "dropped" %}selected{% endif %}>dropped</option>
           </select>
         </field>
         <button type="submit">Save</button>
       </form>
-      <form method="post" action="/projects/{{ project.id }}/goals/{{ gv.goal.id }}/delete" class="inline">
+      <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}/delete" class="inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="link danger">Delete goal</button>
       </form>
@@ -102,5 +102,63 @@
     <input id="gnew-body" name="body" placeholder="How success will be measured…">
   </field>
   <button type="submit">Add goal</button>
+</form>
+
+<h2>Decisions</h2>
+<p class="muted">A decision is a trade-off you recorded: the options you weighed and, once resolved, the choice and the rationale.</p>
+
+{% if decisions.is_empty() %}
+<p class="muted">No decisions yet.</p>
+{% else %}
+<section class="list">
+  {% for dv in decisions %}
+  <div class="row item">
+    <div>
+      <a class="strong" href="/decisions/{{ dv.id }}">{{ dv.title }}</a>
+      <span class="tag status-{{ dv.status }}">{{ dv.status }}</span>
+      {% if !dv.decided_label.is_empty() %}<span class="muted small">→ {{ dv.decided_label }}</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<h3>New decision</h3>
+<form method="post" action="/projects/{{ project.id }}/decisions">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <field>
+    <label for="dnew-title">What needs deciding?</label>
+    <input id="dnew-title" name="title" placeholder="e.g. Which datastore should Kaizen use?" required>
+  </field>
+  <field>
+    <label for="dnew-context">Context (Markdown, optional)</label>
+    <textarea id="dnew-context" name="context" rows="4" placeholder="What situation forced the choice, and what's at stake?"></textarea>
+  </field>
+  <field>
+    <label for="dnew-goal">Serves goal (optional)</label>
+    <select id="dnew-goal" name="goal_id">
+      <option value="">— none —</option>
+      {% for goal in goals %}
+      <option value="{{ goal.id }}">{{ goal.title }}</option>
+      {% endfor %}
+    </select>
+  </field>
+
+  <h4>Option 1</h4>
+  <field><label for="dnew-o1">Label</label><input id="dnew-o1" name="opt_1_label" placeholder="e.g. SQLite" required></field>
+  <field><label for="dnew-o1p">Pros (Markdown)</label><textarea id="dnew-o1p" name="opt_1_pros" rows="2"></textarea></field>
+  <field><label for="dnew-o1c">Cons (Markdown)</label><textarea id="dnew-o1c" name="opt_1_cons" rows="2"></textarea></field>
+
+  <h4>Option 2</h4>
+  <field><label for="dnew-o2">Label</label><input id="dnew-o2" name="opt_2_label" placeholder="e.g. Postgres"></field>
+  <field><label for="dnew-o2p">Pros (Markdown)</label><textarea id="dnew-o2p" name="opt_2_pros" rows="2"></textarea></field>
+  <field><label for="dnew-o2c">Cons (Markdown)</label><textarea id="dnew-o2c" name="opt_2_cons" rows="2"></textarea></field>
+
+  <h4>Option 3</h4>
+  <field><label for="dnew-o3">Label</label><input id="dnew-o3" name="opt_3_label" placeholder="e.g. A filesystem"></field>
+  <field><label for="dnew-o3p">Pros (Markdown)</label><textarea id="dnew-o3p" name="opt_3_pros" rows="2"></textarea></field>
+  <field><label for="dnew-o3c">Cons (Markdown)</label><textarea id="dnew-o3c" name="opt_3_cons" rows="2"></textarea></field>
+
+  <button type="submit">Create decision</button>
 </form>
 {% endblock %}

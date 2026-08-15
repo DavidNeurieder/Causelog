@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use kaizen_model::{Goal, Project, Session, User};
+use kaizen_model::{Decision, DecisionOption, Goal, Project, Revision, Session, User};
 use sqlx::Row;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
@@ -104,6 +104,47 @@ pub trait Repository: Send + Sync {
     async fn dashboard_counts(&self) -> Result<DashboardCounts, RepositoryError>;
     /// Counts shown on a project page.
     async fn project_counts(&self, project_id: Uuid) -> Result<ProjectCounts, RepositoryError>;
+
+    // -----------------------------------------------------------------------
+    // Decisions & revision history
+    // -----------------------------------------------------------------------
+
+    async fn list_decisions(&self, project_id: Uuid) -> Result<Vec<Decision>, RepositoryError>;
+    async fn find_decision(&self, id: Uuid) -> Result<Option<Decision>, RepositoryError>;
+    /// Create a decision (status `open`) and snapshot its first revision.
+    async fn create_decision(
+        &self,
+        project_id: Uuid,
+        goal_id: Option<Uuid>,
+        title: &str,
+        context: &str,
+        options: &[DecisionOption],
+    ) -> Result<Decision, RepositoryError>;
+    /// Update the editable fields and append a revision.
+    async fn update_decision(
+        &self,
+        id: Uuid,
+        title: &str,
+        context: &str,
+        options: &[DecisionOption],
+    ) -> Result<Decision, RepositoryError>;
+    /// Resolve the decision (status `decided`/`rejected`), set rationale, and
+    /// append a revision.
+    async fn resolve_decision(
+        &self,
+        id: Uuid,
+        status: &str,
+        decided_option: Option<String>,
+        rationale: &str,
+        review_at_ms: Option<i64>,
+    ) -> Result<Decision, RepositoryError>;
+    async fn delete_decision(&self, id: Uuid) -> Result<(), RepositoryError>;
+    /// Full history of an entity, oldest first.
+    async fn list_revisions(
+        &self,
+        entity_type: &str,
+        entity_id: Uuid,
+    ) -> Result<Vec<Revision>, RepositoryError>;
 }
 
 /// Aggregate counters for the dashboard.
@@ -521,6 +562,250 @@ impl Repository for SqliteRepository {
             open_decisions,
         })
     }
+
+    // -----------------------------------------------------------------------
+    // Decisions & revision history
+    // -----------------------------------------------------------------------
+
+    async fn list_decisions(&self, project_id: Uuid) -> Result<Vec<Decision>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, goal_id, title, context, options, status,
+                    decided_option, rationale, decided_at_ms, review_at_ms,
+                    created_at_ms, updated_at_ms
+             FROM decisions WHERE project_id = ? ORDER BY updated_at_ms DESC",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_decision).collect())
+    }
+
+    async fn find_decision(&self, id: Uuid) -> Result<Option<Decision>, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT id, project_id, goal_id, title, context, options, status,
+                    decided_option, rationale, decided_at_ms, review_at_ms,
+                    created_at_ms, updated_at_ms
+             FROM decisions WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| row_to_decision(&r)))
+    }
+
+    async fn create_decision(
+        &self,
+        project_id: Uuid,
+        goal_id: Option<Uuid>,
+        title: &str,
+        context: &str,
+        options: &[DecisionOption],
+    ) -> Result<Decision, RepositoryError> {
+        let decision = Decision {
+            id: Uuid::new_v4(),
+            project_id,
+            goal_id,
+            title: title.to_string(),
+            context: context.to_string(),
+            options: options.to_vec(),
+            status: "open".into(),
+            decided_option: None,
+            rationale: String::new(),
+            decided_at_ms: None,
+            review_at_ms: None,
+            created_at_ms: kaizen_content::now_ms(),
+            updated_at_ms: kaizen_content::now_ms(),
+        };
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO decisions (id, project_id, goal_id, title, context, options, status,
+                    decided_option, rationale, decided_at_ms, review_at_ms, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, 'open', NULL, '', NULL, NULL, ?, ?)",
+        )
+        .bind(decision.id.to_string())
+        .bind(decision.project_id.to_string())
+        .bind(decision.goal_id.map(|g| g.to_string()))
+        .bind(&decision.title)
+        .bind(&decision.context)
+        .bind(serde_json::to_string(&decision.options).unwrap_or_else(|_| "[]".into()))
+        .bind(decision.created_at_ms)
+        .bind(decision.updated_at_ms)
+        .execute(&mut *tx)
+        .await?;
+        insert_revision(
+            &mut tx,
+            "decision",
+            decision.id,
+            &decision_snapshot_md(&decision),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(decision)
+    }
+
+    async fn update_decision(
+        &self,
+        id: Uuid,
+        title: &str,
+        context: &str,
+        options: &[DecisionOption],
+    ) -> Result<Decision, RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        let now = kaizen_content::now_ms();
+        sqlx::query(
+            "UPDATE decisions SET title = ?, context = ?, options = ?, updated_at_ms = ?
+             WHERE id = ?",
+        )
+        .bind(title)
+        .bind(context)
+        .bind(serde_json::to_string(options).unwrap_or_else(|_| "[]".into()))
+        .bind(now)
+        .bind(id.to_string())
+        .execute(&mut *tx)
+        .await?;
+        let decision = fetch_decision(&mut tx, id).await?;
+        insert_revision(&mut tx, "decision", id, &decision_snapshot_md(&decision)).await?;
+        tx.commit().await?;
+        Ok(decision)
+    }
+
+    async fn resolve_decision(
+        &self,
+        id: Uuid,
+        status: &str,
+        decided_option: Option<String>,
+        rationale: &str,
+        review_at_ms: Option<i64>,
+    ) -> Result<Decision, RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        let now = kaizen_content::now_ms();
+        let decided_at_ms = if status == "open" { None } else { Some(now) };
+        sqlx::query(
+            "UPDATE decisions SET status = ?, decided_option = ?, rationale = ?,
+                    decided_at_ms = ?, review_at_ms = ?, updated_at_ms = ?
+             WHERE id = ?",
+        )
+        .bind(status)
+        .bind(decided_option)
+        .bind(rationale)
+        .bind(decided_at_ms)
+        .bind(review_at_ms)
+        .bind(now)
+        .bind(id.to_string())
+        .execute(&mut *tx)
+        .await?;
+        let decision = fetch_decision(&mut tx, id).await?;
+        insert_revision(&mut tx, "decision", id, &decision_snapshot_md(&decision)).await?;
+        tx.commit().await?;
+        Ok(decision)
+    }
+
+    async fn delete_decision(&self, id: Uuid) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM decisions WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_revisions(
+        &self,
+        entity_type: &str,
+        entity_id: Uuid,
+    ) -> Result<Vec<Revision>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, entity_type, entity_id, snapshot, created_at_ms
+             FROM revisions WHERE entity_type = ? AND entity_id = ?
+             ORDER BY created_at_ms ASC",
+        )
+        .bind(entity_type)
+        .bind(entity_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| Revision {
+                id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+                entity_type: r.get("entity_type"),
+                entity_id: Uuid::from_str(&r.get::<String, _>("entity_id")).unwrap_or_default(),
+                snapshot: r.get("snapshot"),
+                created_at_ms: r.get("created_at_ms"),
+            })
+            .collect())
+    }
+}
+
+/// Load a decision inside an existing transaction.
+async fn fetch_decision(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    id: Uuid,
+) -> Result<Decision, RepositoryError> {
+    let row = sqlx::query(
+        "SELECT id, project_id, goal_id, title, context, options, status,
+                decided_option, rationale, decided_at_ms, review_at_ms,
+                created_at_ms, updated_at_ms
+         FROM decisions WHERE id = ?",
+    )
+    .bind(id.to_string())
+    .fetch_optional(&mut **tx)
+    .await?;
+    row.map(|r| row_to_decision(&r))
+        .ok_or_else(|| RepositoryError::NotFound("decision".into()))
+}
+
+/// Append an immutable snapshot revision inside the caller's transaction.
+async fn insert_revision(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    entity_type: &str,
+    entity_id: Uuid,
+    snapshot: &str,
+) -> Result<(), RepositoryError> {
+    sqlx::query(
+        "INSERT INTO revisions (id, entity_type, entity_id, snapshot, created_at_ms)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(entity_type)
+    .bind(entity_id.to_string())
+    .bind(snapshot)
+    .bind(kaizen_content::now_ms())
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Markdown snapshot of a decision's full state, stored as a revision.
+fn decision_snapshot_md(d: &Decision) -> String {
+    let mut s = format!(
+        "# {}\n\nStatus: **{}**\n\n## Context\n{}\n",
+        d.title, d.status, d.context
+    );
+    s.push_str("\n## Options\n");
+    for o in &d.options {
+        s.push_str(&format!(
+            "\n### {}\n\n**Pros**\n\n{}\n\n**Cons**\n\n{}\n",
+            o.label, o.pros, o.cons
+        ));
+    }
+    if let Some(option_id) = &d.decided_option {
+        let label = d
+            .options
+            .iter()
+            .find(|o| &o.id == option_id)
+            .map(|o| o.label.as_str())
+            .unwrap_or(option_id);
+        s.push_str(&format!(
+            "\n## Decision\n\nChose: **{label}**\n\n{rationale}\n",
+            rationale = d.rationale
+        ));
+    }
+    if let Some(review_at) = d.review_at_ms {
+        s.push_str(&format!(
+            "\nReview on: {}\n",
+            kaizen_content::format_date_ms(review_at)
+        ));
+    }
+    s
 }
 
 fn row_to_user(r: &sqlx::sqlite::SqliteRow) -> User {
@@ -551,6 +836,28 @@ fn row_to_goal(r: &sqlx::sqlite::SqliteRow) -> Goal {
         title: r.get("title"),
         body: r.get("body"),
         status: r.get("status"),
+        created_at_ms: r.get("created_at_ms"),
+        updated_at_ms: r.get("updated_at_ms"),
+    }
+}
+
+fn row_to_decision(r: &sqlx::sqlite::SqliteRow) -> Decision {
+    let options: Vec<DecisionOption> =
+        serde_json::from_str(&r.get::<String, _>("options")).unwrap_or_default();
+    Decision {
+        id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+        project_id: Uuid::from_str(&r.get::<String, _>("project_id")).unwrap_or_default(),
+        goal_id: r
+            .get::<Option<String>, _>("goal_id")
+            .and_then(|s| Uuid::from_str(&s).ok()),
+        title: r.get("title"),
+        context: r.get("context"),
+        options,
+        status: r.get("status"),
+        decided_option: r.get("decided_option"),
+        rationale: r.get("rationale"),
+        decided_at_ms: r.get("decided_at_ms"),
+        review_at_ms: r.get("review_at_ms"),
         created_at_ms: r.get("created_at_ms"),
         updated_at_ms: r.get("updated_at_ms"),
     }

@@ -43,6 +43,13 @@ fn router(state: AppState) -> Router {
             "/projects/{id}/goals/{goal_id}/delete",
             post(pages::goal_delete),
         )
+        .route("/projects/{id}/decisions", post(pages::decision_create))
+        .route(
+            "/decisions/{id}",
+            get(pages::decision_page).post(pages::decision_update),
+        )
+        .route("/decisions/{id}/resolve", post(pages::decision_resolve))
+        .route("/decisions/{id}/delete", post(pages::decision_delete))
         .route("/static/{name}", get(pages::static_file))
         .route("/health", get(routes::health))
         .with_state(state)

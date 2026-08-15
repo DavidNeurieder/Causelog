@@ -10,8 +10,8 @@ use askama::Template;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use kaizen_content::now_ms;
-use kaizen_model::{Goal, Project};
+use kaizen_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
+use kaizen_model::{Decision, DecisionOption, Goal, Project};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -144,7 +144,8 @@ struct ProjectTemplate {
     csrf_token: String,
     project: Project,
     counts: ProjectCountsView,
-    goals: Vec<GoalView>,
+    goals: Vec<Goal>,
+    decisions: Vec<DecisionItemView>,
 }
 
 struct ProjectCountsView {
@@ -154,16 +155,93 @@ struct ProjectCountsView {
     open_decisions: i64,
 }
 
+/// Decision row on a project page.
+struct DecisionItemView {
+    id: String,
+    title: String,
+    status: String,
+    decided_label: String,
+}
+
+#[derive(Template)]
+#[template(path = "decision.html")]
+struct DecisionTemplate {
+    authed: bool,
+    flash: String,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    goal_options: Vec<GoalOptionView>,
+    decision: Decision,
+    view: DecisionView,
+    revisions: Vec<RevisionView>,
+}
+
+/// Rendered (HTML-safe) display of a decision, separate from the raw Markdown
+/// used to pre-fill edit forms.
+struct DecisionView {
+    status: String,
+    context_html: String,
+    options: Vec<OptionView>,
+    decided_label: String,
+    rationale_html: String,
+    decided_at: String,
+    review_at: String,
+    goal_title: String,
+    opt1: EditOption,
+    opt2: EditOption,
+    opt3: EditOption,
+}
+
+struct OptionView {
+    id: String,
+    label: String,
+    pros_html: String,
+    cons_html: String,
+}
+
+struct RevisionView {
+    created_at: String,
+    html: String,
+}
+
+/// Pre-filled values for one option slot in the edit form (askama can't call
+/// closures, so we pad the three slots in Rust).
+struct EditOption {
+    label: String,
+    pros: String,
+    cons: String,
+}
+
+/// One row of the "serves goal" select in the edit form.
+struct GoalOptionView {
+    id: String,
+    title: String,
+    selected: bool,
+}
+
+fn edit_option(options: &[DecisionOption], index: usize) -> EditOption {
+    match options.get(index) {
+        Some(o) => EditOption {
+            label: o.label.clone(),
+            pros: o.pros.clone(),
+            cons: o.cons.clone(),
+        },
+        None => EditOption {
+            label: String::new(),
+            pros: String::new(),
+            cons: String::new(),
+        },
+    }
+}
+
 /// Project row on the dashboard, with goal/decision counts.
 struct ProjectView {
     project: Project,
     open_goals: i64,
     total_goals: i64,
     decisions: i64,
-}
-
-struct GoalView {
-    goal: Goal,
 }
 
 #[derive(Deserialize)]
@@ -200,6 +278,11 @@ fn flash_message(key: Option<&str>) -> String {
         Some("goal_updated") => "Goal updated.".into(),
         Some("goal_deleted") => "Goal removed.".into(),
         Some("invalid_title") => "A title is required.".into(),
+        Some("decision_created") => "Decision created.".into(),
+        Some("decision_updated") => "Decision updated.".into(),
+        Some("decision_resolved") => "Decision recorded.".into(),
+        Some("decision_deleted") => "Decision deleted.".into(),
+        Some("invalid_decision") => "Give the decision a title and at least one option.".into(),
         _ => String::new(),
     }
 }
@@ -507,6 +590,7 @@ pub(crate) async fn project_page(
         .await?
         .ok_or_else(|| not_found("project"))?;
     let goals = state.repo.list_goals(project_id).await?;
+    let decisions = state.repo.list_decisions(project_id).await?;
     let pc: ProjectCounts = state.repo.project_counts(project_id).await?;
     page(&ProjectTemplate {
         authed: true,
@@ -521,7 +605,19 @@ pub(crate) async fn project_page(
             decisions: pc.decisions,
             open_decisions: pc.open_decisions,
         },
-        goals: goals.into_iter().map(|goal| GoalView { goal }).collect(),
+        goals,
+        decisions: decisions
+            .into_iter()
+            .map(|d| {
+                let decided_label = decided_label(&d);
+                DecisionItemView {
+                    id: d.id.to_string(),
+                    title: d.title,
+                    status: d.status,
+                    decided_label,
+                }
+            })
+            .collect(),
     })
 }
 
@@ -642,4 +738,302 @@ pub(crate) async fn goal_delete(
     let goal_id = parse_uuid(&goal_id)?;
     state.repo.delete_goal(goal_id).await?;
     Ok(Redirect::to(&format!("/projects/{project_id}?flash=goal_deleted")).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Decisions
+// ---------------------------------------------------------------------------
+
+/// Label of the decided option, or an empty string.
+fn decided_label(d: &Decision) -> String {
+    d.decided_option
+        .as_ref()
+        .and_then(|id| d.options.iter().find(|o| &o.id == id))
+        .map(|o| o.label.clone())
+        .unwrap_or_default()
+}
+
+/// Build the option list from the create/edit form's three slots, skipping
+/// blank labels.
+fn options_from_form(
+    title_1: &str,
+    pros_1: &str,
+    cons_1: &str,
+    title_2: &str,
+    pros_2: &str,
+    cons_2: &str,
+    title_3: &str,
+    pros_3: &str,
+    cons_3: &str,
+) -> Vec<DecisionOption> {
+    let mut options = Vec::with_capacity(3);
+    for (i, (label, pros, cons)) in [
+        (title_1, pros_1, cons_1),
+        (title_2, pros_2, cons_2),
+        (title_3, pros_3, cons_3),
+    ]
+    .iter()
+    .enumerate()
+    {
+        if !label.trim().is_empty() {
+            options.push(DecisionOption {
+                id: format!("o{}", i + 1),
+                label: label.trim().to_string(),
+                pros: pros.trim().to_string(),
+                cons: cons.trim().to_string(),
+            });
+        }
+    }
+    options
+}
+
+/// Parse a decision's goal select value ("" → None).
+fn parse_goal_id(s: &str) -> Option<Uuid> {
+    if s.is_empty() {
+        None
+    } else {
+        Uuid::parse_str(s).ok()
+    }
+}
+
+#[derive(Deserialize)]
+pub(crate) struct DecisionForm {
+    pub csrf_token: Option<String>,
+    title: String,
+    context: String,
+    goal_id: String,
+    opt_1_label: String,
+    opt_1_pros: String,
+    opt_1_cons: String,
+    opt_2_label: String,
+    opt_2_pros: String,
+    opt_2_cons: String,
+    opt_3_label: String,
+    opt_3_pros: String,
+    opt_3_cons: String,
+}
+
+impl DecisionForm {
+    fn options(&self) -> Vec<DecisionOption> {
+        options_from_form(
+            &self.opt_1_label,
+            &self.opt_1_pros,
+            &self.opt_1_cons,
+            &self.opt_2_label,
+            &self.opt_2_pros,
+            &self.opt_2_cons,
+            &self.opt_3_label,
+            &self.opt_3_pros,
+            &self.opt_3_cons,
+        )
+    }
+}
+
+pub(crate) async fn decision_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<DecisionForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&id)?;
+    let options = body.options();
+    if body.title.trim().is_empty() || options.is_empty() {
+        return Ok(
+            Redirect::to(&format!("/projects/{project_id}?flash=invalid_decision")).into_response(),
+        );
+    }
+    state
+        .repo
+        .create_decision(
+            project_id,
+            parse_goal_id(&body.goal_id),
+            body.title.trim(),
+            body.context.trim(),
+            &options,
+        )
+        .await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}?flash=decision_created")).into_response())
+}
+
+pub(crate) async fn decision_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let decision_id = parse_uuid(&id)?;
+    let decision = state
+        .repo
+        .find_decision(decision_id)
+        .await?
+        .ok_or_else(|| not_found("decision"))?;
+    let project = state
+        .repo
+        .find_project(decision.project_id)
+        .await?
+        .ok_or_else(|| not_found("project"))?;
+    let goals = state.repo.list_goals(decision.project_id).await?;
+    let revisions = state.repo.list_revisions("decision", decision_id).await?;
+    let goal_title = decision
+        .goal_id
+        .and_then(|gid| goals.iter().find(|g| g.id == gid))
+        .map(|g| g.title.clone())
+        .unwrap_or_default();
+    let goal_options = goals
+        .iter()
+        .map(|g| GoalOptionView {
+            id: g.id.to_string(),
+            title: g.title.clone(),
+            selected: decision.goal_id == Some(g.id),
+        })
+        .collect();
+    let options = decision
+        .options
+        .iter()
+        .map(|o| OptionView {
+            id: o.id.clone(),
+            label: o.label.clone(),
+            pros_html: render_markdown(&o.pros),
+            cons_html: render_markdown(&o.cons),
+        })
+        .collect();
+    let view = DecisionView {
+        status: decision.status.clone(),
+        context_html: render_markdown(&decision.context),
+        options,
+        decided_label: decided_label(&decision),
+        rationale_html: render_markdown(&decision.rationale),
+        decided_at: decision
+            .decided_at_ms
+            .map(format_date_ms)
+            .unwrap_or_default(),
+        review_at: decision
+            .review_at_ms
+            .map(format_date_ms)
+            .unwrap_or_default(),
+        goal_title,
+        opt1: edit_option(&decision.options, 0),
+        opt2: edit_option(&decision.options, 1),
+        opt3: edit_option(&decision.options, 2),
+    };
+    page(&DecisionTemplate {
+        authed: true,
+        flash: flash_message(flash.flash.as_deref()),
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        goal_options,
+        decision,
+        view,
+        revisions: revisions
+            .iter()
+            .map(|r| RevisionView {
+                created_at: format_date_ms(r.created_at_ms),
+                html: render_markdown(&r.snapshot),
+            })
+            .collect(),
+    })
+}
+
+pub(crate) async fn decision_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<DecisionForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let decision_id = parse_uuid(&id)?;
+    let options = body.options();
+    if body.title.trim().is_empty() || options.is_empty() {
+        return Ok(
+            Redirect::to(&format!("/decisions/{decision_id}?flash=invalid_decision"))
+                .into_response(),
+        );
+    }
+    state
+        .repo
+        .update_decision(
+            decision_id,
+            body.title.trim(),
+            body.context.trim(),
+            &options,
+        )
+        .await?;
+    Ok(Redirect::to(&format!("/decisions/{decision_id}?flash=decision_updated")).into_response())
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ResolveForm {
+    pub csrf_token: Option<String>,
+    status: String,
+    decided_option: String,
+    rationale: String,
+    review_at: String,
+}
+
+pub(crate) async fn decision_resolve(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<ResolveForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let decision_id = parse_uuid(&id)?;
+    let status = if matches!(body.status.as_str(), "open" | "decided" | "rejected") {
+        body.status.as_str()
+    } else {
+        "open"
+    };
+    let decided_option = if status == "decided" && !body.decided_option.is_empty() {
+        Some(body.decided_option.clone())
+    } else {
+        None
+    };
+    let review_at = parse_date_ms(body.review_at.trim());
+    state
+        .repo
+        .resolve_decision(
+            decision_id,
+            status,
+            decided_option,
+            body.rationale.trim(),
+            review_at,
+        )
+        .await?;
+    Ok(Redirect::to(&format!("/decisions/{decision_id}?flash=decision_resolved")).into_response())
+}
+
+pub(crate) async fn decision_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let decision_id = parse_uuid(&id)?;
+    let project_id = state
+        .repo
+        .find_decision(decision_id)
+        .await?
+        .ok_or_else(|| not_found("decision"))?
+        .project_id;
+    state.repo.delete_decision(decision_id).await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}?flash=decision_deleted")).into_response())
 }

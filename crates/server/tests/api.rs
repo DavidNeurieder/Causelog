@@ -297,6 +297,15 @@ fn extract_csrf(html: &str) -> String {
     rest[..end].to_string()
 }
 
+/// First `href` starting with `prefix`, e.g. `/decisions/<uuid>`.
+fn extract_href(html: &str, prefix: &str) -> String {
+    let marker = format!("href=\"{prefix}");
+    let start = html.find(&marker).expect("link present") + marker.len();
+    let rest = &html[start..];
+    let end = rest.find('"').expect("closing quote");
+    format!("{prefix}{}", &rest[..end])
+}
+
 #[tokio::test]
 async fn project_and_goal_crud() {
     let app = test_app().await;
@@ -400,4 +409,120 @@ async fn project_and_goal_crud() {
     // Project page now 404s.
     let res = send(&app, with_cookie(get(&project_url), &cookie)).await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn decision_lifecycle_with_history() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+
+    let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    let csrf = extract_csrf(&body_string(dash).await);
+
+    // Create a project.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                "/projects",
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Storage"),
+                    ("summary", ""),
+                    ("status", "active"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let project_url = redirect_to(&res);
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Create a decision with one option.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Which datastore?"),
+                    ("context", "We need persistence."),
+                    ("goal_id", ""),
+                    ("opt_1_label", "SQLite"),
+                    ("opt_1_pros", "Zero ops"),
+                    ("opt_1_cons", "Single writer"),
+                    ("opt_2_label", ""),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        redirect_to(&res),
+        format!("{project_url}?flash=decision_created")
+    );
+
+    // The project page links to the new decision.
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    let decision_url = extract_href(&body, "/decisions/");
+    assert!(decision_url.starts_with("/decisions/"), "got: {body}");
+
+    // Decision page renders title, options, and the initial revision.
+    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let body = body_string(page).await;
+    assert!(body.contains("Which datastore?"), "got: {body}");
+    assert!(body.contains("SQLite"), "got: {body}");
+    assert!(body.contains("History"), "got: {body}");
+
+    // Resolve it.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{decision_url}/resolve"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("status", "decided"),
+                    ("decided_option", "o1"),
+                    ("rationale", "Single user, so one writer is fine."),
+                    ("review_at", "2026-12-31"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Page now shows the decision and the review date.
+    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Chose"), "got: {body}");
+    assert!(body.contains("2026-12-31"), "got: {body}");
+    // Two revisions: creation + resolution.
+    assert_eq!(body.matches("details class").count(), 0);
+    let revisions: Vec<_> = body.match_indices("History").collect();
+    assert!(!revisions.is_empty(), "got: {body}");
+    // The resolution snapshot should be in history.
+    assert!(
+        body.contains("Single user, so one writer is fine."),
+        "got: {body}"
+    );
+
+    // The project page lists the decided decision.
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Which datastore?"), "got: {body}");
+    assert!(body.contains("status-decided"), "got: {body}");
 }
