@@ -126,3 +126,34 @@ pub struct ExperimentEvent {
     pub note: String,
     pub created_at_ms: i64,
 }
+
+/// A piece of durable knowledge within a project. Extracted lessons point back
+/// at their source (`source_type`/`source_id`) so the graph can trace origins.
+#[derive(Debug, Clone)]
+pub struct Note {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub title: String,
+    /// Markdown.
+    pub body: String,
+    /// `experiment` | `decision` — the source this note was captured from.
+    pub source_type: Option<String>,
+    pub source_id: Option<Uuid>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+/// Explicit, typed edge between two entities in the same project.
+#[derive(Debug, Clone)]
+pub struct Link {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    /// `note` | `decision` | `experiment`
+    pub from_type: String,
+    pub from_id: Uuid,
+    pub to_type: String,
+    pub to_id: Uuid,
+    /// `related` | `supports` | `rejects` | `follows`
+    pub kind: String,
+    pub created_at_ms: i64,
+}

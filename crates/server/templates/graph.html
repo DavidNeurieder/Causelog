@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Graph · {{ project.title }} · Kaizen{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    <h1>Graph</h1>
+    <p class="muted"><a href="/projects/{{ project.id }}">{{ project.title }}</a></p>
+  </div>
+  <div class="row">
+    <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
+  </div>
+</div>
+
+<h2>Nodes</h2>
+{% if nodes.is_empty() %}
+<p class="muted">No entities yet.</p>
+{% else %}
+<section class="list">
+  {% for n in nodes %}
+  <div class="row item">
+    <div>
+      <a class="strong" href="{{ n.url }}">{{ n.title }}</a>
+      <span class="tag node-{{ n.node_type }}">{{ n.node_type }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<h2>Structure</h2>
+<p class="muted">Edges that come from the entities themselves: what serves a goal, what an experiment tests, where a note was captured from.</p>
+{% if implicit.is_empty() %}
+<p class="muted">No structure yet. Link decisions and experiments to goals when you create them.</p>
+{% else %}
+<section class="list">
+  {% for e in implicit %}
+  <div class="row item">
+    <div>
+      <span class="strong">{{ e.from_label }}</span>
+      <span class="tag edge-{{ e.kind }}">— {{ e.kind }} →</span>
+      <span class="strong">{{ e.to_label }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<h2>Explicit links</h2>
+<p class="muted">Typed connections you added yourself. Add one below.</p>
+{% if links.is_empty() %}
+<p class="muted">No explicit links yet.</p>
+{% else %}
+<section class="list">
+  {% for l in links %}
+  <div class="row item">
+    <div>
+      <span class="strong">{{ l.from_label }}</span>
+      <span class="tag edge-{{ l.kind }}">— {{ l.kind }} →</span>
+      <span class="strong">{{ l.to_label }}</span>
+    </div>
+    <form method="post" action="/projects/{{ project.id }}/links/{{ l.id }}/delete" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="link danger">Remove</button>
+    </form>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<h3>Add a link</h3>
+<form method="post" action="/projects/{{ project.id }}/links">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="row">
+    <field>
+      <label for="l-from">From</label>
+      <select id="l-from" name="from">
+        {% for e in link_entities %}
+        <option value="{{ e.type_name }}:{{ e.id }}">{{ e.type_name }} — {{ e.label }}</option>
+        {% endfor %}
+      </select>
+    </field>
+    <field>
+      <label for="l-to">To</label>
+      <select id="l-to" name="to">
+        {% for e in link_entities %}
+        <option value="{{ e.type_name }}:{{ e.id }}">{{ e.type_name }} — {{ e.label }}</option>
+        {% endfor %}
+      </select>
+    </field>
+    <field>
+      <label for="l-kind">Kind</label>
+      <select id="l-kind" name="kind">
+        <option value="related">related</option>
+        <option value="supports">supports</option>
+        <option value="rejects">rejects</option>
+        <option value="follows">follows</option>
+      </select>
+    </field>
+  </div>
+  <button type="submit">Add link</button>
+</form>
+{% endblock %}

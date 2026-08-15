@@ -190,3 +190,13 @@ ol.timeline li:last-child { border-left-color: transparent; }
 .kind-measurement { color: #7bc96f; border-color: #7bc96f55; }
 .kind-milestone { color: #d8a34c; border-color: #d8a34c55; }
 .kind-experiment_started, .kind-experiment_ended { color: var(--muted); }
+
+.node-goal { color: #7bc96f; border-color: #7bc96f55; }
+.node-decision { color: var(--accent); border-color: var(--accent); }
+.node-experiment { color: #d8a34c; border-color: #d8a34c55; }
+.node-note { color: #b48dea; border-color: #b48dea55; }
+
+.edge-serves, .edge-supports { color: #7bc96f; border-color: #7bc96f55; }
+.edge-tests, .edge-follows { color: #d8a34c; border-color: #d8a34c55; }
+.edge-from, .edge-related { color: var(--muted); }
+.edge-rejects { color: var(--error); border-color: var(--error); }

@@ -681,3 +681,248 @@ async fn experiment_lifecycle_and_timeline() {
     assert!(body.contains("Completed “WAL trial”"), "got: {body}");
     assert!(body.contains("Read latency halved."), "got: {body}");
 }
+
+#[tokio::test]
+async fn knowledge_capture_and_graph() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+
+    let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    let csrf = extract_csrf(&body_string(dash).await);
+
+    // Project with a goal.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                "/projects",
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Kaizen"),
+                    ("summary", ""),
+                    ("status", "active"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let project_url = redirect_to(&res);
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Recall decisions fast"),
+                    ("body", ""),
+                    ("status", "open"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    let goal_id = {
+        let marker = format!("action=\"{project_url}/goals/");
+        let start = body.find(&marker).expect("goal form") + marker.len();
+        let rest = &body[start..];
+        let end = rest.find('"').expect("closing quote");
+        rest[..end].to_string()
+    };
+
+    // Decision serving the goal.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Which datastore?"),
+                    ("context", ""),
+                    ("goal_id", &goal_id),
+                    ("opt_1_label", "SQLite"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", "Postgres"),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    let decision_url = extract_href(&body, "/decisions/");
+    let decision_id = decision_url
+        .strip_prefix("/decisions/")
+        .unwrap()
+        .to_string();
+
+    // Experiment resolving the decision; capture its lesson as a note.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/experiments"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL trial"),
+                    ("hypothesis", "WAL is faster."),
+                    ("goal_id", &goal_id),
+                    ("decision_id", &decision_id),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    let exp_url = extract_href(&body, "/experiments/");
+
+    // Lesson must exist before extraction; write one via the edit form.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &exp_url,
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "WAL trial"),
+                    ("hypothesis", "WAL is faster."),
+                    ("status", "done"),
+                    ("result", "Reads got 2x faster."),
+                    ("lesson", "WAL is worth enabling."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(&format!("{exp_url}/extract"), &[("csrf_token", &csrf)]),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let note_url = redirect_to(&res);
+
+    // The note shows the lesson and points back at its experiment source.
+    let page = send(&app, with_cookie(get(&note_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Lesson: WAL trial"), "got: {body}");
+    assert!(body.contains("WAL is worth enabling."), "got: {body}");
+    assert!(body.contains("captured from"), "got: {body}");
+    assert!(body.contains(&format!("href=\"{exp_url}\"")), "got: {body}");
+    // A revision snapshot was recorded.
+    assert!(body.contains("History"), "got: {body}");
+
+    // The graph shows all four node types and the implicit edges.
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/graph")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    for marker in [
+        "node-goal",
+        "node-decision",
+        "node-experiment",
+        "node-note",
+        "edge-tests",
+        "edge-from",
+    ] {
+        assert!(body.contains(marker), "{marker} missing: {body}");
+    }
+
+    // Explicit link note → decision via the combined type:uuid selects.
+    let note_id = note_url
+        .split('?')
+        .next()
+        .unwrap()
+        .strip_prefix("/notes/")
+        .unwrap()
+        .to_string();
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/links"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("from", &format!("note:{note_id}")),
+                    ("to", &format!("decision:{decision_id}")),
+                    ("kind", "supports"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        redirect_to(&res),
+        format!("{project_url}/graph?flash=link_created")
+    );
+
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/graph")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(body.contains("edge-supports"), "got: {body}");
+    assert!(body.contains("Lesson: WAL trial"), "got: {body}");
+
+    // Delete the link.
+    let link_form = {
+        let dash = send(
+            &app,
+            with_cookie(get(&format!("{project_url}/graph")), &cookie),
+        )
+        .await;
+        let body = body_string(dash).await;
+        let marker = "action=\"/projects/";
+        let start = body.find(marker).expect("link form") + marker.len();
+        let rest = &body[start..];
+        let end = rest.find("/delete\"").expect("delete form");
+        rest[..end].to_string()
+    };
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/projects/{link_form}/delete"),
+                &[("csrf_token", &csrf)],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/graph")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(!body.contains("edge-supports"), "got: {body}");
+}

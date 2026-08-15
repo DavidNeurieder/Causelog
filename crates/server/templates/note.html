@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ note.title }} · Kaizen{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    <h1>{{ note.title }}</h1>
+    <p class="muted">
+      <a href="/projects/{{ project.id }}">{{ project.title }}</a>
+      {% if !view.source_url.is_empty() %} · captured from <a href="{{ view.source_url }}">{{ view.source_title }}</a>{% endif %}
+    </p>
+  </div>
+  <form method="post" action="/notes/{{ note.id }}/delete" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="danger" onclick="return confirm('Delete this note?')">Delete note</button>
+  </form>
+</div>
+
+<details>
+  <summary>Edit note</summary>
+  <form method="post" action="/notes/{{ note.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <field>
+      <label for="n-title">Title</label>
+      <input id="n-title" name="title" value="{{ note.title }}" required>
+    </field>
+    <field>
+      <label for="n-body">Body (Markdown)</label>
+      <textarea id="n-body" name="body" rows="10">{{ note.body }}</textarea>
+    </field>
+    <button type="submit">Save note</button>
+  </form>
+</details>
+
+<div class="prose">{{ view.body_html|safe }}</div>
+
+<h2>History</h2>
+{% if revisions.is_empty() %}
+<p class="muted">No revisions yet.</p>
+{% else %}
+<ol class="timeline">
+  {% for rev in revisions %}
+  <li>
+    <div class="row">
+      <span class="muted small">{{ rev.created_at }}</span>
+    </div>
+    <div class="prose">{{ rev.html|safe }}</div>
+  </li>
+  {% endfor %}
+</ol>
+{% endif %}
+{% endblock %}

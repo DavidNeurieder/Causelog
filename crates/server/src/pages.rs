@@ -11,14 +11,16 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use kaizen_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
-use kaizen_model::{Decision, DecisionOption, Experiment, Goal, Project};
+use kaizen_model::{Decision, DecisionOption, Experiment, Goal, Note, Project};
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth;
 use crate::error::ApiError;
-use crate::repository::{ProjectCounts, RepositoryError, TimelineEntry};
+use crate::repository::{GraphData, ProjectCounts, RepositoryError, TimelineEntry};
 
 // ---------------------------------------------------------------------------
 // Template structs
@@ -147,6 +149,7 @@ struct ProjectTemplate {
     goals: Vec<Goal>,
     decisions: Vec<DecisionItemView>,
     experiments: Vec<ExperimentItemView>,
+    notes: Vec<Note>,
 }
 
 struct ProjectCountsView {
@@ -302,6 +305,68 @@ struct ProjectView {
     open_goals: i64,
     total_goals: i64,
     decisions: i64,
+}
+
+/// One selectable entity in a "relate" form.
+struct EntityChoiceView {
+    type_name: String,
+    id: String,
+    label: String,
+}
+
+/// One explicit link, as shown on the graph page with a delete action.
+struct LinkView {
+    id: String,
+    from_label: String,
+    to_label: String,
+    kind: String,
+}
+
+#[derive(Template)]
+#[template(path = "note.html")]
+struct NoteTemplate {
+    authed: bool,
+    flash: String,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    note: Note,
+    view: NoteView,
+    revisions: Vec<RevisionView>,
+}
+
+struct NoteView {
+    body_html: String,
+    source_title: String,
+    source_url: String,
+}
+
+#[derive(Template)]
+#[template(path = "graph.html")]
+struct GraphTemplate {
+    authed: bool,
+    flash: String,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    nodes: Vec<GraphNodeView>,
+    implicit: Vec<GraphEdgeView>,
+    links: Vec<LinkView>,
+    link_entities: Vec<EntityChoiceView>,
+}
+
+struct GraphNodeView {
+    node_type: String,
+    title: String,
+    url: String,
+}
+
+struct GraphEdgeView {
+    from_label: String,
+    to_label: String,
+    kind: String,
 }
 
 #[derive(Deserialize)]
@@ -652,6 +717,7 @@ pub(crate) async fn project_page(
     let goals = state.repo.list_goals(project_id).await?;
     let decisions = state.repo.list_decisions(project_id).await?;
     let experiments = state.repo.list_experiments(project_id).await?;
+    let notes = state.repo.list_notes(project_id).await?;
     let pc: ProjectCounts = state.repo.project_counts(project_id).await?;
     page(&ProjectTemplate {
         authed: true,
@@ -687,6 +753,7 @@ pub(crate) async fn project_page(
                 status: e.status,
             })
             .collect(),
+        notes,
     })
 }
 
@@ -1368,4 +1435,356 @@ pub(crate) async fn timeline_page(
         project,
         entries: entries_view,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge: notes, links, graph
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub(crate) struct NoteForm {
+    pub csrf_token: Option<String>,
+    title: String,
+    body: String,
+}
+
+pub(crate) async fn note_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<NoteForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&id)?;
+    if body.title.trim().is_empty() {
+        return Ok(
+            Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
+        );
+    }
+    let note = state
+        .repo
+        .create_note(project_id, body.title.trim(), body.body.trim(), None, None)
+        .await?;
+    Ok(Redirect::to(&format!("/notes/{}?flash=note_created", note.id)).into_response())
+}
+
+pub(crate) async fn note_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let note_id = parse_uuid(&id)?;
+    let note = state
+        .repo
+        .find_note(note_id)
+        .await?
+        .ok_or_else(|| not_found("note"))?;
+    let project = state
+        .repo
+        .find_project(note.project_id)
+        .await?
+        .ok_or_else(|| not_found("project"))?;
+    let (source_title, source_url) = match (&note.source_type, note.source_id) {
+        (Some(st), Some(si)) if st == "experiment" => {
+            let title = state
+                .repo
+                .find_experiment(si)
+                .await?
+                .map(|e| e.title)
+                .unwrap_or_default();
+            (title, format!("/experiments/{si}"))
+        }
+        (Some(st), Some(si)) if st == "decision" => {
+            let title = state
+                .repo
+                .find_decision(si)
+                .await?
+                .map(|d| d.title)
+                .unwrap_or_default();
+            (title, format!("/decisions/{si}"))
+        }
+        _ => (String::new(), String::new()),
+    };
+    let revisions = state.repo.list_revisions("note", note.id).await?;
+    let view = NoteView {
+        body_html: render_markdown(&note.body),
+        source_title,
+        source_url,
+    };
+    let revisions_view: Vec<RevisionView> = revisions
+        .into_iter()
+        .map(|r| RevisionView {
+            created_at: format_date_ms(r.created_at_ms),
+            html: render_markdown(&r.snapshot),
+        })
+        .collect();
+    page(&NoteTemplate {
+        authed: true,
+        flash: flash_message(flash.flash.as_deref()),
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        note,
+        view,
+        revisions: revisions_view,
+    })
+}
+
+pub(crate) async fn note_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<NoteForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let note_id = parse_uuid(&id)?;
+    if body.title.trim().is_empty() {
+        return Ok(Redirect::to(&format!("/notes/{note_id}?flash=invalid_title")).into_response());
+    }
+    state
+        .repo
+        .update_note(note_id, body.title.trim(), body.body.trim())
+        .await?;
+    Ok(Redirect::to(&format!("/notes/{note_id}?flash=note_updated")).into_response())
+}
+
+pub(crate) async fn note_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let note_id = parse_uuid(&id)?;
+    let project_id = state
+        .repo
+        .find_note(note_id)
+        .await?
+        .ok_or_else(|| not_found("note"))?
+        .project_id;
+    state.repo.delete_note(note_id).await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}?flash=note_deleted")).into_response())
+}
+
+/// Capture an experiment's lesson as a knowledge note, keeping the source
+/// pointer so the graph can trace where the knowledge came from.
+pub(crate) async fn note_extract(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let experiment_id = parse_uuid(&id)?;
+    let experiment = state
+        .repo
+        .find_experiment(experiment_id)
+        .await?
+        .ok_or_else(|| not_found("experiment"))?;
+    let body_text = if experiment.lesson.trim().is_empty() {
+        experiment.result.trim().to_string()
+    } else {
+        experiment.lesson.trim().to_string()
+    };
+    if body_text.is_empty() {
+        return Ok(
+            Redirect::to(&format!("/experiments/{experiment_id}?flash=no_lesson")).into_response(),
+        );
+    }
+    let note = state
+        .repo
+        .create_note(
+            experiment.project_id,
+            &format!("Lesson: {}", experiment.title),
+            &body_text,
+            Some("experiment"),
+            Some(experiment.id),
+        )
+        .await?;
+    Ok(Redirect::to(&format!("/notes/{}?flash=note_extracted", note.id)).into_response())
+}
+
+#[derive(Deserialize)]
+pub(crate) struct LinkForm {
+    pub csrf_token: Option<String>,
+    /// Combined `type:uuid` values from the selects.
+    from: String,
+    to: String,
+    kind: String,
+}
+
+pub(crate) async fn link_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<LinkForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&id)?;
+    let Some((from_type, from_id)) = split_entity(&body.from) else {
+        return Ok(
+            Redirect::to(&format!("/projects/{project_id}/graph?flash=invalid_link"))
+                .into_response(),
+        );
+    };
+    let Some((to_type, to_id)) = split_entity(&body.to) else {
+        return Ok(
+            Redirect::to(&format!("/projects/{project_id}/graph?flash=invalid_link"))
+                .into_response(),
+        );
+    };
+    let kind = if matches!(
+        body.kind.as_str(),
+        "related" | "supports" | "rejects" | "follows"
+    ) {
+        body.kind.clone()
+    } else {
+        "related".into()
+    };
+    if from_id == to_id && from_type == to_type {
+        return Ok(
+            Redirect::to(&format!("/projects/{project_id}/graph?flash=invalid_link"))
+                .into_response(),
+        );
+    }
+    state
+        .repo
+        .create_link(project_id, &from_type, from_id, &to_type, to_id, &kind)
+        .await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}/graph?flash=link_created")).into_response())
+}
+
+/// Parse a `type:uuid` select value.
+fn split_entity(value: &str) -> Option<(String, Uuid)> {
+    let (t, id) = value.split_once(':')?;
+    if !matches!(t, "note" | "decision" | "experiment") {
+        return None;
+    }
+    let id = Uuid::from_str(id).ok()?;
+    Some((t.to_string(), id))
+}
+
+pub(crate) async fn link_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, link_id)): Path<(String, String)>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let project_id = parse_uuid(&id)?;
+    let link_id = parse_uuid(&link_id)?;
+    state.repo.delete_link(link_id).await?;
+    Ok(Redirect::to(&format!("/projects/{project_id}/graph?flash=link_deleted")).into_response())
+}
+
+pub(crate) async fn graph_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project_id = parse_uuid(&id)?;
+    let project = state
+        .repo
+        .find_project(project_id)
+        .await?
+        .ok_or_else(|| not_found("project"))?;
+    let data: GraphData = state.repo.graph(project_id).await?;
+    let mut titles: HashMap<(String, Uuid), String> = HashMap::new();
+    let mut nodes = Vec::with_capacity(data.nodes.len());
+    for n in &data.nodes {
+        titles.insert((n.node_type.clone(), n.id), n.title.clone());
+        nodes.push(GraphNodeView {
+            node_type: n.node_type.clone(),
+            title: n.title.clone(),
+            url: match n.node_type.as_str() {
+                "goal" => format!("/projects/{project_id}"),
+                "decision" => format!("/decisions/{}", n.id),
+                "experiment" => format!("/experiments/{}", n.id),
+                _ => format!("/notes/{}", n.id),
+            },
+        });
+    }
+    let explicit_kinds = ["related", "supports", "rejects", "follows"];
+    let mut implicit = Vec::new();
+    for e in &data.edges {
+        if explicit_kinds.contains(&e.kind.as_str()) {
+            continue;
+        }
+        implicit.push(GraphEdgeView {
+            from_label: label_for(&titles, &e.from_type, e.from_id, &e.from_type),
+            to_label: label_for(&titles, &e.to_type, e.to_id, &e.to_type),
+            kind: e.kind.clone(),
+        });
+    }
+    let links = state.repo.list_links(project_id).await?;
+    let links_view = links
+        .into_iter()
+        .map(|l| LinkView {
+            id: l.id.to_string(),
+            from_label: label_for(&titles, &l.from_type, l.from_id, &l.from_type),
+            to_label: label_for(&titles, &l.to_type, l.to_id, &l.to_type),
+            kind: l.kind,
+        })
+        .collect();
+    let link_entities: Vec<EntityChoiceView> = titles
+        .iter()
+        .filter(|((t, _), _)| t != "goal")
+        .map(|((t, id), title)| EntityChoiceView {
+            type_name: t.clone(),
+            id: id.to_string(),
+            label: title.clone(),
+        })
+        .collect();
+    page(&GraphTemplate {
+        authed: true,
+        flash: flash_message(flash.flash.as_deref()),
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        nodes,
+        implicit,
+        links: links_view,
+        link_entities,
+    })
+}
+
+/// Human label for a graph edge endpoint, falling back to the raw type.
+fn label_for(
+    titles: &HashMap<(String, Uuid), String>,
+    node_type: &str,
+    id: Uuid,
+    fallback: &str,
+) -> String {
+    titles
+        .get(&(node_type.to_string(), id))
+        .cloned()
+        .unwrap_or_else(|| format!("{fallback}…"))
 }

@@ -12,6 +12,10 @@
   </div>
   <div class="row">
     <a class="btn" href="/projects/{{ project.id }}/timeline">Timeline</a>
+    <form method="post" action="/experiments/{{ experiment.id }}/extract" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">Capture lesson as note</button>
+    </form>
     <form method="post" action="/experiments/{{ experiment.id }}/delete" class="inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="danger" onclick="return confirm('Delete this experiment and its observations?')">Delete experiment</button>

@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use kaizen_model::{
-    Decision, DecisionOption, Experiment, ExperimentEvent, Goal, Project, Revision, Session, User,
+    Decision, DecisionOption, Experiment, ExperimentEvent, Goal, Link, Note, Project, Revision,
+    Session, User,
 };
 use sqlx::Row;
 use sqlx::SqlitePool;
@@ -191,6 +192,68 @@ pub trait Repository: Send + Sync {
     /// Chronological story of a project: experiment start/end markers plus
     /// every recorded event, newest first.
     async fn timeline(&self, project_id: Uuid) -> Result<Vec<TimelineEntry>, RepositoryError>;
+
+    // -----------------------------------------------------------------------
+    // Knowledge: notes, links, graph
+    // -----------------------------------------------------------------------
+
+    async fn list_notes(&self, project_id: Uuid) -> Result<Vec<Note>, RepositoryError>;
+    async fn find_note(&self, id: Uuid) -> Result<Option<Note>, RepositoryError>;
+    /// Creates a note and records a `note` revision snapshot.
+    async fn create_note(
+        &self,
+        project_id: Uuid,
+        title: &str,
+        body: &str,
+        source_type: Option<&str>,
+        source_id: Option<Uuid>,
+    ) -> Result<Note, RepositoryError>;
+    /// Updates a note and records a `note` revision snapshot.
+    async fn update_note(&self, id: Uuid, title: &str, body: &str)
+    -> Result<Note, RepositoryError>;
+    async fn delete_note(&self, id: Uuid) -> Result<(), RepositoryError>;
+
+    async fn list_links(&self, project_id: Uuid) -> Result<Vec<Link>, RepositoryError>;
+    async fn create_link(
+        &self,
+        project_id: Uuid,
+        from_type: &str,
+        from_id: Uuid,
+        to_type: &str,
+        to_id: Uuid,
+        kind: &str,
+    ) -> Result<Link, RepositoryError>;
+    async fn delete_link(&self, id: Uuid) -> Result<(), RepositoryError>;
+
+    /// Nodes and edges of a project's knowledge graph. Nodes are the entities
+    /// themselves; edges include both explicit links and the implicit
+    /// references between them (goal/decision/experiment/note relationships).
+    async fn graph(&self, project_id: Uuid) -> Result<GraphData, RepositoryError>;
+}
+
+/// One node of the project graph.
+#[derive(Debug, Clone)]
+pub struct GraphNode {
+    /// `goal` | `decision` | `experiment` | `note`
+    pub node_type: String,
+    pub id: Uuid,
+    pub title: String,
+}
+
+/// One edge of the project graph.
+#[derive(Debug, Clone)]
+pub struct GraphEdge {
+    pub from_type: String,
+    pub from_id: Uuid,
+    pub to_type: String,
+    pub to_id: Uuid,
+    pub kind: String,
+}
+
+#[derive(Debug, Default)]
+pub struct GraphData {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
 }
 
 /// One row of a project's timeline.
@@ -1031,6 +1094,229 @@ impl Repository for SqliteRepository {
         entries.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
         Ok(entries)
     }
+
+    // -----------------------------------------------------------------------
+    // Knowledge: notes, links, graph
+    // -----------------------------------------------------------------------
+
+    async fn list_notes(&self, project_id: Uuid) -> Result<Vec<Note>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, title, body, source_type, source_id, created_at_ms, updated_at_ms
+             FROM notes WHERE project_id = ? ORDER BY updated_at_ms DESC",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_note).collect())
+    }
+
+    async fn find_note(&self, id: Uuid) -> Result<Option<Note>, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT id, project_id, title, body, source_type, source_id, created_at_ms, updated_at_ms
+             FROM notes WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| row_to_note(&r)))
+    }
+
+    async fn create_note(
+        &self,
+        project_id: Uuid,
+        title: &str,
+        body: &str,
+        source_type: Option<&str>,
+        source_id: Option<Uuid>,
+    ) -> Result<Note, RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        let id = Uuid::new_v4();
+        let now = kaizen_content::now_ms();
+        sqlx::query(
+            "INSERT INTO notes (id, project_id, title, body, source_type, source_id, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(project_id.to_string())
+        .bind(title)
+        .bind(body)
+        .bind(source_type)
+        .bind(source_id.map(|s| s.to_string()))
+        .bind(now)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        let note = fetch_note(&mut tx, id).await?;
+        insert_revision(&mut tx, "note", id, &note_snapshot_md(&note)).await?;
+        tx.commit().await?;
+        Ok(note)
+    }
+
+    async fn update_note(
+        &self,
+        id: Uuid,
+        title: &str,
+        body: &str,
+    ) -> Result<Note, RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE notes SET title = ?, body = ?, updated_at_ms = ? WHERE id = ?")
+            .bind(title)
+            .bind(body)
+            .bind(kaizen_content::now_ms())
+            .bind(id.to_string())
+            .execute(&mut *tx)
+            .await?;
+        let note = fetch_note(&mut tx, id).await?;
+        insert_revision(&mut tx, "note", id, &note_snapshot_md(&note)).await?;
+        tx.commit().await?;
+        Ok(note)
+    }
+
+    async fn delete_note(&self, id: Uuid) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM notes WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_links(&self, project_id: Uuid) -> Result<Vec<Link>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, from_type, from_id, to_type, to_id, kind, created_at_ms
+             FROM links WHERE project_id = ? ORDER BY created_at_ms DESC",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_link).collect())
+    }
+
+    async fn create_link(
+        &self,
+        project_id: Uuid,
+        from_type: &str,
+        from_id: Uuid,
+        to_type: &str,
+        to_id: Uuid,
+        kind: &str,
+    ) -> Result<Link, RepositoryError> {
+        if from_id == to_id && from_type == to_type {
+            return Err(RepositoryError::InvalidInput(
+                "cannot link an entity to itself".into(),
+            ));
+        }
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO links (id, project_id, from_type, from_id, to_type, to_id, kind, created_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(project_id.to_string())
+        .bind(from_type)
+        .bind(from_id.to_string())
+        .bind(to_type)
+        .bind(to_id.to_string())
+        .bind(kind)
+        .bind(kaizen_content::now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(Link {
+            id,
+            project_id,
+            from_type: from_type.to_string(),
+            from_id,
+            to_type: to_type.to_string(),
+            to_id,
+            kind: kind.to_string(),
+            created_at_ms: kaizen_content::now_ms(),
+        })
+    }
+
+    async fn delete_link(&self, id: Uuid) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM links WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn graph(&self, project_id: Uuid) -> Result<GraphData, RepositoryError> {
+        let mut data = GraphData::default();
+        for g in self.list_goals(project_id).await? {
+            data.nodes.push(GraphNode {
+                node_type: "goal".into(),
+                id: g.id,
+                title: g.title,
+            });
+        }
+        for d in self.list_decisions(project_id).await? {
+            data.nodes.push(GraphNode {
+                node_type: "decision".into(),
+                id: d.id,
+                title: d.title.clone(),
+            });
+            if let Some(goal_id) = d.goal_id {
+                data.edges.push(GraphEdge {
+                    from_type: "decision".into(),
+                    from_id: d.id,
+                    to_type: "goal".into(),
+                    to_id: goal_id,
+                    kind: "serves".into(),
+                });
+            }
+        }
+        for e in self.list_experiments(project_id).await? {
+            data.nodes.push(GraphNode {
+                node_type: "experiment".into(),
+                id: e.id,
+                title: e.title.clone(),
+            });
+            if let Some(goal_id) = e.goal_id {
+                data.edges.push(GraphEdge {
+                    from_type: "experiment".into(),
+                    from_id: e.id,
+                    to_type: "goal".into(),
+                    to_id: goal_id,
+                    kind: "serves".into(),
+                });
+            }
+            if let Some(decision_id) = e.decision_id {
+                data.edges.push(GraphEdge {
+                    from_type: "experiment".into(),
+                    from_id: e.id,
+                    to_type: "decision".into(),
+                    to_id: decision_id,
+                    kind: "tests".into(),
+                });
+            }
+        }
+        for n in self.list_notes(project_id).await? {
+            data.nodes.push(GraphNode {
+                node_type: "note".into(),
+                id: n.id,
+                title: n.title.clone(),
+            });
+            if let (Some(source_type), Some(source_id)) = (n.source_type, n.source_id) {
+                data.edges.push(GraphEdge {
+                    from_type: "note".into(),
+                    from_id: n.id,
+                    to_type: source_type,
+                    to_id: source_id,
+                    kind: "from".into(),
+                });
+            }
+        }
+        for l in self.list_links(project_id).await? {
+            data.edges.push(GraphEdge {
+                from_type: l.from_type,
+                from_id: l.from_id,
+                to_type: l.to_type,
+                to_id: l.to_id,
+                kind: l.kind,
+            });
+        }
+        Ok(data)
+    }
 }
 
 /// Load a decision inside an existing transaction.
@@ -1104,6 +1390,27 @@ fn decision_snapshot_md(d: &Decision) -> String {
         ));
     }
     s
+}
+
+/// Fetch a note inside the caller's transaction.
+async fn fetch_note(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    id: Uuid,
+) -> Result<Note, RepositoryError> {
+    let row = sqlx::query(
+        "SELECT id, project_id, title, body, source_type, source_id, created_at_ms, updated_at_ms
+         FROM notes WHERE id = ?",
+    )
+    .bind(id.to_string())
+    .fetch_optional(&mut **tx)
+    .await?;
+    row.map(|r| row_to_note(&r))
+        .ok_or_else(|| RepositoryError::NotFound("note".into()))
+}
+
+/// Markdown snapshot of a note, stored as a revision.
+fn note_snapshot_md(n: &Note) -> String {
+    format!("# {}\n\n{}", n.title, n.body)
 }
 
 fn row_to_user(r: &sqlx::sqlite::SqliteRow) -> User {
@@ -1180,6 +1487,34 @@ fn row_to_experiment(r: &sqlx::sqlite::SqliteRow) -> Experiment {
         lesson: r.get("lesson"),
         created_at_ms: r.get("created_at_ms"),
         updated_at_ms: r.get("updated_at_ms"),
+    }
+}
+
+fn row_to_note(r: &sqlx::sqlite::SqliteRow) -> Note {
+    Note {
+        id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+        project_id: Uuid::from_str(&r.get::<String, _>("project_id")).unwrap_or_default(),
+        title: r.get("title"),
+        body: r.get("body"),
+        source_type: r.get("source_type"),
+        source_id: r
+            .get::<Option<String>, _>("source_id")
+            .and_then(|s| Uuid::from_str(&s).ok()),
+        created_at_ms: r.get("created_at_ms"),
+        updated_at_ms: r.get("updated_at_ms"),
+    }
+}
+
+fn row_to_link(r: &sqlx::sqlite::SqliteRow) -> Link {
+    Link {
+        id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+        project_id: Uuid::from_str(&r.get::<String, _>("project_id")).unwrap_or_default(),
+        from_type: r.get("from_type"),
+        from_id: Uuid::from_str(&r.get::<String, _>("from_id")).unwrap_or_default(),
+        to_type: r.get("to_type"),
+        to_id: Uuid::from_str(&r.get::<String, _>("to_id")).unwrap_or_default(),
+        kind: r.get("kind"),
+        created_at_ms: r.get("created_at_ms"),
     }
 }
 

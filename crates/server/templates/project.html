@@ -211,4 +211,35 @@
   </field>
   <button type="submit">Start experiment</button>
 </form>
+
+<h2>Notes</h2>
+<p class="muted">Notes capture durable knowledge. See how everything fits together on the <a href="/projects/{{ project.id }}/graph">graph</a>.</p>
+
+{% if notes.is_empty() %}
+<p class="muted">No notes yet.</p>
+{% else %}
+<section class="list">
+  {% for n in notes %}
+  <div class="row item">
+    <div>
+      <a class="strong" href="/notes/{{ n.id }}">{{ n.title }}</a>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<h3>New note</h3>
+<form method="post" action="/projects/{{ project.id }}/notes">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <field>
+    <label for="nnew-title">Title</label>
+    <input id="nnew-title" name="title" placeholder="e.g. Why Kaizen stores snapshots as Markdown" required>
+  </field>
+  <field>
+    <label for="nnew-body">Body (Markdown)</label>
+    <textarea id="nnew-body" name="body" rows="5"></textarea>
+  </field>
+  <button type="submit">Create note</button>
+</form>
 {% endblock %}
