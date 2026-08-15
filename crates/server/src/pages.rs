@@ -131,6 +131,8 @@ struct DashboardTemplate {
     csrf_token: String,
     counts: DashboardCountsView,
     projects: Vec<ProjectView>,
+    /// Open the create-project form (after a rejected empty-title submit).
+    create_open: bool,
 }
 
 struct DashboardCountsView {
@@ -702,6 +704,7 @@ pub(crate) async fn dashboard_page(
             open_decisions: counts.open_decisions,
         },
         projects: views,
+        create_open: flash.flash.as_deref() == Some("invalid_title"),
     })
 }
 

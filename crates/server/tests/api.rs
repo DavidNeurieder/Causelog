@@ -483,6 +483,53 @@ async fn project_and_goal_crud() {
 }
 
 #[tokio::test]
+async fn dashboard_create_form_has_visible_title() {
+    let app = test_app().await;
+    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+
+    // The dashboard's create-project form must expose a real, visible title
+    // field — not a hidden empty one (that made the UI unable to create
+    // projects while claiming "A title is required").
+    let res = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+    assert!(
+        body.contains(r#"form method="post" action="/projects""#),
+        "create form posts to /projects: {body}"
+    );
+    assert!(
+        body.contains(r#"name="title" required"#),
+        "visible title input present: {body}"
+    );
+    assert!(
+        !body.contains(r#"type="hidden" name="title""#),
+        "title must not be a hidden input: {body}"
+    );
+    assert!(
+        !body.contains("<details class=\"create-project\" open"),
+        "form closed by default: {body}"
+    );
+
+    // After a rejected empty-title submit the form is opened automatically, so
+    // the "title is required" flash is immediately actionable.
+    let res = send(
+        &app,
+        with_cookie(get("/dashboard?flash=invalid_title"), &cookie),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+    assert!(
+        body.contains("<details class=\"create-project\" open"),
+        "form auto-opens after invalid_title: {body}"
+    );
+    assert!(
+        body.contains("A title is required."),
+        "flash rendered: {body}"
+    );
+}
+
+#[tokio::test]
 async fn decision_lifecycle_with_history() {
     let app = test_app().await;
     let cookie = format!("kaizen_session={}", setup_via_form(&app).await);

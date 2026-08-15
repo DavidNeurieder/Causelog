@@ -142,7 +142,16 @@ async fn golden_path_journey_and_persistence() {
         .await
         .unwrap();
     assert_eq!(dash.status(), StatusCode::OK);
-    let csrf = extract_csrf(&dash.text().await.unwrap());
+    let dash_html = dash.text().await.unwrap();
+    assert!(
+        dash_html.contains(r#"name="title" required"#),
+        "dashboard exposes a real title field: {dash_html}"
+    );
+    assert!(
+        !dash_html.contains(r#"type="hidden" name="title""#),
+        "title must not be a hidden empty input: {dash_html}"
+    );
+    let csrf = extract_csrf(&dash_html);
     let (status, location, _) = post(
         &client,
         &format!("{}/projects", server.base),

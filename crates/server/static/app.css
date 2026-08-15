@@ -53,6 +53,27 @@ p.notice {
 }
 
 form.inline { display: inline; }
+details.create-project summary {
+  display: inline-block;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  user-select: none;
+}
+details.create-project summary:hover { filter: brightness(1.1); }
+details.create-project summary::-webkit-details-marker { display: none; }
+details.create-project .panel-form {
+  margin-top: 14px;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 460px;
+}
+details.create-project field { margin-bottom: 12px; }
 button.link {
   background: none; border: none; color: var(--muted);
   font: inherit; cursor: pointer; padding: 0;

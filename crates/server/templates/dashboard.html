@@ -3,13 +3,29 @@
 {% block content %}
 <div class="row space-between">
   <h1>Dashboard</h1>
-  <form method="post" action="/projects" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="title" value="">
-    <input type="hidden" name="summary" value="">
-    <input type="hidden" name="status" value="active">
-    <button type="submit" name="create" value="1">New project</button>
-  </form>
+  <details class="create-project" {% if create_open %}open{% endif %}>
+    <summary>New project</summary>
+    <form method="post" action="/projects" class="panel-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <field>
+        <label for="p-title">Title</label>
+        <input id="p-title" name="title" required autofocus>
+      </field>
+      <field>
+        <label for="p-summary">Summary</label>
+        <textarea id="p-summary" name="summary" rows="2"></textarea>
+      </field>
+      <field>
+        <label for="p-status">Status</label>
+        <select id="p-status" name="status">
+          <option value="active">active</option>
+          <option value="paused">paused</option>
+          <option value="archived">archived</option>
+        </select>
+      </field>
+      <button type="submit">Create project</button>
+    </form>
+  </details>
 </div>
 
 <div class="cards">
