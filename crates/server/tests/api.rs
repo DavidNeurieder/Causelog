@@ -811,15 +811,30 @@ async fn experiment_lifecycle_and_timeline() {
     assert!(body.contains("Completed “WAL trial”"), "got: {body}");
     assert!(body.contains("Read latency halved."), "got: {body}");
 
-    // The project overview reflects the lifecycle statistics.
+    // The overview no longer carries statistics; they live on the stats page.
     let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
     let body = body_string(page).await;
-    assert!(body.contains("0/0 goals done"), "got: {body}");
-    assert!(body.contains("experiments done"), "got: {body}");
-    assert!(body.contains("1 experiments"), "header total: got: {body}");
-    assert!(body.contains("observations"), "got: {body}");
+    assert!(
+        !body.contains("Goals completed"),
+        "stats left on overview: got: {body}"
+    );
+
+    // The statistics page reflects the lifecycle counts.
+    let stats_url = format!("{project_url}/stats");
+    let page = send(&app, with_cookie(get(&stats_url), &cookie)).await;
+    let body = body_string(page).await;
     assert!(body.contains("Goals completed"), "got: {body}");
     assert!(body.contains("Decisions decided"), "got: {body}");
+    assert!(body.contains("0/0 (0%)"), "goals progress: got: {body}");
+    assert!(
+        body.contains("abandoned"),
+        "experiment statuses: got: {body}"
+    );
+    assert!(body.contains("observations"), "got: {body}");
+    assert!(
+        body.contains("<span class=\"stat\">1</span>"),
+        "done experiment count: got: {body}"
+    );
 }
 
 #[tokio::test]

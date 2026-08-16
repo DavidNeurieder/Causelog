@@ -152,13 +152,25 @@ struct ProjectTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
-    counts: ProjectCounts,
-    goals_done_pct: i64,
-    decisions_resolved_pct: i64,
     goals: Vec<GoalItemView>,
     decisions: Vec<DecisionItemView>,
     experiments: Vec<ExperimentItemView>,
     notes: Vec<Note>,
+}
+
+#[derive(Template)]
+#[template(path = "stats.html")]
+struct ProjectStatsTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    counts: ProjectCounts,
+    goals_done_pct: i64,
+    decisions_resolved_pct: i64,
 }
 
 #[derive(Template)]
@@ -903,9 +915,6 @@ pub(crate) async fn project_page(
     let decisions = state.repo.list_decisions(project_id).await?;
     let experiments = state.repo.list_experiments(project_id).await?;
     let notes = state.repo.list_notes(project_id).await?;
-    let counts: ProjectCounts = state.repo.project_counts(project_id).await?;
-    let goals_done_pct = percent(counts.goals_done, counts.goals_total);
-    let decisions_resolved_pct = percent(counts.decisions_decided, counts.decisions_total);
     page(&ProjectTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -914,9 +923,6 @@ pub(crate) async fn project_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
-        counts,
-        goals_done_pct,
-        decisions_resolved_pct,
         goals: goals.into_iter().take(5).collect(),
         decisions: decisions
             .into_iter()
@@ -941,6 +947,33 @@ pub(crate) async fn project_page(
             })
             .collect(),
         notes: notes.into_iter().take(5).collect(),
+    })
+}
+
+pub(crate) async fn project_stats_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project(&state, &id).await?;
+    let project_id = project.id;
+    let counts: ProjectCounts = state.repo.project_counts(project_id).await?;
+    let goals_done_pct = percent(counts.goals_done, counts.goals_total);
+    let decisions_resolved_pct = percent(counts.decisions_decided, counts.decisions_total);
+    page(&ProjectStatsTemplate {
+        authed: true,
+        flash: String::new(),
+        flash_kind: "",
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        counts,
+        goals_done_pct,
+        decisions_resolved_pct,
     })
 }
 

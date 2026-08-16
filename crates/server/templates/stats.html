@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ project.title }} · Statistics · Kaizen{% endblock %}
+{% block content %}
+{% call m::crumb(project) %}
+<div class="row space-between">
+  <div>
+    <h1>Statistics</h1>
+    <p class="muted">How this project is tracking, at a glance.</p>
+  </div>
+</div>
+{% call m::subnav(project, "stats") %}
+
+<div class="completion">
+  <div class="progress-block">
+    <div class="row space-between">
+      <span class="label">Goals completed</span>
+      <span class="muted small">{{ counts.goals_done }}/{{ counts.goals_total }} ({{ goals_done_pct }}%)</span>
+    </div>
+    <div class="progress"><span style="width: {{ goals_done_pct }}%"></span></div>
+  </div>
+  <div class="progress-block">
+    <div class="row space-between">
+      <span class="label">Decisions decided</span>
+      <span class="muted small">{{ counts.decisions_decided }}/{{ counts.decisions_total }} ({{ decisions_resolved_pct }}%)</span>
+    </div>
+    <div class="progress"><span style="width: {{ decisions_resolved_pct }}%"></span></div>
+  </div>
+</div>
+
+<h2>Goals</h2>
+<div class="cards">
+  <div class="card"><span class="stat">{{ counts.goals_done }}/{{ counts.goals_total }}</span><span class="label">done / total</span></div>
+  <div class="card"><span class="stat">{{ counts.goals_open }}</span><span class="label">open</span></div>
+  <div class="card"><span class="stat">{{ counts.goals_dropped }}</span><span class="label">dropped</span></div>
+</div>
+
+<h2>Decisions</h2>
+<div class="cards">
+  <div class="card"><span class="stat">{{ counts.decisions_decided }}</span><span class="label">decided</span></div>
+  <div class="card"><span class="stat">{{ counts.decisions_open }}</span><span class="label">open</span></div>
+  <div class="card"><span class="stat">{{ counts.decisions_rejected }}</span><span class="label">rejected</span></div>
+</div>
+
+<h2>Experiments</h2>
+<div class="cards">
+  <div class="card"><span class="stat">{{ counts.experiments_done }}</span><span class="label">done</span></div>
+  <div class="card"><span class="stat">{{ counts.experiments_running }}</span><span class="label">running</span></div>
+  <div class="card"><span class="stat">{{ counts.experiments_planned }}</span><span class="label">planned</span></div>
+  <div class="card"><span class="stat">{{ counts.experiments_abandoned }}</span><span class="label">abandoned</span></div>
+</div>
+
+<h2>Knowledge</h2>
+<div class="cards">
+  <div class="card"><span class="stat">{{ counts.notes }}</span><span class="label">notes</span></div>
+  <div class="card"><span class="stat">{{ counts.links }}</span><span class="label">links</span></div>
+  <div class="card"><span class="stat">{{ counts.events }}</span><span class="label">observations</span></div>
+</div>
+{% endblock %}
