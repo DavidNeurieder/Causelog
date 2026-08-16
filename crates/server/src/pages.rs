@@ -20,7 +20,9 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::auth;
 use crate::error::ApiError;
-use crate::repository::{GraphData, ProjectCounts, RepositoryError, SearchRow, TimelineEntry};
+use crate::repository::{
+    DashboardCounts, GraphData, ProjectCounts, RepositoryError, SearchRow, TimelineEntry,
+};
 
 // ---------------------------------------------------------------------------
 // Template structs
@@ -134,18 +136,10 @@ struct DashboardTemplate {
     year: u32,
     display_name: String,
     csrf_token: String,
-    counts: DashboardCountsView,
+    counts: DashboardCounts,
     projects: Vec<ProjectView>,
     /// Open the create-project form (after a rejected empty-title submit).
     create_open: bool,
-}
-
-struct DashboardCountsView {
-    projects: i64,
-    open_goals: i64,
-    done_goals: i64,
-    decisions: i64,
-    open_decisions: i64,
 }
 
 #[derive(Template)]
@@ -158,18 +152,13 @@ struct ProjectTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
-    counts: ProjectCountsView,
+    counts: ProjectCounts,
+    goals_done_pct: i64,
+    decisions_resolved_pct: i64,
     goals: Vec<Goal>,
     decisions: Vec<DecisionItemView>,
     experiments: Vec<ExperimentItemView>,
     notes: Vec<Note>,
-}
-
-struct ProjectCountsView {
-    open_goals: i64,
-    total_goals: i64,
-    decisions: i64,
-    open_decisions: i64,
 }
 
 #[derive(Template)]
@@ -418,12 +407,10 @@ fn edit_option(options: &[DecisionOption], index: usize) -> EditOption {
     }
 }
 
-/// Project row on the dashboard, with goal/decision counts.
+/// Project row on the dashboard, with aggregate counts.
 struct ProjectView {
     project: Project,
-    open_goals: i64,
-    total_goals: i64,
-    decisions: i64,
+    counts: ProjectCounts,
 }
 
 /// One selectable entity in a "relate" form.
@@ -532,6 +519,12 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 
 fn current_year() -> u32 {
     civil_from_days(now_ms().div_euclid(86_400_000)).0 as u32
+}
+
+/// Integer percentage of `part` within `total`; 0 when there is nothing to
+/// measure yet.
+fn percent(part: i64, total: i64) -> i64 {
+    if total <= 0 { 0 } else { part * 100 / total }
 }
 
 fn flash_message(key: Option<&str>) -> String {
@@ -813,13 +806,8 @@ pub(crate) async fn dashboard_page(
     let projects = state.repo.list_projects().await?;
     let mut views = Vec::with_capacity(projects.len());
     for p in projects {
-        let pc = state.repo.project_counts(p.id).await?;
-        views.push(ProjectView {
-            project: p,
-            open_goals: pc.open_goals,
-            total_goals: pc.total_goals,
-            decisions: pc.decisions,
-        });
+        let counts = state.repo.project_counts(p.id).await?;
+        views.push(ProjectView { project: p, counts });
     }
     page(&DashboardTemplate {
         authed: true,
@@ -828,13 +816,7 @@ pub(crate) async fn dashboard_page(
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
-        counts: DashboardCountsView {
-            projects: counts.projects,
-            open_goals: counts.open_goals,
-            done_goals: counts.done_goals,
-            decisions: counts.decisions,
-            open_decisions: counts.open_decisions,
-        },
+        counts,
         projects: views,
         create_open: flash.flash.as_deref() == Some("invalid_title"),
     })
@@ -886,7 +868,9 @@ pub(crate) async fn project_page(
     let decisions = state.repo.list_decisions(project_id).await?;
     let experiments = state.repo.list_experiments(project_id).await?;
     let notes = state.repo.list_notes(project_id).await?;
-    let pc: ProjectCounts = state.repo.project_counts(project_id).await?;
+    let counts: ProjectCounts = state.repo.project_counts(project_id).await?;
+    let goals_done_pct = percent(counts.goals_done, counts.goals_total);
+    let decisions_resolved_pct = percent(counts.decisions_decided, counts.decisions_total);
     page(&ProjectTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -895,12 +879,9 @@ pub(crate) async fn project_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
-        counts: ProjectCountsView {
-            open_goals: pc.open_goals,
-            total_goals: pc.total_goals,
-            decisions: pc.decisions,
-            open_decisions: pc.open_decisions,
-        },
+        counts,
+        goals_done_pct,
+        decisions_resolved_pct,
         goals: goals.into_iter().take(5).collect(),
         decisions: decisions
             .into_iter()

@@ -33,7 +33,9 @@
   <div class="card"><span class="stat">{{ counts.open_goals }}</span><span class="label">open goals</span></div>
   <div class="card"><span class="stat">{{ counts.done_goals }}</span><span class="label">goals done</span></div>
   <div class="card"><span class="stat">{{ counts.decisions }}</span><span class="label">decisions</span></div>
-  <div class="card"><span class="stat">{{ counts.open_decisions }}</span><span class="label">open decisions</span></div>
+  <div class="card"><span class="stat">{{ counts.decisions_decided }}</span><span class="label">decisions decided</span></div>
+  <div class="card"><span class="stat">{{ counts.experiments_total }}</span><span class="label">experiments</span></div>
+  <div class="card"><span class="stat">{{ counts.notes_total }}</span><span class="label">notes</span></div>
 </div>
 
 {% if projects.is_empty() %}
@@ -51,7 +53,7 @@
       {% if !pv.project.summary.is_empty() %}<p class="muted">{{ pv.project.summary }}</p>{% endif %}
     </div>
     <div class="muted small">
-      {{ pv.open_goals }}/{{ pv.total_goals }} goals · {{ pv.decisions }} decisions
+      {{ pv.counts.goals_done }}/{{ pv.counts.goals_total }} goals done · {{ pv.counts.decisions_total }} decisions ({{ pv.counts.decisions_decided }} decided) · {{ pv.counts.experiments_total }} experiments · {{ pv.counts.notes }} notes
     </div>
   </div>
   {% endfor %}

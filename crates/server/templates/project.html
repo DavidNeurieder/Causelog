@@ -6,8 +6,9 @@
   <div>
     <h1>{{ project.title }}</h1>
     <p class="muted">
-      {{ counts.open_goals }}/{{ counts.total_goals }} goals open ·
-      {{ counts.decisions }} decisions ({{ counts.open_decisions }} open)
+      {{ counts.goals_done }}/{{ counts.goals_total }} goals done ·
+      {{ counts.decisions_total }} decisions ({{ counts.decisions_open }} open) ·
+      {{ counts.experiments_total }} experiments · {{ counts.notes }} notes
     </p>
   </div>
   <form method="post" action="/projects/{{ project.id }}/delete" class="inline">
@@ -47,10 +48,32 @@
 </details>
 
 <div class="cards">
-  <div class="card"><span class="stat">{{ counts.open_goals }}</span><span class="label">open goals</span></div>
-  <div class="card"><span class="stat">{{ counts.total_goals }}</span><span class="label">goals</span></div>
-  <div class="card"><span class="stat">{{ counts.open_decisions }}</span><span class="label">open decisions</span></div>
-  <div class="card"><span class="stat">{{ counts.decisions }}</span><span class="label">decisions</span></div>
+  <div class="card"><span class="stat">{{ counts.goals_done }}/{{ counts.goals_total }}</span><span class="label">goals done</span></div>
+  <div class="card"><span class="stat">{{ counts.goals_open }}</span><span class="label">goals open</span></div>
+  <div class="card"><span class="stat">{{ counts.decisions_decided }}</span><span class="label">decisions decided</span></div>
+  <div class="card"><span class="stat">{{ counts.decisions_open }}</span><span class="label">decisions open</span></div>
+  <div class="card"><span class="stat">{{ counts.experiments_done }}</span><span class="label">experiments done</span></div>
+  <div class="card"><span class="stat">{{ counts.experiments_running }}</span><span class="label">experiments running</span></div>
+  <div class="card"><span class="stat">{{ counts.notes }}</span><span class="label">notes</span></div>
+  <div class="card"><span class="stat">{{ counts.links }}</span><span class="label">links</span></div>
+  <div class="card"><span class="stat">{{ counts.events }}</span><span class="label">observations</span></div>
+</div>
+
+<div class="completion">
+  <div class="progress-block">
+    <div class="row space-between">
+      <span class="label">Goals completed</span>
+      <span class="muted small">{{ counts.goals_done }}/{{ counts.goals_total }} ({{ goals_done_pct }}%)</span>
+    </div>
+    <div class="progress"><span style="width: {{ goals_done_pct }}%"></span></div>
+  </div>
+  <div class="progress-block">
+    <div class="row space-between">
+      <span class="label">Decisions decided</span>
+      <span class="muted small">{{ counts.decisions_decided }}/{{ counts.decisions_total }} ({{ decisions_resolved_pct }}%)</span>
+    </div>
+    <div class="progress"><span style="width: {{ decisions_resolved_pct }}%"></span></div>
+  </div>
 </div>
 
 <div class="row quick-add">

@@ -810,6 +810,16 @@ async fn experiment_lifecycle_and_timeline() {
     );
     assert!(body.contains("Completed “WAL trial”"), "got: {body}");
     assert!(body.contains("Read latency halved."), "got: {body}");
+
+    // The project overview reflects the lifecycle statistics.
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("0/0 goals done"), "got: {body}");
+    assert!(body.contains("experiments done"), "got: {body}");
+    assert!(body.contains("1 experiments"), "header total: got: {body}");
+    assert!(body.contains("observations"), "got: {body}");
+    assert!(body.contains("Goals completed"), "got: {body}");
+    assert!(body.contains("Decisions decided"), "got: {body}");
 }
 
 #[tokio::test]

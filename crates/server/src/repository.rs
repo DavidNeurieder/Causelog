@@ -287,19 +287,35 @@ pub struct TimelineEntry {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DashboardCounts {
     pub projects: i64,
+    pub goals_total: i64,
     pub open_goals: i64,
     pub done_goals: i64,
     pub decisions: i64,
     pub open_decisions: i64,
+    pub decisions_decided: i64,
+    pub experiments_total: i64,
+    pub notes_total: i64,
 }
 
 /// Aggregate counters for a single project.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ProjectCounts {
-    pub open_goals: i64,
-    pub total_goals: i64,
-    pub decisions: i64,
-    pub open_decisions: i64,
+    pub goals_total: i64,
+    pub goals_open: i64,
+    pub goals_done: i64,
+    pub goals_dropped: i64,
+    pub decisions_total: i64,
+    pub decisions_open: i64,
+    pub decisions_decided: i64,
+    pub decisions_rejected: i64,
+    pub experiments_total: i64,
+    pub experiments_planned: i64,
+    pub experiments_running: i64,
+    pub experiments_done: i64,
+    pub experiments_abandoned: i64,
+    pub notes: i64,
+    pub links: i64,
+    pub events: i64,
 }
 
 /// SQLite-backed repository (solo mode).
@@ -644,59 +660,118 @@ impl Repository for SqliteRepository {
         let projects: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects")
             .fetch_one(&self.pool)
             .await?;
-        let open_goals: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM goals WHERE status = 'open'")
-                .fetch_one(&self.pool)
-                .await?;
-        let done_goals: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM goals WHERE status = 'done'")
-                .fetch_one(&self.pool)
-                .await?;
+        let goals_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM goals")
+            .fetch_one(&self.pool)
+            .await?;
         let decisions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
             .fetch_one(&self.pool)
             .await?;
-        let open_decisions: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE status = 'open'")
-                .fetch_one(&self.pool)
+        let experiments_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM experiments")
+            .fetch_one(&self.pool)
+            .await?;
+        let notes_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notes")
+            .fetch_one(&self.pool)
+            .await?;
+        let goals = sqlx::query("SELECT status, COUNT(*) FROM goals GROUP BY status")
+            .fetch_all(&self.pool)
+            .await?;
+        let decisions_by_status =
+            sqlx::query("SELECT status, COUNT(*) FROM decisions GROUP BY status")
+                .fetch_all(&self.pool)
                 .await?;
-        Ok(DashboardCounts {
+        let mut counts = DashboardCounts {
             projects,
-            open_goals,
-            done_goals,
+            goals_total,
             decisions,
-            open_decisions,
-        })
+            experiments_total,
+            notes_total,
+            ..DashboardCounts::default()
+        };
+        for row in goals {
+            match row.get::<String, _>(0).as_str() {
+                "open" => counts.open_goals = row.get(1),
+                "done" => counts.done_goals = row.get(1),
+                _ => {}
+            }
+        }
+        for row in decisions_by_status {
+            match row.get::<String, _>(0).as_str() {
+                "open" => counts.open_decisions = row.get(1),
+                "decided" => counts.decisions_decided = row.get(1),
+                _ => {}
+            }
+        }
+        Ok(counts)
     }
 
     async fn project_counts(&self, project_id: Uuid) -> Result<ProjectCounts, RepositoryError> {
-        let open_goals: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM goals WHERE project_id = ? AND status = 'open'",
+        let pid = project_id.to_string();
+        let goals =
+            sqlx::query("SELECT status, COUNT(*) FROM goals WHERE project_id = ? GROUP BY status")
+                .bind(&pid)
+                .fetch_all(&self.pool)
+                .await?;
+        let decisions = sqlx::query(
+            "SELECT status, COUNT(*) FROM decisions WHERE project_id = ? GROUP BY status",
         )
-        .bind(project_id.to_string())
+        .bind(&pid)
+        .fetch_all(&self.pool)
+        .await?;
+        let experiments = sqlx::query(
+            "SELECT status, COUNT(*) FROM experiments WHERE project_id = ? GROUP BY status",
+        )
+        .bind(&pid)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut counts = ProjectCounts::default();
+        for row in goals {
+            match row.get::<String, _>(0).as_str() {
+                "open" => counts.goals_open = row.get(1),
+                "done" => counts.goals_done = row.get(1),
+                "dropped" => counts.goals_dropped = row.get(1),
+                _ => {}
+            }
+        }
+        for row in decisions {
+            match row.get::<String, _>(0).as_str() {
+                "open" => counts.decisions_open = row.get(1),
+                "decided" => counts.decisions_decided = row.get(1),
+                "rejected" => counts.decisions_rejected = row.get(1),
+                _ => {}
+            }
+        }
+        for row in experiments {
+            match row.get::<String, _>(0).as_str() {
+                "planned" => counts.experiments_planned = row.get(1),
+                "running" => counts.experiments_running = row.get(1),
+                "done" => counts.experiments_done = row.get(1),
+                "abandoned" => counts.experiments_abandoned = row.get(1),
+                _ => {}
+            }
+        }
+        counts.goals_total = counts.goals_open + counts.goals_done + counts.goals_dropped;
+        counts.decisions_total =
+            counts.decisions_open + counts.decisions_decided + counts.decisions_rejected;
+        counts.experiments_total = counts.experiments_planned
+            + counts.experiments_running
+            + counts.experiments_done
+            + counts.experiments_abandoned;
+        counts.notes = sqlx::query_scalar("SELECT COUNT(*) FROM notes WHERE project_id = ?")
+            .bind(&pid)
+            .fetch_one(&self.pool)
+            .await?;
+        counts.links = sqlx::query_scalar("SELECT COUNT(*) FROM links WHERE project_id = ?")
+            .bind(&pid)
+            .fetch_one(&self.pool)
+            .await?;
+        counts.events = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM events e JOIN experiments x ON e.experiment_id = x.id
+             WHERE x.project_id = ?",
+        )
+        .bind(&pid)
         .fetch_one(&self.pool)
         .await?;
-        let total_goals: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM goals WHERE project_id = ?")
-                .bind(project_id.to_string())
-                .fetch_one(&self.pool)
-                .await?;
-        let decisions: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE project_id = ?")
-                .bind(project_id.to_string())
-                .fetch_one(&self.pool)
-                .await?;
-        let open_decisions: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM decisions WHERE project_id = ? AND status = 'open'",
-        )
-        .bind(project_id.to_string())
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(ProjectCounts {
-            open_goals,
-            total_goals,
-            decisions,
-            open_decisions,
-        })
+        Ok(counts)
     }
 
     // -----------------------------------------------------------------------
