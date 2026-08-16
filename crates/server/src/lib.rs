@@ -37,20 +37,29 @@ fn router(state: AppState) -> Router {
             get(pages::project_page).post(pages::project_update),
         )
         .route("/projects/{id}/delete", post(pages::project_delete))
-        .route("/projects/{id}/goals", post(pages::goal_create))
+        .route(
+            "/projects/{id}/goals",
+            get(pages::project_goals_page).post(pages::goal_create),
+        )
         .route("/projects/{id}/goals/{goal_id}", post(pages::goal_update))
         .route(
             "/projects/{id}/goals/{goal_id}/delete",
             post(pages::goal_delete),
         )
-        .route("/projects/{id}/decisions", post(pages::decision_create))
+        .route(
+            "/projects/{id}/decisions",
+            get(pages::project_decisions_page).post(pages::decision_create),
+        )
         .route(
             "/decisions/{id}",
             get(pages::decision_page).post(pages::decision_update),
         )
         .route("/decisions/{id}/resolve", post(pages::decision_resolve))
         .route("/decisions/{id}/delete", post(pages::decision_delete))
-        .route("/projects/{id}/experiments", post(pages::experiment_create))
+        .route(
+            "/projects/{id}/experiments",
+            get(pages::project_experiments_page).post(pages::experiment_create),
+        )
         .route("/projects/{id}/timeline", get(pages::timeline_page))
         .route(
             "/experiments/{id}",
@@ -63,7 +72,10 @@ fn router(state: AppState) -> Router {
             "/experiments/{id}/events/{event_id}/delete",
             post(pages::event_delete),
         )
-        .route("/projects/{id}/notes", post(pages::note_create))
+        .route(
+            "/projects/{id}/notes",
+            get(pages::project_notes_page).post(pages::note_create),
+        )
         .route(
             "/notes/{id}",
             get(pages::note_page).post(pages::note_update),

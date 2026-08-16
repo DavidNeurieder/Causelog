@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ project.title }} · Experiments · Kaizen{% endblock %}
+{% block content %}
+{% call m::crumb(project) %}
+<h1>Experiments</h1>
+<p class="muted">An experiment tests a falsifiable hypothesis. Its lifecycle and observations make up this project's <a href="/projects/{{ project.id }}/timeline">timeline</a>.</p>
+{% call m::subnav(project, "experiments") %}
+
+{% call m::create_experiment(project, goals, decisions, csrf_token) %}
+
+<h2>All experiments</h2>
+{% if experiments.is_empty() %}
+{% call m::section_empty("No experiments yet — start the first one above.") %}
+{% else %}
+{% call m::experiment_list(experiments) %}
+{% endif %}
+{% endblock %}

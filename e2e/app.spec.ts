@@ -107,14 +107,16 @@ test('dashboard creates a project through the real form', async ({ browser }) =>
 
 test('a goal, a linked decision, and a linked experiment can be recorded', async ({ browser }) => {
 	const page = await adminPage(browser);
-	await page.goto(projectUrl);
 
+	// Goals live on their own page; the create form sits at the top.
+	await page.goto(`${projectUrl}/goals`);
 	await page.locator('#gnew-title').fill(GOAL);
 	await page.locator('#gnew-body').fill('Search must find decisions by what is at stake.');
 	await page.getByRole('button', { name: 'Add goal' }).click();
 	await expect(page.locator('section.list .row.item', { hasText: GOAL })).toBeVisible();
 
 	// Decision with two options, tied to the goal.
+	await page.goto(`${projectUrl}/decisions`);
 	await page.locator('#dnew-title').fill(DECISION);
 	await page.locator('#dnew-context').fill('The API needs persistence. Dilithium crystals are out.');
 	await page.locator('#dnew-goal').selectOption({ label: GOAL });
@@ -126,16 +128,16 @@ test('a goal, a linked decision, and a linked experiment can be recorded', async
 	await page.locator('#dnew-o2c').fill('A server to run.');
 	await page.getByRole('button', { name: 'Create decision' }).click();
 	await expect(page.locator('section.list .row.item', { hasText: DECISION })).toBeVisible();
+	decisionUrl = (await page.getByRole('link', { name: DECISION }).getAttribute('href'))!;
 
 	// Experiment that tests the decision and serves the goal.
+	await page.goto(`${projectUrl}/experiments`);
 	await page.locator('#enew-title').fill(EXPERIMENT);
 	await page.locator('#enew-hypothesis').fill('WAL keeps reads and writes fast enough without a server.');
 	await page.locator('#enew-goal').selectOption({ label: GOAL });
 	await page.locator('#enew-decision').selectOption({ label: DECISION });
 	await page.getByRole('button', { name: 'Start experiment' }).click();
 	await expect(page.locator('section.list .row.item', { hasText: EXPERIMENT })).toBeVisible();
-
-	decisionUrl = (await page.getByRole('link', { name: DECISION }).getAttribute('href'))!;
 	experimentUrl = (await page.getByRole('link', { name: EXPERIMENT }).getAttribute('href'))!;
 	await page.context().close();
 });

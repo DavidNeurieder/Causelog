@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ project.title }} · Goals · Kaizen{% endblock %}
+{% block content %}
+{% call m::crumb(project) %}
+<h1>Goals</h1>
+<p class="muted">Goals say what “done” looks like for this project.</p>
+{% call m::subnav(project, "goals") %}
+
+{% call m::create_goal(project, csrf_token) %}
+
+<h2>All goals</h2>
+{% if goals.is_empty() %}
+{% call m::section_empty("No goals yet — create the first one above.") %}
+{% else %}
+{% call m::goal_list(project, goals, csrf_token) %}
+{% endif %}
+{% endblock %}

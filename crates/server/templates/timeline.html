@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "macros.html" as m %}
 {% block title %}Timeline · {{ project.title }} · Kaizen{% endblock %}
 {% block content %}
 <div class="row space-between">
@@ -8,6 +9,8 @@
   </div>
   <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
 </div>
+
+{% call m::subnav(project, "timeline") %}
 
 {% if entries.is_empty() %}
 <p class="muted">Nothing here yet. Start an experiment and log observations to build the story of this project.</p>

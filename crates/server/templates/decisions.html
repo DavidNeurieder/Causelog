@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ project.title }} · Decisions · Kaizen{% endblock %}
+{% block content %}
+{% call m::crumb(project) %}
+<h1>Decisions</h1>
+<p class="muted">A decision is a trade-off you recorded: the options you weighed and, once resolved, the choice and the rationale.</p>
+{% call m::subnav(project, "decisions") %}
+
+{% call m::create_decision(project, goals, csrf_token) %}
+
+<h2>All decisions</h2>
+{% if decisions.is_empty() %}
+{% call m::section_empty("No decisions yet — record the first one above.") %}
+{% else %}
+{% call m::decision_list(decisions) %}
+{% endif %}
+{% endblock %}

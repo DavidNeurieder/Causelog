@@ -586,11 +586,15 @@ async fn decision_lifecycle_with_history() {
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         redirect_to(&res),
-        format!("{project_url}?flash=decision_created")
+        format!("{project_url}/decisions?flash=decision_created")
     );
 
-    // The project page links to the new decision.
-    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    // The decisions page links to the new decision.
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/decisions")), &cookie),
+    )
+    .await;
     let body = body_string(page).await;
     let decision_url = extract_href(&body, "/decisions/");
     assert!(decision_url.starts_with("/decisions/"), "got: {body}");
@@ -638,8 +642,12 @@ async fn decision_lifecycle_with_history() {
         "got: {body}"
     );
 
-    // The project page lists the decided decision.
-    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    // The decisions page lists the decided decision.
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/decisions")), &cookie),
+    )
+    .await;
     let body = body_string(page).await;
     assert!(body.contains("Which datastore?"), "got: {body}");
     assert!(body.contains("status-decided"), "got: {body}");
@@ -694,11 +702,15 @@ async fn experiment_lifecycle_and_timeline() {
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         redirect_to(&res),
-        format!("{project_url}?flash=experiment_created")
+        format!("{project_url}/experiments?flash=experiment_created")
     );
 
-    // The project page links to the experiment.
-    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    // The experiments page links to the experiment.
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/experiments")), &cookie),
+    )
+    .await;
     let body = body_string(page).await;
     let exp_url = extract_href(&body, "/experiments/");
     assert!(exp_url.starts_with("/experiments/"), "got: {body}");
@@ -843,7 +855,11 @@ async fn knowledge_capture_and_graph() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
-    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &cookie),
+    )
+    .await;
     let body = body_string(page).await;
     let goal_id = {
         let marker = format!("action=\"{project_url}/goals/");
@@ -880,7 +896,11 @@ async fn knowledge_capture_and_graph() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
-    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/decisions")), &cookie),
+    )
+    .await;
     let body = body_string(page).await;
     let decision_url = extract_href(&body, "/decisions/");
     let decision_id = decision_url
@@ -907,7 +927,11 @@ async fn knowledge_capture_and_graph() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
-    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/experiments")), &cookie),
+    )
+    .await;
     let body = body_string(page).await;
     let exp_url = extract_href(&body, "/experiments/");
 
@@ -1265,7 +1289,11 @@ async fn decision_update_appends_revision() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
-    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/decisions")), &cookie),
+    )
+    .await;
     let body = body_string(page).await;
     let decision_url = extract_href(&body, "/decisions/");
 
@@ -1337,7 +1365,11 @@ async fn resolve_without_chosen_option_reverts_to_open() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER, "decision created");
-    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/decisions")), &cookie),
+    )
+    .await;
     let decision_url = extract_href(&body_string(page).await, "/decisions/");
 
     // status=decided but an empty decided_option: must not stick.
@@ -1392,7 +1424,11 @@ async fn experiment_delete_removes_it_and_its_events() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER, "experiment created");
-    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/experiments")), &cookie),
+    )
+    .await;
     let exp_url = extract_href(&body_string(page).await, "/experiments/");
 
     // Log an event so the cascade has something to delete.
@@ -1427,7 +1463,7 @@ async fn experiment_delete_removes_it_and_its_events() {
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         redirect_to(&res),
-        format!("{project_url}?flash=experiment_deleted")
+        format!("{project_url}/experiments?flash=experiment_deleted")
     );
 
     let res = send(&app, with_cookie(get(&exp_url), &cookie)).await;
@@ -1680,7 +1716,11 @@ async fn search_is_isolated_per_project() {
     assert!(body.contains("B secret"), "got: {body}");
 
     // Deleting note A must not disturb note B's index entry.
-    let page = send(&app, with_cookie(get(&project_a), &cookie)).await;
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_a}/notes")), &cookie),
+    )
+    .await;
     let body = body_string(page).await;
     let note_url = extract_href(&body, "/notes/");
     let res = send(

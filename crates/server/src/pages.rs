@@ -172,6 +172,61 @@ struct ProjectCountsView {
     open_decisions: i64,
 }
 
+#[derive(Template)]
+#[template(path = "goals.html")]
+struct ProjectGoalsTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    goals: Vec<Goal>,
+}
+
+#[derive(Template)]
+#[template(path = "decisions.html")]
+struct ProjectDecisionsTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    goals: Vec<Goal>,
+    decisions: Vec<DecisionItemView>,
+}
+
+#[derive(Template)]
+#[template(path = "experiments.html")]
+struct ProjectExperimentsTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    goals: Vec<Goal>,
+    decisions: Vec<DecisionItemView>,
+    experiments: Vec<ExperimentItemView>,
+}
+
+#[derive(Template)]
+#[template(path = "notes.html")]
+struct ProjectNotesTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    notes: Vec<Note>,
+}
+
 /// Experiment row on a project page.
 struct ExperimentItemView {
     id: String,
@@ -798,6 +853,124 @@ pub(crate) async fn project_page(
             decisions: pc.decisions,
             open_decisions: pc.open_decisions,
         },
+        goals: goals.into_iter().take(5).collect(),
+        decisions: decisions
+            .into_iter()
+            .take(5)
+            .map(|d| {
+                let decided_label = decided_label(&d);
+                DecisionItemView {
+                    id: d.id.to_string(),
+                    title: d.title,
+                    status: d.status,
+                    decided_label,
+                }
+            })
+            .collect(),
+        experiments: experiments
+            .into_iter()
+            .take(5)
+            .map(|e| ExperimentItemView {
+                id: e.id.to_string(),
+                title: e.title,
+                status: e.status,
+            })
+            .collect(),
+        notes: notes.into_iter().take(5).collect(),
+    })
+}
+
+/// Load a project from its id in the URL, or render a 404 page.
+async fn require_project(state: &AppState, id: &str) -> Result<Project, PageError> {
+    let project_id = parse_uuid(id)?;
+    let project = state
+        .repo
+        .find_project(project_id)
+        .await?
+        .ok_or_else(|| not_found("project"))?;
+    Ok(project)
+}
+
+pub(crate) async fn project_goals_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project(&state, &id).await?;
+    let goals = state.repo.list_goals(project.id).await?;
+    page(&ProjectGoalsTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        goals,
+    })
+}
+
+pub(crate) async fn project_decisions_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project(&state, &id).await?;
+    let goals = state.repo.list_goals(project.id).await?;
+    let decisions = state.repo.list_decisions(project.id).await?;
+    page(&ProjectDecisionsTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        goals,
+        decisions: decisions
+            .into_iter()
+            .map(|d| {
+                let decided_label = decided_label(&d);
+                DecisionItemView {
+                    id: d.id.to_string(),
+                    title: d.title,
+                    status: d.status,
+                    decided_label,
+                }
+            })
+            .collect(),
+    })
+}
+
+pub(crate) async fn project_experiments_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project(&state, &id).await?;
+    let goals = state.repo.list_goals(project.id).await?;
+    let decisions = state.repo.list_decisions(project.id).await?;
+    let experiments = state.repo.list_experiments(project.id).await?;
+    page(&ProjectExperimentsTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
         goals,
         decisions: decisions
             .into_iter()
@@ -819,6 +992,28 @@ pub(crate) async fn project_page(
                 status: e.status,
             })
             .collect(),
+    })
+}
+
+pub(crate) async fn project_notes_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project(&state, &id).await?;
+    let notes = state.repo.list_notes(project.id).await?;
+    page(&ProjectNotesTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
         notes,
     })
 }
@@ -887,14 +1082,15 @@ pub(crate) async fn goal_create(
     let project_id = parse_uuid(&id)?;
     if body.title.trim().is_empty() {
         return Ok(
-            Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
+            Redirect::to(&format!("/projects/{project_id}/goals?flash=invalid_title"))
+                .into_response(),
         );
     }
     state
         .repo
         .create_goal(project_id, body.title.trim(), body.body.trim())
         .await?;
-    Ok(Redirect::to(&format!("/projects/{project_id}?flash=goal_created")).into_response())
+    Ok(Redirect::to(&format!("/projects/{project_id}/goals?flash=goal_created")).into_response())
 }
 
 pub(crate) async fn goal_update(
@@ -911,7 +1107,8 @@ pub(crate) async fn goal_update(
     let goal_id = parse_uuid(&goal_id)?;
     if body.title.trim().is_empty() {
         return Ok(
-            Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
+            Redirect::to(&format!("/projects/{project_id}/goals?flash=invalid_title"))
+                .into_response(),
         );
     }
     let status = if matches!(body.status.as_str(), "open" | "done" | "dropped") {
@@ -923,7 +1120,7 @@ pub(crate) async fn goal_update(
         .repo
         .update_goal(goal_id, body.title.trim(), body.body.trim(), status)
         .await?;
-    Ok(Redirect::to(&format!("/projects/{project_id}?flash=goal_updated")).into_response())
+    Ok(Redirect::to(&format!("/projects/{project_id}/goals?flash=goal_updated")).into_response())
 }
 
 pub(crate) async fn goal_delete(
@@ -939,7 +1136,7 @@ pub(crate) async fn goal_delete(
     let project_id = parse_uuid(&project_id)?;
     let goal_id = parse_uuid(&goal_id)?;
     state.repo.delete_goal(goal_id).await?;
-    Ok(Redirect::to(&format!("/projects/{project_id}?flash=goal_deleted")).into_response())
+    Ok(Redirect::to(&format!("/projects/{project_id}/goals?flash=goal_deleted")).into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -1021,9 +1218,10 @@ pub(crate) async fn decision_create(
     let project_id = parse_uuid(&id)?;
     let options = body.options();
     if body.title.trim().is_empty() || options.is_empty() {
-        return Ok(
-            Redirect::to(&format!("/projects/{project_id}?flash=invalid_decision")).into_response(),
-        );
+        return Ok(Redirect::to(&format!(
+            "/projects/{project_id}/decisions?flash=invalid_decision"
+        ))
+        .into_response());
     }
     state
         .repo
@@ -1035,7 +1233,10 @@ pub(crate) async fn decision_create(
             &options,
         )
         .await?;
-    Ok(Redirect::to(&format!("/projects/{project_id}?flash=decision_created")).into_response())
+    Ok(Redirect::to(&format!(
+        "/projects/{project_id}/decisions?flash=decision_created"
+    ))
+    .into_response())
 }
 
 pub(crate) async fn decision_page(
@@ -1223,7 +1424,10 @@ pub(crate) async fn decision_delete(
         .ok_or_else(|| not_found("decision"))?
         .project_id;
     state.repo.delete_decision(decision_id).await?;
-    Ok(Redirect::to(&format!("/projects/{project_id}?flash=decision_deleted")).into_response())
+    Ok(Redirect::to(&format!(
+        "/projects/{project_id}/decisions?flash=decision_deleted"
+    ))
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -1251,9 +1455,10 @@ pub(crate) async fn experiment_create(
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&id)?;
     if body.title.trim().is_empty() {
-        return Ok(
-            Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
-        );
+        return Ok(Redirect::to(&format!(
+            "/projects/{project_id}/experiments?flash=invalid_title"
+        ))
+        .into_response());
     }
     let goal_id = parse_goal_id(&body.goal_id);
     let decision_id = parse_goal_id(&body.decision_id);
@@ -1267,7 +1472,10 @@ pub(crate) async fn experiment_create(
             body.hypothesis.trim(),
         )
         .await?;
-    Ok(Redirect::to(&format!("/projects/{project_id}?flash=experiment_created")).into_response())
+    Ok(Redirect::to(&format!(
+        "/projects/{project_id}/experiments?flash=experiment_created"
+    ))
+    .into_response())
 }
 
 pub(crate) async fn experiment_page(
@@ -1417,7 +1625,10 @@ pub(crate) async fn experiment_delete(
         .ok_or_else(|| not_found("experiment"))?
         .project_id;
     state.repo.delete_experiment(experiment_id).await?;
-    Ok(Redirect::to(&format!("/projects/{project_id}?flash=experiment_deleted")).into_response())
+    Ok(Redirect::to(&format!(
+        "/projects/{project_id}/experiments?flash=experiment_deleted"
+    ))
+    .into_response())
 }
 
 #[derive(Deserialize)]
@@ -1538,7 +1749,8 @@ pub(crate) async fn note_create(
     let project_id = parse_uuid(&id)?;
     if body.title.trim().is_empty() {
         return Ok(
-            Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
+            Redirect::to(&format!("/projects/{project_id}/notes?flash=invalid_title"))
+                .into_response(),
         );
     }
     let note = state
@@ -1655,7 +1867,7 @@ pub(crate) async fn note_delete(
         .ok_or_else(|| not_found("note"))?
         .project_id;
     state.repo.delete_note(note_id).await?;
-    Ok(Redirect::to(&format!("/projects/{project_id}?flash=note_deleted")).into_response())
+    Ok(Redirect::to(&format!("/projects/{project_id}/notes?flash=note_deleted")).into_response())
 }
 
 /// Capture an experiment's lesson as a knowledge note, keeping the source

@@ -474,6 +474,13 @@ a.row-link .chev { color: var(--muted); font-size: 13px; }
 }
 .options .card h3 { margin-top: 0; }
 
+.quick-add {
+  margin: var(--space-2) 0 var(--space-5);
+  flex-wrap: wrap;
+}
+.section-head { margin-top: var(--space-5); }
+.section-head h2 { margin: 0; }
+
 mark { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
 
 /* ---------------------------------------------------------------------------
