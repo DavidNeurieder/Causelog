@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kaizen — Self-hosted engineering decision memory</title>
+  <meta name="description" content="Record the trade-offs you weigh, the experiments that test them, and the lessons you'd otherwise re-learn the hard way. One Rust binary, embedded SQLite, immutable history.">
+  <link rel="canonical" href="https://davidneurieder.github.io/kaizen/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Kaizen">
+  <meta property="og:title" content="Kaizen — Self-hosted engineering decision memory">
+  <meta property="og:description" content="Goal → decision → experiment → lesson → timeline & graph. One Rust binary, embedded SQLite, immutable history.">
+  <meta property="og:url" content="https://davidneurieder.github.io/kaizen/">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Kaizen — Self-hosted engineering decision memory">
+  <meta name="twitter:description" content="Goal → decision → experiment → lesson → timeline & graph. One self-hosted Rust binary with embedded SQLite.">
+  <link rel="stylesheet" href="styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Kaizen",
+    "operatingSystem": "Linux, macOS, Windows",
+    "applicationCategory": "DeveloperApplication",
+    "description": "Self-hosted engineering decision memory: record trade-offs, run experiments, and capture lessons. One Rust binary with embedded SQLite.",
+    "url": "https://davidneurieder.github.io/kaizen/",
+    "softwareVersion": "0.1.0",
+    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <div class="logo" role="img" aria-label="Kaizen logo">
+        <i class="delta"></i>
+        <i class="spark a"></i>
+        <i class="spark b"></i>
+        <i class="spark c"></i>
+      </div>
+      <span class="eyebrow">Rust · Self-hosted · Engineering memory</span>
+      <h1>Kaizen</h1>
+      <p class="lead">A place to record the trade-offs you weigh, the experiments that test them, and the lessons you'd otherwise re-learn the hard way. One binary. Your server. Your data.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#get-started">Get started</a>
+        <a class="btn btn-ghost" href="https://github.com/DavidNeurieder/kaizen">View source</a>
+      </div>
+      <p class="trust">Self-hosted · No Node.js · No database server · AGPL-3.0</p>
+    </div>
+  </header>
+
+  <main>
+    <section class="section" id="features">
+      <div class="container">
+        <h2>Built for the goal → decision → experiment loop</h2>
+        <div class="grid">
+          <div class="card">
+            <div class="icon">🎯</div>
+            <h3>Projects &amp; goals</h3>
+            <p>Every project says what "done" looks like. Goals carry Markdown bodies — bullet points for success criteria, context, anything. Open, done, or dropped: the project statistics page tracks it all.</p>
+          </div>
+          <div class="card">
+            <div class="icon">⚖️</div>
+            <h3>Decisions</h3>
+            <p>The options you weighed, the choice you made, and why. Every edit appends an immutable revision — the record of what you decided and the reasoning behind it can't be silently rewritten.</p>
+          </div>
+          <div class="card">
+            <div class="icon">🧪</div>
+            <h3>Experiments</h3>
+            <p>A falsifiable hypothesis, a lifecycle (planned → running → done/abandoned), and timestamped observations. When you finish, capture the lesson — or let the timeline tell the story.</p>
+          </div>
+          <div class="card">
+            <div class="icon">📝</div>
+            <h3>Notes</h3>
+            <p>Durable knowledge, extracted from experiments or written directly. Every note has the same immutable revision history as decisions, so context is never lost.</p>
+          </div>
+          <div class="card">
+            <div class="icon">🔗</div>
+            <h3>Graph</h3>
+            <p>How everything connects: what serves a goal, what an experiment tests, where a note came from. Typed links — supports, rejects, follows, related — make the structure explorable.</p>
+          </div>
+          <div class="card">
+            <div class="icon">📅</div>
+            <h3>Timeline</h3>
+            <p>The story of a project in order: when things started, when you measured, when you stopped. Newest first — so the latest context is always right there.</p>
+          </div>
+          <div class="card">
+            <div class="icon">🔍</div>
+            <h3>Full-text search</h3>
+            <p>SQLite FTS5 keeps every goal, decision, experiment, and note searchable. The index is kept in sync by database triggers — content written before the index existed is still found.</p>
+          </div>
+          <div class="card">
+            <div class="icon">📊</div>
+            <h3>Statistics</h3>
+            <p>Progress bars for goals completed and decisions decided, plus cards for every status — open, dropped, rejected, planned, abandoned — and knowledge counts. The whole picture, at a glance.</p>
+          </div>
+          <div class="card">
+            <div class="icon">📦</div>
+            <h3>One binary, solo mode</h3>
+            <p>Single <code>kaizen</code> binary with embedded SQLite. Argon2 password hashing, session cookies, CSRF protection, and a seeded demo to try it out in seconds.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-tint" id="how">
+      <div class="container">
+        <h2>How the loop works</h2>
+        <div class="steps">
+          <div class="step">
+            <span class="num">1</span>
+            <div>
+              <h3>Create a project</h3>
+              <p>Open the dashboard, create a project with a title and summary. The project is the container for everything — goals, decisions, experiments, notes.</p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="num">2</span>
+            <div>
+              <h3>Define what done looks like</h3>
+              <p>Add goals with Markdown bodies — bullet points for success criteria, metrics, context. The statistics page tracks open, done, and dropped goals with a progress bar.</p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="num">3</span>
+            <div>
+              <h3>Weigh options and decide</h3>
+              <p>Record the alternatives you considered, the choice you made, and the rationale. Every edit is an immutable revision — future-you always has the context.</p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="num">4</span>
+            <div>
+              <h3>Test with an experiment</h3>
+              <p>Write a falsifiable hypothesis, move it through planned → running → done/abandoned, and log timestamped observations as you go.</p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="num">5</span>
+            <div>
+              <h3>Capture the lesson</h3>
+              <p>When the experiment is done, extract a note or write one directly. Link it back to the experiment, the decision, the goal — the graph keeps the web of relationships visible.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="action">
+      <div class="container">
+        <h2>See it in action</h2>
+        <div class="term-grid">
+          <div class="terminal">
+            <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">kaizen serve</span></div>
+            <pre><span class="t-dim">$ ./target/release/kaizen serve</span>
+<span class="t-dim">[info]</span> database ready <span class="t-dim">database_url=sqlite://kaizen.db</span>
+<span class="t-dim">[info]</span> listening on <span class="t-dim">http://127.0.0.1:8080</span>
+
+<span class="t-dim">→ open http://127.0.0.1:8080 — no user exists yet, so you land on</span>
+<span class="t-dim">  /setup to create the owner account. After that: /login.</span></pre>
+          </div>
+
+          <div class="terminal">
+            <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">try it instantly with the demo</span></div>
+            <pre><span class="t-dim">$ ./target/release/kaizen seed-demo</span>
+
+<span class="t-pass">✓</span> <span class="t-dim">user created — login with demo / demo-password</span>
+<span class="t-pass">✓</span> <span class="t-dim">3 projects seeded (Gloria the plant, Tidy the repo, ...)</span>
+
+<span class="t-dim">→ http://127.0.0.1:8080 — log in and explore the golden path</span>
+<span class="t-dim">  Goals → Decisions → Experiments → Notes → Timeline → Graph</span></pre>
+          </div>
+
+          <div class="terminal">
+            <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">the graph shows how everything connects</span></div>
+            <pre><span class="t-dim"># automatic HTTPS — no reverse proxy needed</span>
+<span class="t-dim">$ kaizen serve --tls-domain kaizen.example.com --addr 0.0.0.0:443</span>
+
+<span class="t-pass">✓</span> <span class="t-dim">certificate issued (TLS-ALPN-01) · auto-renewing</span>
+<span class="t-pass">✓</span> <span class="t-dim">HTTP :80 → HTTPS redirect running</span>
+
+<span class="t-dim"># back up the single SQLite file any time</span>
+<span class="t-dim">$ sqlite3 kaizen.db .backup kaizen-backup.db</span></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-tint" id="get-started">
+      <div class="container">
+        <h2>Get started in two minutes</h2>
+        <p class="center">Build the single binary, run it, and finish setup in the browser. No Node.js in production, no database server, no config files for 90% of installs.</p>
+        <div class="centered-code">
+          <pre class="code-block"><code># Build the release binary
+cargo build --release --bin kaizen
+
+# Start the server (creates kaizen.db)
+./target/release/kaizen serve
+
+# Open http://127.0.0.1:8080 → /setup wizard, then explore the demo
+
+# Or try the pre-seeded demo
+./target/release/kaizen seed-demo
+# login: demo / demo-password
+
+# Automatic HTTPS
+./target/release/kaizen serve --tls-domain kaizen.example.com --addr 0.0.0.0:443
+
+# Back up the database
+sqlite3 kaizen.db .backup kaizen-backup.db</code></pre>
+        </div>
+
+        <h3 class="center">The tests that keep it honest</h3>
+        <div class="centered-code">
+          <pre class="code-block"><code>cargo test --workspace                     # unit, integration, E2E
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+cd e2e &amp;&amp; npm run test:e2e                    # real browser vs the real binary</code></pre>
+        </div>
+
+        <p class="note">Three layers of tests: pure-function unit tests, full HTTP integration tests against an in-memory database, and browser E2E via Playwright that drives the golden path through real Chromium.</p>
+
+        <p class="center">Docs: <a href="https://github.com/DavidNeurieder/kaizen/blob/main/README.md">README</a> · <a href="https://github.com/DavidNeurieder/kaizen/blob/main/LICENSE">License</a></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>Kaizen — version 0.1.0 · AGPL-3.0-only — <a href="https://github.com/DavidNeurieder/kaizen/blob/main/LICENSE">License</a> · <a href="https://github.com/DavidNeurieder/kaizen">Source</a></p>
+    </div>
+  </footer>
+</body>
+</html>
