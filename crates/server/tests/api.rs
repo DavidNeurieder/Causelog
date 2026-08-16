@@ -872,8 +872,8 @@ async fn knowledge_capture_and_graph() {
     .await;
     let body = body_string(page).await;
     let goal_id = {
-        let marker = format!("action=\"{project_url}/goals/");
-        let start = body.find(&marker).expect("goal form") + marker.len();
+        let marker = r#"href="/goals/"#;
+        let start = body.find(marker).expect("goal link") + marker.len();
         let rest = &body[start..];
         let end = rest.find('"').expect("closing quote");
         rest[..end].to_string()
@@ -917,6 +917,22 @@ async fn knowledge_capture_and_graph() {
         .strip_prefix("/decisions/")
         .unwrap()
         .to_string();
+
+    // The goal opens to its own page, listing what serves it.
+    let page = send(
+        &app,
+        with_cookie(get(&format!("/goals/{goal_id}")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(body.contains("Recall decisions fast"), "got: {body}");
+    assert!(body.contains("status-open"), "got: {body}");
+    assert!(body.contains("Served by decisions"), "got: {body}");
+    assert!(body.contains("Which datastore?"), "got: {body}");
+    assert!(
+        body.contains(&format!(r#"action="{project_url}/goals/{goal_id}""#)),
+        "goal edit form: got: {body}"
+    );
 
     // Experiment resolving the decision; capture its lesson as a note.
     let res = send(

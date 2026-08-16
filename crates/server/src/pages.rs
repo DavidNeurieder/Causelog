@@ -175,6 +175,22 @@ struct ProjectGoalsTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "goal.html")]
+struct GoalTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    goal: Goal,
+    body_html: String,
+    decisions: Vec<DecisionItemView>,
+    experiments: Vec<ExperimentItemView>,
+}
+
+#[derive(Template)]
 #[template(path = "decisions.html")]
 struct ProjectDecisionsTemplate {
     authed: bool,
@@ -1030,6 +1046,70 @@ pub(crate) async fn project_notes_page(
     })
 }
 
+pub(crate) async fn goal_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let goal_id = parse_uuid(&id)?;
+    let goal = state
+        .repo
+        .find_goal(goal_id)
+        .await?
+        .ok_or_else(|| not_found("goal"))?;
+    let project = state
+        .repo
+        .find_project(goal.project_id)
+        .await?
+        .ok_or_else(|| not_found("project"))?;
+    let decisions = state
+        .repo
+        .list_decisions(goal.project_id)
+        .await?
+        .into_iter()
+        .filter(|d| d.goal_id == Some(goal.id))
+        .map(|d| {
+            let decided_label = decided_label(&d);
+            DecisionItemView {
+                id: d.id.to_string(),
+                title: d.title,
+                status: d.status,
+                decided_label,
+            }
+        })
+        .collect();
+    let experiments = state
+        .repo
+        .list_experiments(goal.project_id)
+        .await?
+        .into_iter()
+        .filter(|e| e.goal_id == Some(goal.id))
+        .map(|e| ExperimentItemView {
+            id: e.id.to_string(),
+            title: e.title,
+            status: e.status,
+        })
+        .collect();
+    let body_html = render_markdown(&goal.body);
+    page(&GoalTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        goal,
+        body_html,
+        decisions,
+        experiments,
+    })
+}
+
 pub(crate) async fn goal_new_page(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1236,7 +1316,7 @@ pub(crate) async fn goal_update(
         .repo
         .update_goal(goal_id, body.title.trim(), body.body.trim(), status)
         .await?;
-    Ok(Redirect::to(&format!("/projects/{project_id}/goals?flash=goal_updated")).into_response())
+    Ok(Redirect::to(&format!("/goals/{goal_id}?flash=goal_updated")).into_response())
 }
 
 pub(crate) async fn goal_delete(
@@ -2130,7 +2210,7 @@ pub(crate) async fn graph_page(
             node_type: n.node_type.clone(),
             title: n.title.clone(),
             url: match n.node_type.as_str() {
-                "goal" => format!("/projects/{project_id}"),
+                "goal" => format!("/goals/{}", n.id),
                 "decision" => format!("/decisions/{}", n.id),
                 "experiment" => format!("/experiments/{}", n.id),
                 _ => format!("/notes/{}", n.id),
@@ -2219,6 +2299,7 @@ pub(crate) async fn search_page(
         .into_iter()
         .map(|r| {
             let url = match r.entity_type.as_str() {
+                "goal" => format!("/goals/{}", r.entity_id),
                 "decision" => format!("/decisions/{}", r.entity_id),
                 "experiment" => format!("/experiments/{}", r.entity_id),
                 "note" => format!("/notes/{}", r.entity_id),

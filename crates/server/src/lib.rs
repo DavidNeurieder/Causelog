@@ -42,6 +42,7 @@ fn router(state: AppState) -> Router {
             get(pages::project_goals_page).post(pages::goal_create),
         )
         .route("/projects/{id}/goals/new", get(pages::goal_new_page))
+        .route("/goals/{id}", get(pages::goal_page))
         .route("/projects/{id}/goals/{goal_id}", post(pages::goal_update))
         .route(
             "/projects/{id}/goals/{goal_id}/delete",

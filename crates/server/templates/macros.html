@@ -17,37 +17,10 @@
 {% macro goal_row(project, goal, csrf) %}
 <div class="row item">
   <div>
-    <span class="strong">{{ goal.title }}</span>
+    <a class="strong" href="/goals/{{ goal.id }}">{{ goal.title }}</a>
     <span class="tag status-{{ goal.status }}">{{ goal.status }}</span>
     {% if !goal.body.is_empty() %}<p class="muted">{{ goal.body }}</p>{% endif %}
   </div>
-  <details>
-    <summary>Edit</summary>
-    <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <field>
-        <label for="gtitle-{{ goal.id }}">Title</label>
-        <input id="gtitle-{{ goal.id }}" name="title" value="{{ goal.title }}" required>
-      </field>
-      <field>
-        <label for="gbody-{{ goal.id }}">Details</label>
-        <input id="gbody-{{ goal.id }}" name="body" value="{{ goal.body }}">
-      </field>
-      <field>
-        <label for="gstatus-{{ goal.id }}">Status</label>
-        <select id="gstatus-{{ goal.id }}" name="status">
-          <option value="open" {% if goal.status == "open" %}selected{% endif %}>open</option>
-          <option value="done" {% if goal.status == "done" %}selected{% endif %}>done</option>
-          <option value="dropped" {% if goal.status == "dropped" %}selected{% endif %}>dropped</option>
-        </select>
-      </field>
-      <button type="submit">Save</button>
-    </form>
-    <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}/delete" class="inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <button type="submit" class="link danger">Delete goal</button>
-    </form>
-  </details>
 </div>
 {% endmacro %}
 
@@ -60,7 +33,7 @@
 {% macro goal_row_brief(goal) %}
 <div class="row item">
   <div>
-    <span class="strong">{{ goal.title }}</span>
+    <a class="strong" href="/goals/{{ goal.id }}">{{ goal.title }}</a>
     <span class="tag status-{{ goal.status }}">{{ goal.status }}</span>
     {% if !goal.body.is_empty() %}<p class="muted">{{ goal.body }}</p>{% endif %}
   </div>

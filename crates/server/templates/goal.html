@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ goal.title }} · Kaizen{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    {% call m::crumb(project) %}
+    <h1>{{ goal.title }}</h1>
+    <p><span class="tag status-{{ goal.status }}">{{ goal.status }}</span></p>
+  </div>
+  <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}/delete" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="danger" onclick="return confirm('Delete this goal?')">Delete goal</button>
+  </form>
+</div>
+
+{% call m::subnav(project, "goals") %}
+
+{% if !body_html.is_empty() %}
+<h2>Details</h2>
+<div class="prose">{{ body_html|safe }}</div>
+{% endif %}
+
+{% if !decisions.is_empty() %}
+<h2>Served by decisions</h2>
+{% call m::decision_list(decisions) %}
+{% endif %}
+
+{% if !experiments.is_empty() %}
+<h2>Tested by experiments</h2>
+{% call m::experiment_list(experiments) %}
+{% endif %}
+
+<details>
+  <summary>Edit goal</summary>
+  <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <field>
+      <label for="gtitle">Title</label>
+      <input id="gtitle" name="title" value="{{ goal.title }}" required>
+    </field>
+    <field>
+      <label for="gbody">Details</label>
+      <input id="gbody" name="body" value="{{ goal.body }}">
+    </field>
+    <field>
+      <label for="gstatus">Status</label>
+      <select id="gstatus" name="status">
+        <option value="open" {% if goal.status == "open" %}selected{% endif %}>open</option>
+        <option value="done" {% if goal.status == "done" %}selected{% endif %}>done</option>
+        <option value="dropped" {% if goal.status == "dropped" %}selected{% endif %}>dropped</option>
+      </select>
+    </field>
+    <button type="submit">Save changes</button>
+  </form>
+</details>
+{% endblock %}
