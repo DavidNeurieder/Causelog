@@ -446,8 +446,16 @@ async fn seed_demo_end_to_end_and_idempotent() {
         body.contains("SQLite + Rust API"),
         "seed project on dashboard: {body}"
     );
+    assert!(
+        body.contains("The Legend of Gloria the Monstera"),
+        "funny plant project on dashboard: {body}"
+    );
+    assert!(
+        body.contains("The Coffee Machine Uprising"),
+        "funny coffee project on dashboard: {body}"
+    );
 
-    // The seeded golden path renders its timeline.
+    // All three seeded projects are listed.
     let page = client
         .get(format!("{}/projects", server.base))
         .send()
@@ -455,6 +463,14 @@ async fn seed_demo_end_to_end_and_idempotent() {
         .unwrap();
     let body = page.text().await.unwrap();
     assert!(body.contains("SQLite + Rust API"), "project listed: {body}");
+    assert!(
+        body.contains("The Legend of Gloria the Monstera"),
+        "gloria listed: {body}"
+    );
+    assert!(
+        body.contains("The Coffee Machine Uprising"),
+        "coffee listed: {body}"
+    );
 }
 
 #[tokio::test]

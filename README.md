@@ -33,7 +33,9 @@ cargo run -- serve
 # → http://127.0.0.1:8080/setup — create your account
 ```
 
-Or skip the setup dance with a seeded demo:
+Or skip the setup dance with a seeded demo — three projects (two of them
+unapologetically funny), with goals, decisions, experiments, notes, links,
+and a searchable history:
 
 ```sh
 cargo run -- seed-demo
@@ -47,7 +49,7 @@ Usage: kaizen [COMMAND]
 
 Commands:
   serve       Start the Kaizen server (default)
-  seed-demo   Create a first user and a demo project, then exit
+  seed-demo   Create a first user and a three-project demo, then exit
 ```
 
 `serve` flags (all also settable via env):
