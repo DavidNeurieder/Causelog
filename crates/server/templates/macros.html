@@ -36,7 +36,6 @@
   <div>
     <a class="strong" href="/goals/{{ gv.id }}">{{ gv.title }}</a>
     <span class="tag status-{{ gv.status }}">{{ gv.status }}</span>
-    {% if !gv.body_html.is_empty() %}<div class="prose">{{ gv.body_html|safe }}</div>{% endif %}
   </div>
 </div>
 {% endmacro %}
