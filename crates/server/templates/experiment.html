@@ -1,12 +1,13 @@
 {% extends "base.html" %}
+{% import "macros.html" as m %}
 {% block title %}{{ experiment.title }} · Kaizen{% endblock %}
 {% block content %}
 <div class="row space-between">
   <div>
+    {% call m::crumb(project) %}
     <h1>{{ experiment.title }}</h1>
     <p class="muted">
-      <a href="/projects/{{ project.id }}">{{ project.title }}</a>
-      {% if !view.goal_title.is_empty() %} · goal: {{ view.goal_title }}{% endif %}
+      {% if !view.goal_title.is_empty() %}goal: {{ view.goal_title }}{% endif %}
       {% if !view.decision_title.is_empty() %} · decision: {{ view.decision_title }}{% endif %}
     </p>
   </div>
@@ -22,6 +23,8 @@
     </form>
   </div>
 </div>
+
+{% call m::subnav(project, "experiments") %}
 
 <div class="row">
   <span class="tag status-{{ experiment.status }}">{{ experiment.status }}</span>

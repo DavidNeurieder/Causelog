@@ -37,7 +37,10 @@
 </div>
 
 {% if projects.is_empty() %}
-<p class="muted">No projects yet — create your first one with the “New project” button. A project is a container for goals, decisions, and experiments.</p>
+<div class="empty">
+  <p class="strong">Start your first project</p>
+  <p class="muted small">A project is a container for goals, decisions, and experiments — everything you record here becomes part of your history you can search later.</p>
+</div>
 {% else %}
 <section class="list">
   {% for pv in projects %}

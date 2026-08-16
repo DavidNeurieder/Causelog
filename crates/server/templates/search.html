@@ -9,8 +9,12 @@
 
 {% if !query.is_empty() %}
   {% if results.is_empty() %}
-  <p class="muted">Nothing found for “{{ query }}”.</p>
+  <div class="empty">
+    <p class="strong">Nothing found for “{{ query }}”.</p>
+    <p class="muted small">Try a different word, or check the spelling. Search covers decisions, experiments, notes, and their contents.</p>
+  </div>
   {% else %}
+  <p class="muted small">{{ results.len() }} result{{ results.len()|pluralize }} for “{{ query }}”.</p>
   <section class="list">
     {% for r in results %}
     <div class="row item">
@@ -26,5 +30,10 @@
     {% endfor %}
   </section>
   {% endif %}
+{% else %}
+<div class="empty">
+  <p class="strong">Search your history</p>
+  <p class="muted small">Find the decision, experiment, or note that matters — even when you only remember a phrase from it.</p>
+</div>
 {% endif %}
 {% endblock %}

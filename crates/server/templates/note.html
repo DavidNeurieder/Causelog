@@ -1,19 +1,20 @@
 {% extends "base.html" %}
+{% import "macros.html" as m %}
 {% block title %}{{ note.title }} · Kaizen{% endblock %}
 {% block content %}
 <div class="row space-between">
   <div>
+    {% call m::crumb(project) %}
     <h1>{{ note.title }}</h1>
-    <p class="muted">
-      <a href="/projects/{{ project.id }}">{{ project.title }}</a>
-      {% if !view.source_url.is_empty() %} · captured from <a href="{{ view.source_url }}">{{ view.source_title }}</a>{% endif %}
-    </p>
+    {% if !view.source_url.is_empty() %}<p class="muted">captured from <a href="{{ view.source_url }}">{{ view.source_title }}</a></p>{% endif %}
   </div>
   <form method="post" action="/notes/{{ note.id }}/delete" class="inline">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit" class="danger" onclick="return confirm('Delete this note?')">Delete note</button>
   </form>
 </div>
+
+{% call m::subnav(project, "notes") %}
 
 <details>
   <summary>Edit note</summary>

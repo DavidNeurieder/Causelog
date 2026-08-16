@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% import "macros.html" as m %}
 {% block title %}{{ decision.title }} · Kaizen{% endblock %}
 {% block content %}
 <div class="row space-between">
   <div>
-    <p class="muted"><a href="/projects/{{ project.id }}">{{ project.title }}</a></p>
+    {% call m::crumb(project) %}
     <h1>{{ decision.title }}</h1>
     <p>
       <span class="tag status-{{ view.status }}">{{ view.status }}</span>
@@ -15,6 +16,8 @@
     <button type="submit" class="danger" onclick="return confirm('Delete this decision and its history?')">Delete decision</button>
   </form>
 </div>
+
+{% call m::subnav(project, "decisions") %}
 
 {% if !view.context_html.is_empty() %}
 <h2>Context</h2>

@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ status }} · Kaizen{% endblock %}
 {% block content %}
-<p class="muted">{{ status }}</p>
-<h1>{% if message.is_empty() %}Something went wrong.{% else %}{{ message }}{% endif %}</h1>
-<p><a href="/">Back to home</a></p>
+<div class="empty">
+  <p class="tag">{{ status }}</p>
+  <h1>{% if message.is_empty() %}Something went wrong.{% else %}{{ message }}{% endif %}</h1>
+  <p class="muted">If the problem persists, check the server logs.</p>
+  <p><a href="/" class="btn">Back to home</a></p>
+</div>
 {% endblock %}

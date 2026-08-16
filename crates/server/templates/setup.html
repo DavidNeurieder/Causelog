@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Set up · Kaizen{% endblock %}
 {% block content %}
-<h1>Welcome to Kaizen</h1>
-<p class="muted">Kaizen keeps the decisions behind your project — the goals, the trade-offs, and the experiments that resolved them. Create your account to begin. You will be the only user of this instance.</p>
-<form method="post" action="/setup">
+<div class="auth-main">
+  <h1>Welcome to Kaizen</h1>
+  <p class="muted">Kaizen keeps the decisions behind your project — the goals, the trade-offs, and the experiments that resolved them. Create your account to begin. You will be the only user of this instance.</p>
+  <form method="post" action="/setup" class="auth-card">
   <field>
     <label for="username">Username</label>
     <input id="username" name="username" autocomplete="username" pattern="[a-z0-9_-]+" required value="{{ username }}">
@@ -34,7 +35,8 @@
   </field>
   {% if !error.is_empty() %}<p class="error">{{ error }}</p>{% endif %}
   <button type="submit">Create account</button>
-</form>
+  </form>
+</div>
 <script>
   document.querySelectorAll('.toggle-pw').forEach(function (btn) {
     btn.addEventListener('click', function () {
