@@ -44,6 +44,7 @@ impl PageError {
         let tpl = ErrorTemplate {
             authed: false,
             flash: String::new(),
+            flash_kind: "notice--info",
             year: current_year(),
             display_name: String::new(),
             csrf_token: String::new(),
@@ -87,6 +88,7 @@ impl IntoResponse for PageError {
 struct SetupTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -101,6 +103,7 @@ struct SetupTemplate {
 struct LoginTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -114,6 +117,7 @@ struct LoginTemplate {
 struct ErrorTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -126,6 +130,7 @@ struct ErrorTemplate {
 struct DashboardTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -148,6 +153,7 @@ struct DashboardCountsView {
 struct ProjectTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -178,6 +184,7 @@ struct ExperimentItemView {
 struct ExperimentTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -211,6 +218,7 @@ struct EventView {
 struct TimelineTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -238,6 +246,7 @@ struct DecisionItemView {
 struct DecisionTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -334,6 +343,7 @@ struct LinkView {
 struct NoteTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -354,6 +364,7 @@ struct NoteView {
 struct GraphTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -381,6 +392,7 @@ struct GraphEdgeView {
 struct SearchTemplate {
     authed: bool,
     flash: String,
+    flash_kind: &'static str,
     year: u32,
     display_name: String,
     csrf_token: String,
@@ -439,6 +451,17 @@ fn flash_message(key: Option<&str>) -> String {
     }
 }
 
+/// Flash message plus the notice style class that should render it.
+fn flash_view(key: Option<&str>) -> (String, &'static str) {
+    let kind = match key {
+        None => "notice--info",
+        Some(k) if k.contains("invalid") || k.starts_with("no_") => "notice--error",
+        Some("logged_out") | Some("not_authorized") => "notice--info",
+        Some(_) => "notice--success",
+    };
+    (flash_message(key), kind)
+}
+
 fn not_found(msg: impl Into<String>) -> ApiError {
     ApiError(RepositoryError::NotFound(msg.into()))
 }
@@ -486,6 +509,7 @@ pub(crate) async fn setup_page(State(state): State<AppState>) -> Result<Response
     page(&SetupTemplate {
         authed: false,
         flash: String::new(),
+        flash_kind: "notice--info",
         year: current_year(),
         display_name: String::new(),
         csrf_token: String::new(),
@@ -504,6 +528,7 @@ pub(crate) async fn setup_form(
         return page(&SetupTemplate {
             authed: false,
             flash: String::new(),
+            flash_kind: "notice--info",
             year: current_year(),
             display_name: String::new(),
             csrf_token: String::new(),
@@ -526,6 +551,7 @@ pub(crate) async fn setup_form(
             return page(&SetupTemplate {
                 authed: false,
                 flash: String::new(),
+                flash_kind: "notice--info",
                 year: current_year(),
                 display_name: String::new(),
                 csrf_token: String::new(),
@@ -588,7 +614,8 @@ pub(crate) async fn login_page(
     }
     page(&LoginTemplate {
         authed: false,
-        flash: flash_message(flash.flash.as_deref()),
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
         year: current_year(),
         display_name: String::new(),
         csrf_token: String::new(),
@@ -613,6 +640,7 @@ pub(crate) async fn login_form(
     page(&LoginTemplate {
         authed: false,
         flash: String::new(),
+        flash_kind: "notice--info",
         year: current_year(),
         display_name: String::new(),
         csrf_token: String::new(),
@@ -692,7 +720,8 @@ pub(crate) async fn dashboard_page(
     }
     page(&DashboardTemplate {
         authed: true,
-        flash: flash_message(flash.flash.as_deref()),
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
@@ -757,7 +786,8 @@ pub(crate) async fn project_page(
     let pc: ProjectCounts = state.repo.project_counts(project_id).await?;
     page(&ProjectTemplate {
         authed: true,
-        flash: flash_message(flash.flash.as_deref()),
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
@@ -1074,7 +1104,8 @@ pub(crate) async fn decision_page(
     };
     page(&DecisionTemplate {
         authed: true,
-        flash: flash_message(flash.flash.as_deref()),
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
@@ -1304,7 +1335,8 @@ pub(crate) async fn experiment_page(
         .collect();
     page(&ExperimentTemplate {
         authed: true,
-        flash: flash_message(flash.flash.as_deref()),
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
@@ -1472,7 +1504,8 @@ pub(crate) async fn timeline_page(
         .collect();
     page(&TimelineTemplate {
         authed: true,
-        flash: flash_message(flash.flash.as_deref()),
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
@@ -1571,7 +1604,8 @@ pub(crate) async fn note_page(
         .collect();
     page(&NoteTemplate {
         authed: true,
-        flash: flash_message(flash.flash.as_deref()),
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
@@ -1808,7 +1842,8 @@ pub(crate) async fn graph_page(
         .collect();
     page(&GraphTemplate {
         authed: true,
-        flash: flash_message(flash.flash.as_deref()),
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
@@ -1874,6 +1909,7 @@ pub(crate) async fn search_page(
     page(&SearchTemplate {
         authed: true,
         flash: String::new(),
+        flash_kind: "notice--info",
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,

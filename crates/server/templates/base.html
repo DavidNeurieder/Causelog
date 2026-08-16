@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <header class="site">
   <div class="container">
     <a class="brand" href="/">Kaizen</a>
@@ -31,8 +32,8 @@
     {% endif %}
   </div>
 </header>
-<main class="container">
-  {% if !flash.is_empty() %}<p class="notice">{{ flash }}</p>{% endif %}
+<main class="container" id="main">
+  {% if !flash.is_empty() %}<p class="notice {{ flash_kind }}">{{ flash }}</p>{% endif %}
   {% block content %}{% endblock %}
 </main>
 <footer class="site">
