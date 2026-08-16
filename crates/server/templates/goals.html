@@ -16,6 +16,6 @@
 {% if goals.is_empty() %}
 {% call m::section_empty("No goals yet.") %}
 {% else %}
-{% call m::goal_list(project, goals, csrf_token) %}
+{% call m::goal_list(goals) %}
 {% endif %}
 {% endblock %}

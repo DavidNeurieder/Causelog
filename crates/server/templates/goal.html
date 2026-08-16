@@ -40,8 +40,8 @@
       <input id="gtitle" name="title" value="{{ goal.title }}" required>
     </field>
     <field>
-      <label for="gbody">Details</label>
-      <input id="gbody" name="body" value="{{ goal.body }}">
+      <label for="gbody">Details (Markdown)</label>
+      <textarea id="gbody" name="body" rows="8">{{ goal.body }}</textarea>
     </field>
     <field>
       <label for="gstatus">Status</label>

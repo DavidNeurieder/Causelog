@@ -14,35 +14,35 @@
 <p class="crumb"><a href="/projects/{{ project.id }}">← {{ project.title }}</a></p>
 {% endmacro %}
 
-{% macro goal_row(project, goal, csrf) %}
+{% macro goal_row(gv) %}
 <div class="row item">
   <div>
-    <a class="strong" href="/goals/{{ goal.id }}">{{ goal.title }}</a>
-    <span class="tag status-{{ goal.status }}">{{ goal.status }}</span>
-    {% if !goal.body.is_empty() %}<p class="muted">{{ goal.body }}</p>{% endif %}
+    <a class="strong" href="/goals/{{ gv.id }}">{{ gv.title }}</a>
+    <span class="tag status-{{ gv.status }}">{{ gv.status }}</span>
+    {% if !gv.body_html.is_empty() %}<div class="prose">{{ gv.body_html|safe }}</div>{% endif %}
   </div>
 </div>
 {% endmacro %}
 
-{% macro goal_list(project, goals, csrf) %}
+{% macro goal_list(goals) %}
 <section class="list">
-  {% for goal in goals %}{% call goal_row(project, goal, csrf) %}{% endfor %}
+  {% for gv in goals %}{% call goal_row(gv) %}{% endfor %}
 </section>
 {% endmacro %}
 
-{% macro goal_row_brief(goal) %}
+{% macro goal_row_brief(gv) %}
 <div class="row item">
   <div>
-    <a class="strong" href="/goals/{{ goal.id }}">{{ goal.title }}</a>
-    <span class="tag status-{{ goal.status }}">{{ goal.status }}</span>
-    {% if !goal.body.is_empty() %}<p class="muted">{{ goal.body }}</p>{% endif %}
+    <a class="strong" href="/goals/{{ gv.id }}">{{ gv.title }}</a>
+    <span class="tag status-{{ gv.status }}">{{ gv.status }}</span>
+    {% if !gv.body_html.is_empty() %}<div class="prose">{{ gv.body_html|safe }}</div>{% endif %}
   </div>
 </div>
 {% endmacro %}
 
 {% macro goal_list_brief(goals) %}
 <section class="list">
-  {% for goal in goals %}{% call goal_row_brief(goal) %}{% endfor %}
+  {% for gv in goals %}{% call goal_row_brief(gv) %}{% endfor %}
 </section>
 {% endmacro %}
 
@@ -100,8 +100,8 @@
     <input id="gnew-title" name="title" placeholder="e.g. Reduce time-to-recall of past decisions to under a minute" required>
   </field>
   <field>
-    <label for="gnew-body">Details (optional)</label>
-    <input id="gnew-body" name="body" placeholder="How success will be measured…">
+    <label for="gnew-body">Details (Markdown, optional)</label>
+    <textarea id="gnew-body" name="body" rows="6" placeholder="How success will be measured, as bullet points…"></textarea>
   </field>
   <button type="submit">Add goal</button>
 </form>

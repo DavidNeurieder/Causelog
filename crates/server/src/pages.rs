@@ -155,7 +155,7 @@ struct ProjectTemplate {
     counts: ProjectCounts,
     goals_done_pct: i64,
     decisions_resolved_pct: i64,
-    goals: Vec<Goal>,
+    goals: Vec<GoalItemView>,
     decisions: Vec<DecisionItemView>,
     experiments: Vec<ExperimentItemView>,
     notes: Vec<Note>,
@@ -171,7 +171,7 @@ struct ProjectGoalsTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
-    goals: Vec<Goal>,
+    goals: Vec<GoalItemView>,
 }
 
 #[derive(Template)]
@@ -285,6 +285,14 @@ struct ExperimentItemView {
     id: String,
     title: String,
     status: String,
+}
+
+/// Goal row on a project page, with its details rendered as Markdown.
+struct GoalItemView {
+    id: String,
+    title: String,
+    status: String,
+    body_html: String,
 }
 
 #[derive(Template)]
@@ -880,7 +888,18 @@ pub(crate) async fn project_page(
         .find_project(project_id)
         .await?
         .ok_or_else(|| not_found("project"))?;
-    let goals = state.repo.list_goals(project_id).await?;
+    let goals: Vec<GoalItemView> = state
+        .repo
+        .list_goals(project_id)
+        .await?
+        .into_iter()
+        .map(|g| GoalItemView {
+            id: g.id.to_string(),
+            title: g.title,
+            status: g.status,
+            body_html: render_markdown(&g.body),
+        })
+        .collect();
     let decisions = state.repo.list_decisions(project_id).await?;
     let experiments = state.repo.list_experiments(project_id).await?;
     let notes = state.repo.list_notes(project_id).await?;
@@ -946,7 +965,18 @@ pub(crate) async fn project_goals_page(
         return Ok(login_redirect());
     };
     let project = require_project(&state, &id).await?;
-    let goals = state.repo.list_goals(project.id).await?;
+    let goals = state
+        .repo
+        .list_goals(project.id)
+        .await?
+        .into_iter()
+        .map(|g| GoalItemView {
+            id: g.id.to_string(),
+            title: g.title,
+            status: g.status,
+            body_html: render_markdown(&g.body),
+        })
+        .collect();
     page(&ProjectGoalsTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
