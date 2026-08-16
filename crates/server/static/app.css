@@ -544,4 +544,18 @@ details.create-project field { margin-bottom: var(--space-3); }
   .row.space-between { gap: var(--space-2); }
   .row.item, a.row-link { align-items: flex-start; }
   .options { grid-template-columns: 1fr; }
+  h1 { font-size: 24px; }
+  .row { flex-wrap: wrap; }
+  .row > details { flex-basis: 100%; }
+  .auth-main { margin: var(--space-4) auto; }
+  .subnav { margin-bottom: var(--space-4); }
+  ol.timeline li { padding-left: var(--space-3); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
