@@ -134,6 +134,21 @@ Three layers, run with a single `cargo test --workspace`:
   a free port with a temporary database, drives the golden path over HTTP
   with a cookie jar, then restarts the process to prove data survives, plus
   `seed-demo` and CLI smoke tests.
+- **Browser E2E** (`e2e/`) — the same journey through a real Chromium via
+  Playwright: it clicks the actual buttons, runs the page's JavaScript (the
+  password toggles, the `<details>` forms), and shares one owner session.
+  This catches UI regressions the HTTP layer can't see. Requires Node and
+  Playwright's Chromium:
+
+  ```sh
+  cd e2e
+  npm ci
+  npx playwright install chromium
+  npm run test:e2e
+  ```
+
+  Set `KAIZEN_BIN=../target/debug/kaizen` to reuse a built binary instead of
+  letting the harness run `cargo run`. CI does this in a dedicated job.
 
 `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings`
 must stay clean; GitHub Actions enforces all of it on every push and PR.

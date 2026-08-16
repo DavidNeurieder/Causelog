@@ -32,3 +32,34 @@ jobs:
 
       - name: Tests (unit, integration, e2e)
         run: cargo test --workspace
+
+  e2e-browser:
+    name: e2e (playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: sqlite-bundled
+
+      - name: Build server binary
+        run: cargo build --bin kaizen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: npm ci && npx playwright install --with-deps chromium
+
+      - name: Run browser E2E against the real binary
+        working-directory: e2e
+        env:
+          KAIZEN_BIN: ${{ github.workspace }}/target/debug/kaizen
+        run: npm run test:e2e
