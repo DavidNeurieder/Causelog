@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}New decision · {{ project.title }} · Kaizen{% endblock %}
+{% block content %}
+{% call m::crumb(project) %}
+<h1>New decision</h1>
+{% call m::subnav(project, "decisions") %}
+{% call m::create_decision(project, goals, csrf_token) %}
+<p class="muted small"><a href="/projects/{{ project.id }}/decisions">← Back to decisions</a></p>
+{% endblock %}

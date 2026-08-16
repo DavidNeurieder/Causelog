@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}New note · {{ project.title }} · Kaizen{% endblock %}
+{% block content %}
+{% call m::crumb(project) %}
+<h1>New note</h1>
+{% call m::subnav(project, "notes") %}
+{% call m::create_note(project, csrf_token) %}
+<p class="muted small"><a href="/projects/{{ project.id }}/notes">← Back to notes</a></p>
+{% endblock %}

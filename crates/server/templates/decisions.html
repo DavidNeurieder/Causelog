@@ -3,15 +3,18 @@
 {% block title %}{{ project.title }} · Decisions · Kaizen{% endblock %}
 {% block content %}
 {% call m::crumb(project) %}
-<h1>Decisions</h1>
-<p class="muted">A decision is a trade-off you recorded: the options you weighed and, once resolved, the choice and the rationale.</p>
+<div class="row space-between">
+  <div>
+    <h1>Decisions</h1>
+    <p class="muted">A decision is a trade-off you recorded: the options you weighed and, once resolved, the choice and the rationale.</p>
+  </div>
+  <a class="btn" href="/projects/{{ project.id }}/decisions/new">New decision</a>
+</div>
 {% call m::subnav(project, "decisions") %}
-
-{% call m::create_decision(project, goals, csrf_token) %}
 
 <h2>All decisions</h2>
 {% if decisions.is_empty() %}
-{% call m::section_empty("No decisions yet — record the first one above.") %}
+{% call m::section_empty("No decisions yet.") %}
 {% else %}
 {% call m::decision_list(decisions) %}
 {% endif %}

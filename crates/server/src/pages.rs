@@ -195,7 +195,6 @@ struct ProjectDecisionsTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
-    goals: Vec<Goal>,
     decisions: Vec<DecisionItemView>,
 }
 
@@ -209,8 +208,6 @@ struct ProjectExperimentsTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
-    goals: Vec<Goal>,
-    decisions: Vec<DecisionItemView>,
     experiments: Vec<ExperimentItemView>,
 }
 
@@ -225,6 +222,57 @@ struct ProjectNotesTemplate {
     csrf_token: String,
     project: Project,
     notes: Vec<Note>,
+}
+
+#[derive(Template)]
+#[template(path = "goal_new.html")]
+struct GoalNewTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+}
+
+#[derive(Template)]
+#[template(path = "decision_new.html")]
+struct DecisionNewTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    goals: Vec<Goal>,
+}
+
+#[derive(Template)]
+#[template(path = "experiment_new.html")]
+struct ExperimentNewTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    goals: Vec<Goal>,
+    decisions: Vec<DecisionItemView>,
+}
+
+#[derive(Template)]
+#[template(path = "note_new.html")]
+struct NoteNewTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
 }
 
 /// Experiment row on a project page.
@@ -924,7 +972,6 @@ pub(crate) async fn project_decisions_page(
         return Ok(login_redirect());
     };
     let project = require_project(&state, &id).await?;
-    let goals = state.repo.list_goals(project.id).await?;
     let decisions = state.repo.list_decisions(project.id).await?;
     page(&ProjectDecisionsTemplate {
         authed: true,
@@ -934,7 +981,6 @@ pub(crate) async fn project_decisions_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
-        goals,
         decisions: decisions
             .into_iter()
             .map(|d| {
@@ -960,8 +1006,6 @@ pub(crate) async fn project_experiments_page(
         return Ok(login_redirect());
     };
     let project = require_project(&state, &id).await?;
-    let goals = state.repo.list_goals(project.id).await?;
-    let decisions = state.repo.list_decisions(project.id).await?;
     let experiments = state.repo.list_experiments(project.id).await?;
     page(&ProjectExperimentsTemplate {
         authed: true,
@@ -971,19 +1015,6 @@ pub(crate) async fn project_experiments_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
-        goals,
-        decisions: decisions
-            .into_iter()
-            .map(|d| {
-                let decided_label = decided_label(&d);
-                DecisionItemView {
-                    id: d.id.to_string(),
-                    title: d.title,
-                    status: d.status,
-                    decided_label,
-                }
-            })
-            .collect(),
         experiments: experiments
             .into_iter()
             .map(|e| ExperimentItemView {
@@ -1015,6 +1046,110 @@ pub(crate) async fn project_notes_page(
         csrf_token: auth_user.csrf_token,
         project,
         notes,
+    })
+}
+
+pub(crate) async fn goal_new_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project(&state, &id).await?;
+    page(&GoalNewTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+    })
+}
+
+pub(crate) async fn decision_new_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project(&state, &id).await?;
+    let goals = state.repo.list_goals(project.id).await?;
+    page(&DecisionNewTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        goals,
+    })
+}
+
+pub(crate) async fn experiment_new_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project(&state, &id).await?;
+    let goals = state.repo.list_goals(project.id).await?;
+    let decisions = state
+        .repo
+        .list_decisions(project.id)
+        .await?
+        .into_iter()
+        .map(|d| {
+            let decided_label = decided_label(&d);
+            DecisionItemView {
+                id: d.id.to_string(),
+                title: d.title,
+                status: d.status,
+                decided_label,
+            }
+        })
+        .collect();
+    page(&ExperimentNewTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        goals,
+        decisions,
+    })
+}
+
+pub(crate) async fn note_new_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project(&state, &id).await?;
+    page(&NoteNewTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
     })
 }
 

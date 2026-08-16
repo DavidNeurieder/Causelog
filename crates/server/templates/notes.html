@@ -3,15 +3,18 @@
 {% block title %}{{ project.title }} · Notes · Kaizen{% endblock %}
 {% block content %}
 {% call m::crumb(project) %}
-<h1>Notes</h1>
-<p class="muted">Notes capture durable knowledge. See how everything fits together on the <a href="/projects/{{ project.id }}/graph">graph</a>.</p>
+<div class="row space-between">
+  <div>
+    <h1>Notes</h1>
+    <p class="muted">Notes capture durable knowledge. See how everything fits together on the <a href="/projects/{{ project.id }}/graph">graph</a>.</p>
+  </div>
+  <a class="btn" href="/projects/{{ project.id }}/notes/new">New note</a>
+</div>
 {% call m::subnav(project, "notes") %}
-
-{% call m::create_note(project, csrf_token) %}
 
 <h2>All notes</h2>
 {% if notes.is_empty() %}
-{% call m::section_empty("No notes yet — capture the first one above.") %}
+{% call m::section_empty("No notes yet.") %}
 {% else %}
 {% call m::note_list(notes) %}
 {% endif %}

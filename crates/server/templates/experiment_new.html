@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}New experiment · {{ project.title }} · Kaizen{% endblock %}
+{% block content %}
+{% call m::crumb(project) %}
+<h1>New experiment</h1>
+{% call m::subnav(project, "experiments") %}
+{% call m::create_experiment(project, goals, decisions, csrf_token) %}
+<p class="muted small"><a href="/projects/{{ project.id }}/experiments">← Back to experiments</a></p>
+{% endblock %}

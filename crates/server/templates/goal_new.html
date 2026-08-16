@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}New goal · {{ project.title }} · Kaizen{% endblock %}
+{% block content %}
+{% call m::crumb(project) %}
+<h1>New goal</h1>
+{% call m::subnav(project, "goals") %}
+{% call m::create_goal(project, csrf_token) %}
+<p class="muted small"><a href="/projects/{{ project.id }}/goals">← Back to goals</a></p>
+{% endblock %}

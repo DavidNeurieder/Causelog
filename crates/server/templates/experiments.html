@@ -3,15 +3,18 @@
 {% block title %}{{ project.title }} · Experiments · Kaizen{% endblock %}
 {% block content %}
 {% call m::crumb(project) %}
-<h1>Experiments</h1>
-<p class="muted">An experiment tests a falsifiable hypothesis. Its lifecycle and observations make up this project's <a href="/projects/{{ project.id }}/timeline">timeline</a>.</p>
+<div class="row space-between">
+  <div>
+    <h1>Experiments</h1>
+    <p class="muted">An experiment tests a falsifiable hypothesis. Its lifecycle and observations make up this project's <a href="/projects/{{ project.id }}/timeline">timeline</a>.</p>
+  </div>
+  <a class="btn" href="/projects/{{ project.id }}/experiments/new">New experiment</a>
+</div>
 {% call m::subnav(project, "experiments") %}
-
-{% call m::create_experiment(project, goals, decisions, csrf_token) %}
 
 <h2>All experiments</h2>
 {% if experiments.is_empty() %}
-{% call m::section_empty("No experiments yet — start the first one above.") %}
+{% call m::section_empty("No experiments yet.") %}
 {% else %}
 {% call m::experiment_list(experiments) %}
 {% endif %}

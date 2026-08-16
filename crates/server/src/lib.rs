@@ -41,6 +41,7 @@ fn router(state: AppState) -> Router {
             "/projects/{id}/goals",
             get(pages::project_goals_page).post(pages::goal_create),
         )
+        .route("/projects/{id}/goals/new", get(pages::goal_new_page))
         .route("/projects/{id}/goals/{goal_id}", post(pages::goal_update))
         .route(
             "/projects/{id}/goals/{goal_id}/delete",
@@ -51,6 +52,10 @@ fn router(state: AppState) -> Router {
             get(pages::project_decisions_page).post(pages::decision_create),
         )
         .route(
+            "/projects/{id}/decisions/new",
+            get(pages::decision_new_page),
+        )
+        .route(
             "/decisions/{id}",
             get(pages::decision_page).post(pages::decision_update),
         )
@@ -59,6 +64,10 @@ fn router(state: AppState) -> Router {
         .route(
             "/projects/{id}/experiments",
             get(pages::project_experiments_page).post(pages::experiment_create),
+        )
+        .route(
+            "/projects/{id}/experiments/new",
+            get(pages::experiment_new_page),
         )
         .route("/projects/{id}/timeline", get(pages::timeline_page))
         .route(
@@ -76,6 +85,7 @@ fn router(state: AppState) -> Router {
             "/projects/{id}/notes",
             get(pages::project_notes_page).post(pages::note_create),
         )
+        .route("/projects/{id}/notes/new", get(pages::note_new_page))
         .route(
             "/notes/{id}",
             get(pages::note_page).post(pages::note_update),
