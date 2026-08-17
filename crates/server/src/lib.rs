@@ -117,6 +117,14 @@ fn router(state: AppState) -> Router {
         .route("/admin/users/{id}/role", post(pages::admin_user_role))
         .route("/admin/users/{id}/delete", post(pages::admin_user_delete))
         .route(
+            "/admin/users/{id}/add-to-project",
+            post(pages::admin_user_add_to_project),
+        )
+        .route(
+            "/admin/users/{id}/remove-from-project",
+            post(pages::admin_user_remove_from_project),
+        )
+        .route(
             "/admin/settings",
             get(pages::admin_settings_page).post(pages::admin_settings_form),
         )

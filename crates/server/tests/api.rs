@@ -2984,3 +2984,83 @@ async fn search_scoped_to_user_projects() {
         "alice must NOT see beta: {body}"
     );
 }
+
+#[tokio::test]
+async fn admin_add_remove_user_to_project() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+
+    // Admin creates a project.
+    let project_url = create_project(&app, &admin_cookie, "Web Platform", "active").await;
+    let project_id = project_url.strip_prefix("/projects/").unwrap();
+
+    // Get alice's user ID.
+    let alice_user = repo
+        .list_users()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|u| u.username == "alice")
+        .unwrap();
+
+    // Admin users page initially shows no projects for alice.
+    let page = send(&app, with_cookie(get("/admin/users"), &admin_cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Alice"), "should show alice: {body}");
+
+    // Add alice to the project via admin endpoint.
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{}/add-to-project", alice_user.id),
+                &[("csrf_token", &csrf), ("project_id", project_id)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/admin/users?flash=member_added");
+
+    // Admin users page now shows the project for alice.
+    let page = send(&app, with_cookie(get("/admin/users"), &admin_cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Web Platform"), "should show project: {body}");
+
+    // Verify alice can access the project.
+    let page = send(&app, with_cookie(get(&project_url), &alice_cookie)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+
+    // Remove alice from the project via admin endpoint.
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{}/remove-from-project", alice_user.id),
+                &[("csrf_token", &csrf), ("project_id", project_id)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/admin/users?flash=member_removed");
+
+    // Admin users page no longer shows alice as a member of the project.
+    // (The project still appears in the dropdown, but not as a membership tag.)
+    let page = send(&app, with_cookie(get("/admin/users"), &admin_cookie)).await;
+    let body = body_string(page).await;
+    // After removal, alice's row should not have a remove-from-project form.
+    assert!(
+        !body.contains(&format!("/admin/users/{}/remove-from-project", alice_user.id)),
+        "alice should not have a remove-from-project form: {body}"
+    );
+
+    // Alice can no longer access the project.
+    let page = send(&app, with_cookie(get(&project_url), &alice_cookie)).await;
+    assert_eq!(page.status(), StatusCode::FORBIDDEN);
+}

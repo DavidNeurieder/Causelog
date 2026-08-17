@@ -159,6 +159,12 @@ struct DashboardTemplate {
     is_admin: bool,
 }
 
+/// User with their project memberships, for the admin users page.
+struct UserWithProjects {
+    user: User,
+    projects: Vec<Project>,
+}
+
 #[derive(Template)]
 #[template(path = "admin/users.html")]
 struct AdminUsersTemplate {
@@ -168,7 +174,8 @@ struct AdminUsersTemplate {
     year: u32,
     display_name: String,
     csrf_token: String,
-    users: Vec<User>,
+    users_with_projects: Vec<UserWithProjects>,
+    all_projects: Vec<Project>,
 }
 
 #[derive(Template)]
@@ -2839,6 +2846,12 @@ pub(crate) async fn admin_users_page(
         return Ok(Redirect::to("/dashboard?flash=access_denied").into_response());
     }
     let users = state.repo.list_users().await?;
+    let all_projects = state.repo.list_projects().await?;
+    let mut users_with_projects = Vec::with_capacity(users.len());
+    for user in users {
+        let projects = state.repo.list_projects_for_user(user.id).await?;
+        users_with_projects.push(UserWithProjects { user, projects });
+    }
     page(&AdminUsersTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -2846,7 +2859,8 @@ pub(crate) async fn admin_users_page(
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
-        users,
+        users_with_projects,
+        all_projects,
     })
 }
 
@@ -2947,6 +2961,56 @@ pub(crate) async fn admin_user_delete(
     }
     state.repo.delete_user(user_id).await?;
     Ok(Redirect::to("/admin/users?flash=deleted").into_response())
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AdminProjectForm {
+    pub csrf_token: Option<String>,
+    pub project_id: String,
+}
+
+pub(crate) async fn admin_user_add_to_project(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<AdminProjectForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_admin(&auth_user.user) {
+        return Err(ApiError::forbidden().into());
+    }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let user_id = parse_uuid(&id)?;
+    let project_id = parse_uuid(&body.project_id)?;
+    state
+        .repo
+        .add_project_member(project_id, user_id, "member")
+        .await?;
+    Ok(Redirect::to("/admin/users?flash=member_added").into_response())
+}
+
+pub(crate) async fn admin_user_remove_from_project(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<AdminProjectForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_admin(&auth_user.user) {
+        return Err(ApiError::forbidden().into());
+    }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let user_id = parse_uuid(&id)?;
+    let project_id = parse_uuid(&body.project_id)?;
+    state
+        .repo
+        .remove_project_member(project_id, user_id)
+        .await?;
+    Ok(Redirect::to("/admin/users?flash=member_removed").into_response())
 }
 
 // ---------------------------------------------------------------------------
