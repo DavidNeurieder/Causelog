@@ -6,15 +6,22 @@
   <div>
     <h1>{{ project.title }}</h1>
   </div>
-  <form method="post" action="/projects/{{ project.id }}/delete" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" class="danger" onclick="return confirm('Delete this project and everything in it?')">Delete project</button>
-  </form>
+  <div class="actions">
+    <form method="post" action="/projects/{{ project.id }}/delete" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="danger" onclick="return confirm('Delete this project and everything in it?')">Delete</button>
+    </form>
+  </div>
 </div>
 
-{% if !project.summary.is_empty() %}
-<p class="muted">{{ project.summary }}</p>
-{% endif %}
+<div class="meta-card">
+  <div class="meta-card-row">
+    <span class="tag status-{{ project.status }}">{{ project.status }}</span>
+  </div>
+  {% if !project.summary.is_empty() %}
+  <div class="meta-card-row muted">{{ project.summary }}</div>
+  {% endif %}
+</div>
 
 {% call m::subnav(project, "overview") %}
 
@@ -49,7 +56,7 @@
   <a class="btn" href="/projects/{{ project.id }}/notes/new">New note</a>
 </div>
 
-<section>
+<div class="section-panel">
   <div class="row space-between section-head">
     <h2>Goals</h2>
     <a class="muted small" href="/projects/{{ project.id }}/goals">See all →</a>
@@ -59,9 +66,9 @@
   {% else %}
   {% call m::goal_list_brief(goals) %}
   {% endif %}
-</section>
+</div>
 
-<section>
+<div class="section-panel">
   <div class="row space-between section-head">
     <h2>Decisions</h2>
     <a class="muted small" href="/projects/{{ project.id }}/decisions">See all →</a>
@@ -71,9 +78,9 @@
   {% else %}
   {% call m::decision_list(decisions) %}
   {% endif %}
-</section>
+</div>
 
-<section>
+<div class="section-panel">
   <div class="row space-between section-head">
     <h2>Experiments</h2>
     <a class="muted small" href="/projects/{{ project.id }}/experiments">See all →</a>
@@ -83,9 +90,9 @@
   {% else %}
   {% call m::experiment_list(experiments) %}
   {% endif %}
-</section>
+</div>
 
-<section>
+<div class="section-panel">
   <div class="row space-between section-head">
     <h2>Notes</h2>
     <a class="muted small" href="/projects/{{ project.id }}/notes">See all →</a>
@@ -95,5 +102,5 @@
   {% else %}
   {% call m::note_list(notes) %}
   {% endif %}
-</section>
+</div>
 {% endblock %}

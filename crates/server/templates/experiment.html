@@ -6,13 +6,8 @@
   <div>
     {% call m::crumb(project) %}
     <h1>{{ experiment.title }}</h1>
-    <p class="muted">
-      {% if !view.goal_title.is_empty() %}goal: {{ view.goal_title }}{% endif %}
-      {% if !view.decision_title.is_empty() %} · decision: {{ view.decision_title }}{% endif %}
-      · created by {{ created_by_name }}
-    </p>
   </div>
-  <div class="row">
+  <div class="actions">
     <a class="btn" href="/projects/{{ project.id }}/timeline">Timeline</a>
     <form method="post" action="/experiments/{{ experiment.id }}/extract" class="inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -20,17 +15,105 @@
     </form>
     <form method="post" action="/experiments/{{ experiment.id }}/delete" class="inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit" class="danger" onclick="return confirm('Delete this experiment and its observations?')">Delete experiment</button>
+      <button type="submit" class="danger" onclick="return confirm('Delete this experiment and its observations?')">Delete</button>
     </form>
   </div>
 </div>
 
+<div class="meta-card">
+  <div class="meta-card-row">
+    <span class="tag status-{{ experiment.status }}">{{ experiment.status }}</span>
+    {% if !view.goal_title.is_empty() %}<span class="muted small">goal: {{ view.goal_title }}</span>{% endif %}
+    {% if !view.decision_title.is_empty() %}<span class="muted small">decision: {{ view.decision_title }}</span>{% endif %}
+    <span class="muted small">created by {{ created_by_name }}</span>
+  </div>
+  {% if !view.started_at.is_empty() || !view.ended_at.is_empty() %}
+  <div class="meta-card-row muted small">
+    {% if !view.started_at.is_empty() %}started {{ view.started_at }}{% endif %}
+    {% if !view.ended_at.is_empty() %} · ended {{ view.ended_at }}{% endif %}
+  </div>
+  {% endif %}
+</div>
+
 {% call m::subnav(project, "experiments") %}
 
-<div class="row">
-  <span class="tag status-{{ experiment.status }}">{{ experiment.status }}</span>
-  {% if !view.started_at.is_empty() %}<span class="muted small">started {{ view.started_at }}</span>{% endif %}
-  {% if !view.ended_at.is_empty() %}<span class="muted small">ended {{ view.ended_at }}</span>{% endif %}
+<div class="section-panel">
+  <h2>Add observation</h2>
+  <form method="post" action="/experiments/{{ experiment.id }}/events">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="edit-row">
+      <field>
+        <label for="ev-kind">Kind</label>
+        <select id="ev-kind" name="kind">
+          <option value="observation">observation</option>
+          <option value="measurement">measurement</option>
+          <option value="milestone">milestone</option>
+        </select>
+      </field>
+      <field>
+        <label for="ev-at">When (optional)</label>
+        <input id="ev-at" name="at_date" type="date">
+      </field>
+    </div>
+    <field>
+      <label for="ev-note">Note (Markdown)</label>
+      <textarea id="ev-note" name="note" rows="3" placeholder="What did you see, measure, or hit?"></textarea>
+    </field>
+    <button type="submit">Log observation</button>
+  </form>
+</div>
+
+{% if !view.hypothesis_html.is_empty() %}
+<details open>
+  <summary>Hypothesis</summary>
+  <div class="section-panel">
+    <h2>Hypothesis</h2>
+    <div class="prose">{{ view.hypothesis_html|safe }}</div>
+  </div>
+</details>
+{% endif %}
+
+{% if !experiment.result.is_empty() %}
+<details open>
+  <summary>Result</summary>
+  <div class="section-panel">
+    <h2>Result</h2>
+    <div class="prose">{{ view.result_html|safe }}</div>
+  </div>
+</details>
+{% endif %}
+
+{% if !experiment.lesson.is_empty() %}
+<details open>
+  <summary>Lesson</summary>
+  <div class="section-panel">
+    <h2>Lesson</h2>
+    <div class="prose">{{ view.lesson_html|safe }}</div>
+  </div>
+</details>
+{% endif %}
+
+<div class="section-panel">
+  <h2>Timeline</h2>
+  {% if events.is_empty() %}
+  <p class="muted">No observations recorded yet.</p>
+  {% else %}
+  <ol class="timeline">
+    {% for ev in events %}
+    <li>
+      <div class="row">
+        <span class="tag kind-{{ ev.kind }}">{{ ev.kind }}</span>
+        <span class="muted small">{{ ev.at }}</span>
+        <form method="post" action="/experiments/{{ experiment.id }}/events/{{ ev.id }}/delete" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="link danger">Remove</button>
+        </form>
+      </div>
+      <div class="prose">{{ ev.note_html|safe }}</div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
 </div>
 
 <details>
@@ -45,15 +128,18 @@
       <label for="x-hypothesis">Hypothesis (Markdown)</label>
       <textarea id="x-hypothesis" name="hypothesis" rows="4">{{ experiment.hypothesis }}</textarea>
     </field>
-    <field>
-      <label for="x-status">Status</label>
-      <select id="x-status" name="status">
-        <option value="planned" {% if experiment.status == "planned" %}selected{% endif %}>planned</option>
-        <option value="running" {% if experiment.status == "running" %}selected{% endif %}>running</option>
-        <option value="done" {% if experiment.status == "done" %}selected{% endif %}>done</option>
-        <option value="abandoned" {% if experiment.status == "abandoned" %}selected{% endif %}>abandoned</option>
-      </select>
-    </field>
+    <div class="edit-row">
+      <field>
+        <label for="x-status">Status</label>
+        <select id="x-status" name="status">
+          <option value="planned" {% if experiment.status == "planned" %}selected{% endif %}>planned</option>
+          <option value="running" {% if experiment.status == "running" %}selected{% endif %}>running</option>
+          <option value="done" {% if experiment.status == "done" %}selected{% endif %}>done</option>
+          <option value="abandoned" {% if experiment.status == "abandoned" %}selected{% endif %}>abandoned</option>
+        </select>
+      </field>
+      <field></field>
+    </div>
     <field>
       <label for="x-result">Result (Markdown)</label>
       <textarea id="x-result" name="result" rows="4" placeholder="What happened, with evidence (links to measurements)…"></textarea>
@@ -65,64 +151,4 @@
     <button type="submit">Save changes</button>
   </form>
 </details>
-
-{% if !view.hypothesis_html.is_empty() %}
-<h2>Hypothesis</h2>
-<div class="prose">{{ view.hypothesis_html|safe }}</div>
-{% endif %}
-
-{% if !experiment.result.is_empty() %}
-<h2>Result</h2>
-<div class="prose">{{ view.result_html|safe }}</div>
-{% endif %}
-
-{% if !experiment.lesson.is_empty() %}
-<h2>Lesson</h2>
-<div class="prose">{{ view.lesson_html|safe }}</div>
-{% endif %}
-
-<h2>Timeline of this experiment</h2>
-{% if events.is_empty() %}
-<p class="muted">No observations recorded yet.</p>
-{% else %}
-<ol class="timeline">
-  {% for ev in events %}
-  <li>
-    <div class="row">
-      <span class="tag kind-{{ ev.kind }}">{{ ev.kind }}</span>
-      <span class="muted small">{{ ev.at }}</span>
-      <form method="post" action="/experiments/{{ experiment.id }}/events/{{ ev.id }}/delete" class="inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="link danger">Remove</button>
-      </form>
-    </div>
-    <div class="prose">{{ ev.note_html|safe }}</div>
-  </li>
-  {% endfor %}
-</ol>
-{% endif %}
-
-<h3>Add observation</h3>
-<form method="post" action="/experiments/{{ experiment.id }}/events">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <div class="row">
-    <field>
-      <label for="ev-kind">Kind</label>
-      <select id="ev-kind" name="kind">
-        <option value="observation">observation</option>
-        <option value="measurement">measurement</option>
-        <option value="milestone">milestone</option>
-      </select>
-    </field>
-    <field>
-      <label for="ev-at">When (optional)</label>
-      <input id="ev-at" name="at_date" type="date">
-    </field>
-  </div>
-  <field>
-    <label for="ev-note">Note (Markdown)</label>
-    <textarea id="ev-note" name="note" rows="3" placeholder="What did you see, measure, or hit?"></textarea>
-  </field>
-  <button type="submit">Log observation</button>
-</form>
 {% endblock %}

@@ -6,84 +6,101 @@
   <div>
     {% call m::crumb(project) %}
     <h1>{{ decision.title }}</h1>
-    <p>
-      <span class="tag status-{{ view.status }}">{{ view.status }}</span>
-      {% if !view.goal_title.is_empty() %}<span class="muted small">serves: {{ view.goal_title }}</span>{% endif %}
-      <span class="muted small">created by {{ created_by_name }}</span>
-    </p>
   </div>
-  <form method="post" action="/decisions/{{ decision.id }}/delete" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" class="danger" onclick="return confirm('Delete this decision and its history?')">Delete decision</button>
-  </form>
+  <div class="actions">
+    <form method="post" action="/decisions/{{ decision.id }}/delete" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="danger" onclick="return confirm('Delete this decision and its history?')">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="meta-card">
+  <div class="meta-card-row">
+    <span class="tag status-{{ view.status }}">{{ view.status }}</span>
+    {% if !view.goal_title.is_empty() %}<span class="muted small">serves: {{ view.goal_title }}</span>{% endif %}
+    <span class="muted small">created by {{ created_by_name }}</span>
+  </div>
 </div>
 
 {% call m::subnav(project, "decisions") %}
 
 {% if !view.context_html.is_empty() %}
-<h2>Context</h2>
-<div class="prose">{{ view.context_html|safe }}</div>
+<div class="section-panel">
+  <h2>Context</h2>
+  <div class="prose">{{ view.context_html|safe }}</div>
+</div>
 {% endif %}
 
-<h2>Options</h2>
-{% if view.options.is_empty() %}
-<p class="muted">No options recorded.</p>
-{% else %}
-<section class="options">
-  {% for o in view.options %}
-  <div class="card">
-    <h3>{{ o.label }}</h3>
-    <p class="muted small">Pros</p>
-    <div class="prose">{{ o.pros_html|safe }}</div>
-    <p class="muted small">Cons</p>
-    <div class="prose">{{ o.cons_html|safe }}</div>
-  </div>
-  {% endfor %}
-</section>
-{% endif %}
+<div class="section-panel">
+  <h2>Options</h2>
+  {% if view.options.is_empty() %}
+  <p class="muted">No options recorded.</p>
+  {% else %}
+  <section class="options">
+    {% for o in view.options %}
+    <div class="card">
+      <h3>{{ o.label }}</h3>
+      <p class="muted small">Pros</p>
+      <div class="prose">{{ o.pros_html|safe }}</div>
+      <p class="muted small">Cons</p>
+      <div class="prose">{{ o.cons_html|safe }}</div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+</div>
 
 {% if view.status == "decided" %}
-<h2>Decision</h2>
-<p class="muted">Chose <strong>{{ view.decided_label }}</strong> on {{ view.decided_at }}</p>
-<div class="prose">{{ view.rationale_html|safe }}</div>
-{% if !view.review_at.is_empty() %}<p class="muted">Review on or after <strong>{{ view.review_at }}</strong></p>{% endif %}
+<div class="section-panel">
+  <h2>Decision</h2>
+  <p class="muted">Chose <strong>{{ view.decided_label }}</strong> on {{ view.decided_at }}</p>
+  <div class="prose">{{ view.rationale_html|safe }}</div>
+  {% if !view.review_at.is_empty() %}<p class="muted">Review on or after <strong>{{ view.review_at }}</strong></p>{% endif %}
+</div>
 {% elif view.status == "rejected" %}
-<h2>Outcome</h2>
-<p class="muted">Rejected on {{ view.decided_at }}</p>
-<div class="prose">{{ view.rationale_html|safe }}</div>
+<div class="section-panel">
+  <h2>Outcome</h2>
+  <p class="muted">Rejected on {{ view.decided_at }}</p>
+  <div class="prose">{{ view.rationale_html|safe }}</div>
+</div>
 {% endif %}
 
 {% if view.status == "open" %}
-<h2>Resolve this decision</h2>
-<form method="post" action="/decisions/{{ decision.id }}/resolve">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <field>
-    <label for="rstatus">Outcome</label>
-    <select id="rstatus" name="status">
-      <option value="decided">decided</option>
-      <option value="rejected">rejected</option>
-      <option value="open">still open</option>
-    </select>
-  </field>
-  <field>
-    <label for="roption">Chosen option (when decided)</label>
-    <select id="roption" name="decided_option">
-      <option value="">— none —</option>
-      {% for o in view.options %}
-      <option value="{{ o.id }}">{{ o.label }}</option>
-      {% endfor %}
-    </select>
-  </field>
-  <field>
-    <label for="rrat">Rationale (Markdown)</label>
-    <textarea id="rrat" name="rationale" rows="4" placeholder="Why this option? What did you weigh against it?"></textarea>
-  </field>
-  <field>
-    <label for="rreview">Review on (YYYY-MM-DD, optional)</label>
-    <input id="rreview" name="review_at" value="{{ view.review_at }}" placeholder="e.g. 2026-12-31">
-  </field>
-  <button type="submit">Record</button>
-</form>
+<div class="section-panel">
+  <h2>Resolve this decision</h2>
+  <form method="post" action="/decisions/{{ decision.id }}/resolve">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="edit-row">
+      <field>
+        <label for="rstatus">Outcome</label>
+        <select id="rstatus" name="status">
+          <option value="decided">decided</option>
+          <option value="rejected">rejected</option>
+          <option value="open">still open</option>
+        </select>
+      </field>
+      <field>
+        <label for="roption">Chosen option (when decided)</label>
+        <select id="roption" name="decided_option">
+          <option value="">— none —</option>
+          {% for o in view.options %}
+          <option value="{{ o.id }}">{{ o.label }}</option>
+          {% endfor %}
+        </select>
+      </field>
+    </div>
+    <field>
+      <label for="rrat">Rationale (Markdown)</label>
+      <textarea id="rrat" name="rationale" rows="4" placeholder="Why this option? What did you weigh against it?"></textarea>
+    </field>
+    <field>
+      <label for="rreview">Review on (YYYY-MM-DD, optional)</label>
+      <input id="rreview" name="review_at" value="{{ view.review_at }}" placeholder="e.g. 2026-12-31">
+    </field>
+    <button type="submit">Record</button>
+  </form>
+</div>
 {% endif %}
 
 <details>
@@ -107,33 +124,43 @@
         {% endfor %}
       </select>
     </field>
-    <h4>Option 1</h4>
-    <field><label for="eo1">Label</label><input id="eo1" name="opt_1_label" value="{{ view.opt1.label }}"></field>
-    <field><label for="eo1p">Pros</label><textarea id="eo1p" name="opt_1_pros" rows="2">{{ view.opt1.pros }}</textarea></field>
-    <field><label for="eo1c">Cons</label><textarea id="eo1c" name="opt_1_cons" rows="2">{{ view.opt1.cons }}</textarea></field>
-    <h4>Option 2</h4>
-    <field><label for="eo2">Label</label><input id="eo2" name="opt_2_label" value="{{ view.opt2.label }}"></field>
-    <field><label for="eo2p">Pros</label><textarea id="eo2p" name="opt_2_pros" rows="2">{{ view.opt2.pros }}</textarea></field>
-    <field><label for="eo2c">Cons</label><textarea id="eo2c" name="opt_2_cons" rows="2">{{ view.opt2.cons }}</textarea></field>
-    <h4>Option 3</h4>
-    <field><label for="eo3">Label</label><input id="eo3" name="opt_3_label" value="{{ view.opt3.label }}"></field>
-    <field><label for="eo3p">Pros</label><textarea id="eo3p" name="opt_3_pros" rows="2">{{ view.opt3.pros }}</textarea></field>
-    <field><label for="eo3c">Cons</label><textarea id="eo3c" name="opt_3_cons" rows="2">{{ view.opt3.cons }}</textarea></field>
+    <div class="options-edit">
+      <div class="option-group">
+        <h4>Option 1</h4>
+        <field><label for="eo1">Label</label><input id="eo1" name="opt_1_label" value="{{ view.opt1.label }}"></field>
+        <field><label for="eo1p">Pros</label><textarea id="eo1p" name="opt_1_pros" rows="2">{{ view.opt1.pros }}</textarea></field>
+        <field><label for="eo1c">Cons</label><textarea id="eo1c" name="opt_1_cons" rows="2">{{ view.opt1.cons }}</textarea></field>
+      </div>
+      <div class="option-group">
+        <h4>Option 2</h4>
+        <field><label for="eo2">Label</label><input id="eo2" name="opt_2_label" value="{{ view.opt2.label }}"></field>
+        <field><label for="eo2p">Pros</label><textarea id="eo2p" name="opt_2_pros" rows="2">{{ view.opt2.pros }}</textarea></field>
+        <field><label for="eo2c">Cons</label><textarea id="eo2c" name="opt_2_cons" rows="2">{{ view.opt2.cons }}</textarea></field>
+      </div>
+      <div class="option-group">
+        <h4>Option 3</h4>
+        <field><label for="eo3">Label</label><input id="eo3" name="opt_3_label" value="{{ view.opt3.label }}"></field>
+        <field><label for="eo3p">Pros</label><textarea id="eo3p" name="opt_3_pros" rows="2">{{ view.opt3.pros }}</textarea></field>
+        <field><label for="eo3c">Cons</label><textarea id="eo3c" name="opt_3_cons" rows="2">{{ view.opt3.cons }}</textarea></field>
+      </div>
+    </div>
     <button type="submit">Save changes</button>
   </form>
 </details>
 
-<h2>History</h2>
-{% if revisions.is_empty() %}
-<p class="muted">No history yet.</p>
-{% else %}
-<section class="list">
-  {% for rv in revisions %}
-  <details>
-    <summary>{{ rv.created_at }}</summary>
-    <div class="prose">{{ rv.html|safe }}</div>
-  </details>
-  {% endfor %}
-</section>
-{% endif %}
+<div class="section-panel">
+  <h2>History</h2>
+  {% if revisions.is_empty() %}
+  <p class="muted">No history yet.</p>
+  {% else %}
+  <section class="list">
+    {% for rv in revisions %}
+    <details>
+      <summary>{{ rv.created_at }}</summary>
+      <div class="prose">{{ rv.html|safe }}</div>
+    </details>
+    {% endfor %}
+  </section>
+  {% endif %}
+</div>
 {% endblock %}

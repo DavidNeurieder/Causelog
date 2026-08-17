@@ -619,6 +619,74 @@ details.create-project field { margin-bottom: var(--space-3); }
 .tag-x:hover { color: var(--danger); }
 
 /* ---------------------------------------------------------------------------
+   Detail page components
+   ------------------------------------------------------------------------- */
+
+.meta-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.meta-card-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.section-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.section-panel h2 {
+  margin-top: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.actions .btn, .actions button {
+  font-size: 13px;
+  padding: 5px 12px;
+}
+
+.options-edit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-3) 0;
+}
+.options-edit .option-group {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+}
+.options-edit .option-group h4 {
+  margin-top: 0;
+}
+
+.edit-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.edit-row > field { margin-bottom: 0; }
+
+/* ---------------------------------------------------------------------------
    Responsive
    ------------------------------------------------------------------------- */
 
@@ -629,6 +697,8 @@ details.create-project field { margin-bottom: var(--space-3); }
   .row.space-between { gap: var(--space-2); }
   .row.item, a.row-link { align-items: flex-start; }
   .options { grid-template-columns: 1fr; }
+  .options-edit { grid-template-columns: 1fr; }
+  .edit-row { grid-template-columns: 1fr; }
   h1 { font-size: 24px; }
   .row { flex-wrap: wrap; }
   .row > details { flex-basis: 100%; }

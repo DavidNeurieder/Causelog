@@ -6,29 +6,44 @@
   <div>
     {% call m::crumb(project) %}
     <h1>{{ goal.title }}</h1>
-    <p><span class="tag status-{{ goal.status }}">{{ goal.status }}</span> <span class="muted small">created by {{ created_by_name }}</span>{% if assigned_to_name != "Unknown" %} <span class="muted small">· assigned to {{ assigned_to_name }}</span>{% endif %}</p>
   </div>
-  <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}/delete" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" class="danger" onclick="return confirm('Delete this goal?')">Delete goal</button>
-  </form>
+  <div class="actions">
+    <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}/delete" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="danger" onclick="return confirm('Delete this goal?')">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="meta-card">
+  <div class="meta-card-row">
+    <span class="tag status-{{ goal.status }}">{{ goal.status }}</span>
+    <span class="muted small">created by {{ created_by_name }}</span>
+    {% if assigned_to_name != "Unknown" %}<span class="muted small">· assigned to {{ assigned_to_name }}</span>{% endif %}
+  </div>
 </div>
 
 {% call m::subnav(project, "goals") %}
 
 {% if !body_html.is_empty() %}
-<h2>Details</h2>
-<div class="prose">{{ body_html|safe }}</div>
+<div class="section-panel">
+  <h2>Details</h2>
+  <div class="prose">{{ body_html|safe }}</div>
+</div>
 {% endif %}
 
 {% if !decisions.is_empty() %}
-<h2>Served by decisions</h2>
-{% call m::decision_list(decisions) %}
+<div class="section-panel">
+  <h2>Served by decisions</h2>
+  {% call m::decision_list(decisions) %}
+</div>
 {% endif %}
 
 {% if !experiments.is_empty() %}
-<h2>Tested by experiments</h2>
-{% call m::experiment_list(experiments) %}
+<div class="section-panel">
+  <h2>Tested by experiments</h2>
+  {% call m::experiment_list(experiments) %}
+</div>
 {% endif %}
 
 <details>
@@ -43,23 +58,25 @@
       <label for="gbody">Details (Markdown)</label>
       <textarea id="gbody" name="body" rows="8">{{ goal.body }}</textarea>
     </field>
-    <field>
-      <label for="gstatus">Status</label>
-      <select id="gstatus" name="status">
-        <option value="open" {% if goal.status == "open" %}selected{% endif %}>open</option>
-        <option value="done" {% if goal.status == "done" %}selected{% endif %}>done</option>
-        <option value="dropped" {% if goal.status == "dropped" %}selected{% endif %}>dropped</option>
-      </select>
-    </field>
-    <field>
-      <label for="gassign">Assign to</label>
-      <select id="gassign" name="assigned_to">
-        <option value="" {% if goal_assigned_to_id.is_empty() %}selected{% endif %}>— unassigned —</option>
-        {% for (member, _role) in members %}
-        <option value="{{ member.id }}" {% if goal_assigned_to_id == member.id.to_string() %}selected{% endif %}>{{ member.display_name }}</option>
-        {% endfor %}
-      </select>
-    </field>
+    <div class="edit-row">
+      <field>
+        <label for="gstatus">Status</label>
+        <select id="gstatus" name="status">
+          <option value="open" {% if goal.status == "open" %}selected{% endif %}>open</option>
+          <option value="done" {% if goal.status == "done" %}selected{% endif %}>done</option>
+          <option value="dropped" {% if goal.status == "dropped" %}selected{% endif %}>dropped</option>
+        </select>
+      </field>
+      <field>
+        <label for="gassign">Assign to</label>
+        <select id="gassign" name="assigned_to">
+          <option value="" {% if goal_assigned_to_id.is_empty() %}selected{% endif %}>— unassigned —</option>
+          {% for (member, _role) in members %}
+          <option value="{{ member.id }}" {% if goal_assigned_to_id == member.id.to_string() %}selected{% endif %}>{{ member.display_name }}</option>
+          {% endfor %}
+        </select>
+      </field>
+    </div>
     <button type="submit">Save changes</button>
   </form>
 </details>
