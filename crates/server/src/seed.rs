@@ -123,6 +123,7 @@ async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> an
             project.id,
             "Ship the MVP with the least operational surface",
             "One machine, one binary, no external services.",
+            Some(created_by),
         )
         .await?;
 
@@ -147,6 +148,7 @@ async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> an
                     cons: "A whole server to run and back up.".into(),
                 },
             ],
+            Some(created_by),
         )
         .await?;
     repo.resolve_decision(
@@ -165,6 +167,7 @@ async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> an
             Some(decision.id),
             "WAL for six weeks",
             "WAL mode keeps reads fast while a single writer applies changes.",
+            Some(created_by),
         )
         .await?;
     repo.update_experiment(
@@ -184,6 +187,7 @@ async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> an
             "SQLite WAL is a free win for single-writer workloads. Re-evaluate if a second writer ever appears.",
             Some("experiment"),
             Some(experiment.id),
+            Some(created_by),
         )
         .await?;
     repo.create_link(
@@ -223,6 +227,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             project.id,
             "Keep Gloria alive for 90 consecutive days",
             "Day 90 is the contract milestone. Nobody knows who holds the contract. We just know it expires.",
+            Some(created_by),
         )
         .await?;
     let g_climb = repo
@@ -230,12 +235,14 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             project.id,
             "Get Gloria to actually climb the moss pole",
             "She has been 'considering it' since March. Her leaves go in every direction except up.",
+            Some(created_by),
         )
         .await?;
     repo.create_goal(
         project.id,
         "Reach 15 leaves",
         "Current count: 13. The 14th fell off in what can only be described as passive aggression.",
+        Some(created_by),
     )
     .await?;
     let g_clap = repo
@@ -243,6 +250,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             project.id,
             "Teach Gloria to clap when a build passes",
             "She has no arms and has shown no aptitude. Dropped after she shed a leaf in disgust.",
+            Some(created_by),
         )
         .await?;
     finish_goal(repo, &g_alive, "done").await?;
@@ -274,6 +282,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
                     cons: "Her answer is always 'sometime soon'.".into(),
                 },
             ],
+            Some(created_by),
         )
         .await?;
     repo.resolve_decision(
@@ -305,6 +314,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
                     cons: "It is also honest about being broken if dropped.".into(),
                 },
             ],
+            Some(created_by),
         )
         .await?;
     repo.resolve_decision(
@@ -335,6 +345,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
                 cons: "Sheds bits everywhere; the vacuum speaks to us now.".into(),
             },
         ],
+        Some(created_by),
     )
     .await?;
 
@@ -345,6 +356,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             Some(d_water.id),
             "Does encouragement actually grow leaves?",
             "Speaking kindly to Gloria for ten minutes a day increases leaf production.",
+            Some(created_by),
         )
         .await?;
     repo.create_event(
@@ -385,6 +397,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             None,
             "The corner window vs the Desk of Mystery",
             "The corner window grows Gloria faster than the desk with the 'good vibes' lighting.",
+            Some(created_by),
         )
         .await?;
     repo.create_event(
@@ -418,6 +431,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "The definitive rules, learned the hard way:\n\n- Water when the soil is dry, not on a schedule. Gloria can smell a schedule.\n- Encouragement is a zero-calorie snack. She is not interested.\n- The moss pole is a suggestion, and she has not responded to suggestions.\n- The one true lesson: **water is the only love language**.",
             Some("experiment"),
             Some(e_talk.id),
+            Some(created_by),
         )
         .await?;
     repo.create_link(
@@ -454,6 +468,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             project.id,
             "Eliminate the 11am queue of despair",
             "Peak hour currently has a seven-minute wait. Unacceptable for people who are technically adults.",
+            Some(created_by),
         )
         .await?;
     let g_budget = repo
@@ -461,6 +476,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             project.id,
             "Cut the monthly coffee budget by 15% without a riot",
             "The bean fund is leaking. The bean fund has feelings.",
+            Some(created_by),
         )
         .await?;
     let g_second = repo
@@ -468,6 +484,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             project.id,
             "Put a second machine in the kitchen corner",
             "Dropped: the kitchen corner is load-bearing, emotionally.",
+            Some(created_by),
         )
         .await?;
     finish_goal(repo, &g_queue, "done").await?;
@@ -493,6 +510,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
                     cons: "Two devices to maintain; minor barista-envy in leadership.".into(),
                 },
             ],
+            Some(created_by),
         )
         .await?;
     repo.resolve_decision(
@@ -524,6 +542,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
                     cons: "We will never know true coolness.".into(),
                 },
             ],
+            Some(created_by),
         )
         .await?;
     repo.resolve_decision(
@@ -555,6 +574,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
                     cons: "The bean fund files a complaint.".into(),
                 },
             ],
+            Some(created_by),
         )
         .await?;
 
@@ -565,6 +585,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             Some(d_machine.id),
             "Measure the queue (and the despair)",
             "The 11am queue is a measurable function of bean throughput.",
+            Some(created_by),
         )
         .await?;
     repo.create_event(
@@ -604,6 +625,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         Some(d_strong.id),
         "The 10% stronger beans experiment",
         "Nobody will notice a 10% strength increase. Dave will.",
+        Some(created_by),
     )
     .await?;
 
@@ -614,6 +636,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Field notes from the queue:\n\n- **The Siphon**: has a dedicated mug and a backup mug.\n- **The Purist**: black, silent, deeply suspicious of oat milk.\n- **Dave**: thermos, returns, judgment.",
             Some("experiment"),
             Some(e_queue.id),
+            Some(created_by),
         )
         .await?;
     let letter = repo
@@ -623,6 +646,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Dear whoever,\n\nThe grounds are not a garnish. The sink is not a compost bin. The intern who fished them out is on their third cup and cannot be reached.\n\nWe stand by the sink.",
             None,
             None,
+            Some(created_by),
         )
         .await?;
     repo.create_link(

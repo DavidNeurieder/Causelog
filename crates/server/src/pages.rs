@@ -15,13 +15,15 @@ use kaizen_model::{Decision, DecisionOption, Experiment, Goal, Note, Project, Us
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth;
 use crate::error::ApiError;
 use crate::repository::{
-    DashboardCounts, GraphData, ProjectCounts, RepositoryError, SearchRow, TimelineEntry,
+    DashboardCounts, GraphData, ProjectCounts, Repository, RepositoryError, SearchRow,
+    TimelineEntry,
 };
 
 // ---------------------------------------------------------------------------
@@ -251,6 +253,7 @@ struct GoalTemplate {
     project: Project,
     goal: Goal,
     body_html: String,
+    created_by_name: String,
     decisions: Vec<DecisionItemView>,
     experiments: Vec<ExperimentItemView>,
 }
@@ -372,6 +375,7 @@ struct ExperimentTemplate {
     project: Project,
     experiment: Experiment,
     view: ExperimentView,
+    created_by_name: String,
     events: Vec<EventView>,
 }
 
@@ -435,6 +439,7 @@ struct DecisionTemplate {
     goal_options: Vec<GoalOptionView>,
     decision: Decision,
     view: DecisionView,
+    created_by_name: String,
     revisions: Vec<RevisionView>,
 }
 
@@ -529,6 +534,7 @@ struct NoteTemplate {
     project: Project,
     note: Note,
     view: NoteView,
+    created_by_name: String,
     revisions: Vec<RevisionView>,
 }
 
@@ -614,6 +620,17 @@ fn current_year() -> u32 {
 /// measure yet.
 fn percent(part: i64, total: i64) -> i64 {
     if total <= 0 { 0 } else { part * 100 / total }
+}
+
+/// Resolve a `created_by` user ID to a display name, falling back to "Unknown".
+async fn creator_name(repo: &Arc<dyn Repository>, id: Option<Uuid>) -> String {
+    match id {
+        Some(uid) => match repo.find_user_by_id(uid).await {
+            Ok(Some(user)) => user.display_name,
+            _ => "Unknown".into(),
+        },
+        None => "Unknown".into(),
+    }
 }
 
 fn flash_message(key: Option<&str>) -> String {
@@ -1377,6 +1394,7 @@ pub(crate) async fn goal_page(
         })
         .collect();
     let body_html = render_markdown(&goal.body);
+    let created_by_name = creator_name(&state.repo, goal.created_by).await;
     page(&GoalTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1387,6 +1405,7 @@ pub(crate) async fn goal_page(
         project,
         goal,
         body_html,
+        created_by_name,
         decisions,
         experiments,
     })
@@ -1575,7 +1594,12 @@ pub(crate) async fn goal_create(
     }
     state
         .repo
-        .create_goal(project_id, body.title.trim(), body.body.trim())
+        .create_goal(
+            project_id,
+            body.title.trim(),
+            body.body.trim(),
+            Some(auth_user.user.id),
+        )
         .await?;
     Ok(Redirect::to(&format!("/projects/{project_id}/goals?flash=goal_created")).into_response())
 }
@@ -1727,6 +1751,7 @@ pub(crate) async fn decision_create(
             body.title.trim(),
             body.context.trim(),
             &options,
+            Some(auth_user.user.id),
         )
         .await?;
     Ok(Redirect::to(&format!(
@@ -1804,6 +1829,7 @@ pub(crate) async fn decision_page(
         opt2: edit_option(&decision.options, 1),
         opt3: edit_option(&decision.options, 2),
     };
+    let created_by_name = creator_name(&state.repo, decision.created_by).await;
     page(&DecisionTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1815,6 +1841,7 @@ pub(crate) async fn decision_page(
         goal_options,
         decision,
         view,
+        created_by_name,
         revisions: revisions
             .iter()
             .map(|r| RevisionView {
@@ -1994,6 +2021,7 @@ pub(crate) async fn experiment_create(
             decision_id,
             body.title.trim(),
             body.hypothesis.trim(),
+            Some(auth_user.user.id),
         )
         .await?;
     Ok(Redirect::to(&format!(
@@ -2070,6 +2098,7 @@ pub(crate) async fn experiment_page(
             note_html: render_markdown(&ev.note),
         })
         .collect();
+    let created_by_name = creator_name(&state.repo, experiment.created_by).await;
     page(&ExperimentTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -2080,6 +2109,7 @@ pub(crate) async fn experiment_page(
         project,
         experiment,
         view,
+        created_by_name,
         events: events_view,
     })
 }
@@ -2316,7 +2346,14 @@ pub(crate) async fn note_create(
     }
     let note = state
         .repo
-        .create_note(project_id, body.title.trim(), body.body.trim(), None, None)
+        .create_note(
+            project_id,
+            body.title.trim(),
+            body.body.trim(),
+            None,
+            None,
+            Some(auth_user.user.id),
+        )
         .await?;
     Ok(Redirect::to(&format!("/notes/{}?flash=note_created", note.id)).into_response())
 }
@@ -2378,6 +2415,7 @@ pub(crate) async fn note_page(
             html: render_markdown(&r.snapshot),
         })
         .collect();
+    let created_by_name = creator_name(&state.repo, note.created_by).await;
     page(&NoteTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -2388,6 +2426,7 @@ pub(crate) async fn note_page(
         project,
         note,
         view,
+        created_by_name,
         revisions: revisions_view,
     })
 }
@@ -2486,6 +2525,7 @@ pub(crate) async fn note_extract(
             &body_text,
             Some("experiment"),
             Some(experiment.id),
+            Some(auth_user.user.id),
         )
         .await?;
     Ok(Redirect::to(&format!("/notes/{}?flash=note_extracted", note.id)).into_response())
@@ -3158,6 +3198,7 @@ mod tests {
             rationale: String::new(),
             decided_at_ms: None,
             review_at_ms: None,
+            created_by: None,
             created_at_ms: 0,
             updated_at_ms: 0,
         };

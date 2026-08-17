@@ -56,6 +56,7 @@ pub struct Goal {
     pub body: String,
     /// `open` | `done` | `dropped`
     pub status: String,
+    pub created_by: Option<Uuid>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -88,6 +89,7 @@ pub struct Decision {
     pub decided_at_ms: Option<i64>,
     /// Optional review date: the decision is revisited on or after this day.
     pub review_at_ms: Option<i64>,
+    pub created_by: Option<Uuid>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -102,6 +104,7 @@ pub struct Revision {
     pub entity_type: String,
     pub entity_id: Uuid,
     pub snapshot: String,
+    pub created_by: Option<Uuid>,
     pub created_at_ms: i64,
 }
 
@@ -123,6 +126,7 @@ pub struct Experiment {
     pub result: String,
     /// Markdown; the durable lesson extracted from the result.
     pub lesson: String,
+    pub created_by: Option<Uuid>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -152,6 +156,7 @@ pub struct Note {
     /// `experiment` | `decision` — the source this note was captured from.
     pub source_type: Option<String>,
     pub source_id: Option<Uuid>,
+    pub created_by: Option<Uuid>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }

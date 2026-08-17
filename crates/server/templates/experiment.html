@@ -9,6 +9,7 @@
     <p class="muted">
       {% if !view.goal_title.is_empty() %}goal: {{ view.goal_title }}{% endif %}
       {% if !view.decision_title.is_empty() %} · decision: {{ view.decision_title }}{% endif %}
+      · created by {{ created_by_name }}
     </p>
   </div>
   <div class="row">

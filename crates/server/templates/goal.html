@@ -6,7 +6,7 @@
   <div>
     {% call m::crumb(project) %}
     <h1>{{ goal.title }}</h1>
-    <p><span class="tag status-{{ goal.status }}">{{ goal.status }}</span></p>
+    <p><span class="tag status-{{ goal.status }}">{{ goal.status }}</span> <span class="muted small">created by {{ created_by_name }}</span></p>
   </div>
   <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}/delete" class="inline">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

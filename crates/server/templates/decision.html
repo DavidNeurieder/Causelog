@@ -9,6 +9,7 @@
     <p>
       <span class="tag status-{{ view.status }}">{{ view.status }}</span>
       {% if !view.goal_title.is_empty() %}<span class="muted small">serves: {{ view.goal_title }}</span>{% endif %}
+      <span class="muted small">created by {{ created_by_name }}</span>
     </p>
   </div>
   <form method="post" action="/decisions/{{ decision.id }}/delete" class="inline">

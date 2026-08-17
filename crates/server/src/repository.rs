@@ -144,6 +144,7 @@ pub trait Repository: Send + Sync {
         project_id: Uuid,
         title: &str,
         body: &str,
+        created_by: Option<Uuid>,
     ) -> Result<Goal, RepositoryError>;
     async fn update_goal(
         &self,
@@ -173,6 +174,7 @@ pub trait Repository: Send + Sync {
         title: &str,
         context: &str,
         options: &[DecisionOption],
+        created_by: Option<Uuid>,
     ) -> Result<Decision, RepositoryError>;
     /// Update the editable fields and append a revision.
     async fn update_decision(
@@ -213,6 +215,7 @@ pub trait Repository: Send + Sync {
         decision_id: Option<Uuid>,
         title: &str,
         hypothesis: &str,
+        created_by: Option<Uuid>,
     ) -> Result<Experiment, RepositoryError>;
     /// Update editable fields plus status; `started_at`/`ended_at` are set the
     /// first time status moves to `running`/`done|abandoned`.
@@ -258,6 +261,7 @@ pub trait Repository: Send + Sync {
         body: &str,
         source_type: Option<&str>,
         source_id: Option<Uuid>,
+        created_by: Option<Uuid>,
     ) -> Result<Note, RepositoryError>;
     /// Updates a note and records a `note` revision snapshot.
     async fn update_note(&self, id: Uuid, title: &str, body: &str)
@@ -864,7 +868,7 @@ impl Repository for SqliteRepository {
 
     async fn list_goals(&self, project_id: Uuid) -> Result<Vec<Goal>, RepositoryError> {
         let rows = sqlx::query(
-            "SELECT id, project_id, title, body, status, created_at_ms, updated_at_ms
+            "SELECT id, project_id, title, body, status, created_by, created_at_ms, updated_at_ms
              FROM goals WHERE project_id = ? ORDER BY updated_at_ms DESC",
         )
         .bind(project_id.to_string())
@@ -875,7 +879,7 @@ impl Repository for SqliteRepository {
 
     async fn find_goal(&self, id: Uuid) -> Result<Option<Goal>, RepositoryError> {
         let row = sqlx::query(
-            "SELECT id, project_id, title, body, status, created_at_ms, updated_at_ms
+            "SELECT id, project_id, title, body, status, created_by, created_at_ms, updated_at_ms
              FROM goals WHERE id = ?",
         )
         .bind(id.to_string())
@@ -889,17 +893,19 @@ impl Repository for SqliteRepository {
         project_id: Uuid,
         title: &str,
         body: &str,
+        created_by: Option<Uuid>,
     ) -> Result<Goal, RepositoryError> {
         let id = Uuid::new_v4();
         let now = kaizen_content::now_ms();
         sqlx::query(
-            "INSERT INTO goals (id, project_id, title, body, status, created_at_ms, updated_at_ms)
-             VALUES (?, ?, ?, ?, 'open', ?, ?)",
+            "INSERT INTO goals (id, project_id, title, body, status, created_by, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, 'open', ?, ?, ?)",
         )
         .bind(id.to_string())
         .bind(project_id.to_string())
         .bind(title)
         .bind(body)
+        .bind(created_by.map(|u| u.to_string()))
         .bind(now)
         .bind(now)
         .execute(&self.pool)
@@ -910,6 +916,7 @@ impl Repository for SqliteRepository {
             title: title.to_string(),
             body: body.to_string(),
             status: "open".into(),
+            created_by,
             created_at_ms: now,
             updated_at_ms: now,
         })
@@ -1070,7 +1077,7 @@ impl Repository for SqliteRepository {
         let rows = sqlx::query(
             "SELECT id, project_id, goal_id, title, context, options, status,
                     decided_option, rationale, decided_at_ms, review_at_ms,
-                    created_at_ms, updated_at_ms
+                    created_by, created_at_ms, updated_at_ms
              FROM decisions WHERE project_id = ? ORDER BY updated_at_ms DESC",
         )
         .bind(project_id.to_string())
@@ -1083,7 +1090,7 @@ impl Repository for SqliteRepository {
         let row = sqlx::query(
             "SELECT id, project_id, goal_id, title, context, options, status,
                     decided_option, rationale, decided_at_ms, review_at_ms,
-                    created_at_ms, updated_at_ms
+                    created_by, created_at_ms, updated_at_ms
              FROM decisions WHERE id = ?",
         )
         .bind(id.to_string())
@@ -1099,6 +1106,7 @@ impl Repository for SqliteRepository {
         title: &str,
         context: &str,
         options: &[DecisionOption],
+        created_by: Option<Uuid>,
     ) -> Result<Decision, RepositoryError> {
         let decision = Decision {
             id: Uuid::new_v4(),
@@ -1112,14 +1120,15 @@ impl Repository for SqliteRepository {
             rationale: String::new(),
             decided_at_ms: None,
             review_at_ms: None,
+            created_by,
             created_at_ms: kaizen_content::now_ms(),
             updated_at_ms: kaizen_content::now_ms(),
         };
         let mut tx = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO decisions (id, project_id, goal_id, title, context, options, status,
-                    decided_option, rationale, decided_at_ms, review_at_ms, created_at_ms, updated_at_ms)
-             VALUES (?, ?, ?, ?, ?, ?, 'open', NULL, '', NULL, NULL, ?, ?)",
+                    decided_option, rationale, decided_at_ms, review_at_ms, created_by, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, 'open', NULL, '', NULL, NULL, ?, ?, ?)",
         )
         .bind(decision.id.to_string())
         .bind(decision.project_id.to_string())
@@ -1127,6 +1136,7 @@ impl Repository for SqliteRepository {
         .bind(&decision.title)
         .bind(&decision.context)
         .bind(serde_json::to_string(&decision.options).unwrap_or_else(|_| "[]".into()))
+        .bind(decision.created_by.map(|u| u.to_string()))
         .bind(decision.created_at_ms)
         .bind(decision.updated_at_ms)
         .execute(&mut *tx)
@@ -1136,6 +1146,7 @@ impl Repository for SqliteRepository {
             "decision",
             decision.id,
             &decision_snapshot_md(&decision),
+            created_by,
         )
         .await?;
         tx.commit().await?;
@@ -1163,7 +1174,14 @@ impl Repository for SqliteRepository {
         .execute(&mut *tx)
         .await?;
         let decision = fetch_decision(&mut tx, id).await?;
-        insert_revision(&mut tx, "decision", id, &decision_snapshot_md(&decision)).await?;
+        insert_revision(
+            &mut tx,
+            "decision",
+            id,
+            &decision_snapshot_md(&decision),
+            decision.created_by,
+        )
+        .await?;
         tx.commit().await?;
         Ok(decision)
     }
@@ -1194,7 +1212,14 @@ impl Repository for SqliteRepository {
         .execute(&mut *tx)
         .await?;
         let decision = fetch_decision(&mut tx, id).await?;
-        insert_revision(&mut tx, "decision", id, &decision_snapshot_md(&decision)).await?;
+        insert_revision(
+            &mut tx,
+            "decision",
+            id,
+            &decision_snapshot_md(&decision),
+            decision.created_by,
+        )
+        .await?;
         tx.commit().await?;
         Ok(decision)
     }
@@ -1213,7 +1238,7 @@ impl Repository for SqliteRepository {
         entity_id: Uuid,
     ) -> Result<Vec<Revision>, RepositoryError> {
         let rows = sqlx::query(
-            "SELECT id, entity_type, entity_id, snapshot, created_at_ms
+            "SELECT id, entity_type, entity_id, snapshot, created_by, created_at_ms
              FROM revisions WHERE entity_type = ? AND entity_id = ?
              ORDER BY created_at_ms ASC",
         )
@@ -1228,6 +1253,9 @@ impl Repository for SqliteRepository {
                 entity_type: r.get("entity_type"),
                 entity_id: Uuid::from_str(&r.get::<String, _>("entity_id")).unwrap_or_default(),
                 snapshot: r.get("snapshot"),
+                created_by: r
+                    .get::<Option<String>, _>("created_by")
+                    .and_then(|s| Uuid::from_str(&s).ok()),
                 created_at_ms: r.get("created_at_ms"),
             })
             .collect())
@@ -1240,7 +1268,7 @@ impl Repository for SqliteRepository {
     async fn list_experiments(&self, project_id: Uuid) -> Result<Vec<Experiment>, RepositoryError> {
         let rows = sqlx::query(
             "SELECT id, project_id, goal_id, decision_id, title, hypothesis, status,
-                    started_at_ms, ended_at_ms, result, lesson, created_at_ms, updated_at_ms
+                    started_at_ms, ended_at_ms, result, lesson, created_by, created_at_ms, updated_at_ms
              FROM experiments WHERE project_id = ? ORDER BY updated_at_ms DESC",
         )
         .bind(project_id.to_string())
@@ -1252,7 +1280,7 @@ impl Repository for SqliteRepository {
     async fn find_experiment(&self, id: Uuid) -> Result<Option<Experiment>, RepositoryError> {
         let row = sqlx::query(
             "SELECT id, project_id, goal_id, decision_id, title, hypothesis, status,
-                    started_at_ms, ended_at_ms, result, lesson, created_at_ms, updated_at_ms
+                    started_at_ms, ended_at_ms, result, lesson, created_by, created_at_ms, updated_at_ms
              FROM experiments WHERE id = ?",
         )
         .bind(id.to_string())
@@ -1268,13 +1296,14 @@ impl Repository for SqliteRepository {
         decision_id: Option<Uuid>,
         title: &str,
         hypothesis: &str,
+        created_by: Option<Uuid>,
     ) -> Result<Experiment, RepositoryError> {
         let id = Uuid::new_v4();
         let now = kaizen_content::now_ms();
         sqlx::query(
             "INSERT INTO experiments (id, project_id, goal_id, decision_id, title, hypothesis,
-                    status, started_at_ms, ended_at_ms, result, lesson, created_at_ms, updated_at_ms)
-             VALUES (?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, '', '', ?, ?)",
+                    status, started_at_ms, ended_at_ms, result, lesson, created_by, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, '', '', ?, ?, ?)",
         )
         .bind(id.to_string())
         .bind(project_id.to_string())
@@ -1282,6 +1311,7 @@ impl Repository for SqliteRepository {
         .bind(decision_id.map(|d| d.to_string()))
         .bind(title)
         .bind(hypothesis)
+        .bind(created_by.map(|u| u.to_string()))
         .bind(now)
         .bind(now)
         .execute(&self.pool)
@@ -1298,6 +1328,7 @@ impl Repository for SqliteRepository {
             ended_at_ms: None,
             result: String::new(),
             lesson: String::new(),
+            created_by,
             created_at_ms: now,
             updated_at_ms: now,
         })
@@ -1480,7 +1511,7 @@ impl Repository for SqliteRepository {
 
     async fn list_notes(&self, project_id: Uuid) -> Result<Vec<Note>, RepositoryError> {
         let rows = sqlx::query(
-            "SELECT id, project_id, title, body, source_type, source_id, created_at_ms, updated_at_ms
+            "SELECT id, project_id, title, body, source_type, source_id, created_by, created_at_ms, updated_at_ms
              FROM notes WHERE project_id = ? ORDER BY updated_at_ms DESC",
         )
         .bind(project_id.to_string())
@@ -1491,7 +1522,7 @@ impl Repository for SqliteRepository {
 
     async fn find_note(&self, id: Uuid) -> Result<Option<Note>, RepositoryError> {
         let row = sqlx::query(
-            "SELECT id, project_id, title, body, source_type, source_id, created_at_ms, updated_at_ms
+            "SELECT id, project_id, title, body, source_type, source_id, created_by, created_at_ms, updated_at_ms
              FROM notes WHERE id = ?",
         )
         .bind(id.to_string())
@@ -1507,13 +1538,14 @@ impl Repository for SqliteRepository {
         body: &str,
         source_type: Option<&str>,
         source_id: Option<Uuid>,
+        created_by: Option<Uuid>,
     ) -> Result<Note, RepositoryError> {
         let mut tx = self.pool.begin().await?;
         let id = Uuid::new_v4();
         let now = kaizen_content::now_ms();
         sqlx::query(
-            "INSERT INTO notes (id, project_id, title, body, source_type, source_id, created_at_ms, updated_at_ms)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, project_id, title, body, source_type, source_id, created_by, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id.to_string())
         .bind(project_id.to_string())
@@ -1521,12 +1553,13 @@ impl Repository for SqliteRepository {
         .bind(body)
         .bind(source_type)
         .bind(source_id.map(|s| s.to_string()))
+        .bind(created_by.map(|u| u.to_string()))
         .bind(now)
         .bind(now)
         .execute(&mut *tx)
         .await?;
         let note = fetch_note(&mut tx, id).await?;
-        insert_revision(&mut tx, "note", id, &note_snapshot_md(&note)).await?;
+        insert_revision(&mut tx, "note", id, &note_snapshot_md(&note), created_by).await?;
         tx.commit().await?;
         Ok(note)
     }
@@ -1546,7 +1579,14 @@ impl Repository for SqliteRepository {
             .execute(&mut *tx)
             .await?;
         let note = fetch_note(&mut tx, id).await?;
-        insert_revision(&mut tx, "note", id, &note_snapshot_md(&note)).await?;
+        insert_revision(
+            &mut tx,
+            "note",
+            id,
+            &note_snapshot_md(&note),
+            note.created_by,
+        )
+        .await?;
         tx.commit().await?;
         Ok(note)
     }
@@ -1741,7 +1781,7 @@ async fn fetch_decision(
     let row = sqlx::query(
         "SELECT id, project_id, goal_id, title, context, options, status,
                 decided_option, rationale, decided_at_ms, review_at_ms,
-                created_at_ms, updated_at_ms
+                created_by, created_at_ms, updated_at_ms
          FROM decisions WHERE id = ?",
     )
     .bind(id.to_string())
@@ -1757,15 +1797,17 @@ async fn insert_revision(
     entity_type: &str,
     entity_id: Uuid,
     snapshot: &str,
+    created_by: Option<Uuid>,
 ) -> Result<(), RepositoryError> {
     sqlx::query(
-        "INSERT INTO revisions (id, entity_type, entity_id, snapshot, created_at_ms)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO revisions (id, entity_type, entity_id, snapshot, created_by, created_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(entity_type)
     .bind(entity_id.to_string())
     .bind(snapshot)
+    .bind(created_by.map(|u| u.to_string()))
     .bind(kaizen_content::now_ms())
     .execute(&mut **tx)
     .await?;
@@ -1812,7 +1854,7 @@ async fn fetch_note(
     id: Uuid,
 ) -> Result<Note, RepositoryError> {
     let row = sqlx::query(
-        "SELECT id, project_id, title, body, source_type, source_id, created_at_ms, updated_at_ms
+        "SELECT id, project_id, title, body, source_type, source_id, created_by, created_at_ms, updated_at_ms
          FROM notes WHERE id = ?",
     )
     .bind(id.to_string())
@@ -1860,6 +1902,9 @@ fn row_to_goal(r: &sqlx::sqlite::SqliteRow) -> Goal {
         title: r.get("title"),
         body: r.get("body"),
         status: r.get("status"),
+        created_by: r
+            .get::<Option<String>, _>("created_by")
+            .and_then(|s| Uuid::from_str(&s).ok()),
         created_at_ms: r.get("created_at_ms"),
         updated_at_ms: r.get("updated_at_ms"),
     }
@@ -1882,6 +1927,9 @@ fn row_to_decision(r: &sqlx::sqlite::SqliteRow) -> Decision {
         rationale: r.get("rationale"),
         decided_at_ms: r.get("decided_at_ms"),
         review_at_ms: r.get("review_at_ms"),
+        created_by: r
+            .get::<Option<String>, _>("created_by")
+            .and_then(|s| Uuid::from_str(&s).ok()),
         created_at_ms: r.get("created_at_ms"),
         updated_at_ms: r.get("updated_at_ms"),
     }
@@ -1904,6 +1952,9 @@ fn row_to_experiment(r: &sqlx::sqlite::SqliteRow) -> Experiment {
         ended_at_ms: r.get("ended_at_ms"),
         result: r.get("result"),
         lesson: r.get("lesson"),
+        created_by: r
+            .get::<Option<String>, _>("created_by")
+            .and_then(|s| Uuid::from_str(&s).ok()),
         created_at_ms: r.get("created_at_ms"),
         updated_at_ms: r.get("updated_at_ms"),
     }
@@ -1918,6 +1969,9 @@ fn row_to_note(r: &sqlx::sqlite::SqliteRow) -> Note {
         source_type: r.get("source_type"),
         source_id: r
             .get::<Option<String>, _>("source_id")
+            .and_then(|s| Uuid::from_str(&s).ok()),
+        created_by: r
+            .get::<Option<String>, _>("created_by")
             .and_then(|s| Uuid::from_str(&s).ok()),
         created_at_ms: r.get("created_at_ms"),
         updated_at_ms: r.get("updated_at_ms"),
