@@ -145,6 +145,7 @@ pub trait Repository: Send + Sync {
         title: &str,
         body: &str,
         created_by: Option<Uuid>,
+        assigned_to: Option<Uuid>,
     ) -> Result<Goal, RepositoryError>;
     async fn update_goal(
         &self,
@@ -152,6 +153,7 @@ pub trait Repository: Send + Sync {
         title: &str,
         body: &str,
         status: &str,
+        assigned_to: Option<Uuid>,
     ) -> Result<(), RepositoryError>;
     async fn delete_goal(&self, id: Uuid) -> Result<(), RepositoryError>;
 
@@ -868,7 +870,7 @@ impl Repository for SqliteRepository {
 
     async fn list_goals(&self, project_id: Uuid) -> Result<Vec<Goal>, RepositoryError> {
         let rows = sqlx::query(
-            "SELECT id, project_id, title, body, status, created_by, created_at_ms, updated_at_ms
+            "SELECT id, project_id, title, body, status, created_by, assigned_to, created_at_ms, updated_at_ms
              FROM goals WHERE project_id = ? ORDER BY updated_at_ms DESC",
         )
         .bind(project_id.to_string())
@@ -879,7 +881,7 @@ impl Repository for SqliteRepository {
 
     async fn find_goal(&self, id: Uuid) -> Result<Option<Goal>, RepositoryError> {
         let row = sqlx::query(
-            "SELECT id, project_id, title, body, status, created_by, created_at_ms, updated_at_ms
+            "SELECT id, project_id, title, body, status, created_by, assigned_to, created_at_ms, updated_at_ms
              FROM goals WHERE id = ?",
         )
         .bind(id.to_string())
@@ -894,18 +896,20 @@ impl Repository for SqliteRepository {
         title: &str,
         body: &str,
         created_by: Option<Uuid>,
+        assigned_to: Option<Uuid>,
     ) -> Result<Goal, RepositoryError> {
         let id = Uuid::new_v4();
         let now = kaizen_content::now_ms();
         sqlx::query(
-            "INSERT INTO goals (id, project_id, title, body, status, created_by, created_at_ms, updated_at_ms)
-             VALUES (?, ?, ?, ?, 'open', ?, ?, ?)",
+            "INSERT INTO goals (id, project_id, title, body, status, created_by, assigned_to, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?)",
         )
         .bind(id.to_string())
         .bind(project_id.to_string())
         .bind(title)
         .bind(body)
         .bind(created_by.map(|u| u.to_string()))
+        .bind(assigned_to.map(|u| u.to_string()))
         .bind(now)
         .bind(now)
         .execute(&self.pool)
@@ -917,6 +921,7 @@ impl Repository for SqliteRepository {
             body: body.to_string(),
             status: "open".into(),
             created_by,
+            assigned_to,
             created_at_ms: now,
             updated_at_ms: now,
         })
@@ -928,14 +933,16 @@ impl Repository for SqliteRepository {
         title: &str,
         body: &str,
         status: &str,
+        assigned_to: Option<Uuid>,
     ) -> Result<(), RepositoryError> {
         sqlx::query(
-            "UPDATE goals SET title = ?, body = ?, status = ?, updated_at_ms = ?
+            "UPDATE goals SET title = ?, body = ?, status = ?, assigned_to = ?, updated_at_ms = ?
              WHERE id = ?",
         )
         .bind(title)
         .bind(body)
         .bind(status)
+        .bind(assigned_to.map(|u| u.to_string()))
         .bind(kaizen_content::now_ms())
         .bind(id.to_string())
         .execute(&self.pool)
@@ -1904,6 +1911,9 @@ fn row_to_goal(r: &sqlx::sqlite::SqliteRow) -> Goal {
         status: r.get("status"),
         created_by: r
             .get::<Option<String>, _>("created_by")
+            .and_then(|s| Uuid::from_str(&s).ok()),
+        assigned_to: r
+            .get::<Option<String>, _>("assigned_to")
             .and_then(|s| Uuid::from_str(&s).ok()),
         created_at_ms: r.get("created_at_ms"),
         updated_at_ms: r.get("updated_at_ms"),

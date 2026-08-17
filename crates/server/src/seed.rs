@@ -102,7 +102,7 @@ async fn ensure_team_users(repo: &SqliteRepository) -> anyhow::Result<()> {
 }
 
 async fn finish_goal(repo: &SqliteRepository, goal: &Goal, status: &str) -> anyhow::Result<()> {
-    repo.update_goal(goal.id, &goal.title, &goal.body, status)
+    repo.update_goal(goal.id, &goal.title, &goal.body, status, goal.assigned_to)
         .await?;
     Ok(())
 }
@@ -124,6 +124,7 @@ async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> an
             "Ship the MVP with the least operational surface",
             "One machine, one binary, no external services.",
             Some(created_by),
+            None,
         )
         .await?;
 
@@ -228,6 +229,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Keep Gloria alive for 90 consecutive days",
             "Day 90 is the contract milestone. Nobody knows who holds the contract. We just know it expires.",
             Some(created_by),
+            None,
         )
         .await?;
     let g_climb = repo
@@ -236,6 +238,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Get Gloria to actually climb the moss pole",
             "She has been 'considering it' since March. Her leaves go in every direction except up.",
             Some(created_by),
+            None,
         )
         .await?;
     repo.create_goal(
@@ -243,6 +246,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         "Reach 15 leaves",
         "Current count: 13. The 14th fell off in what can only be described as passive aggression.",
         Some(created_by),
+        None,
     )
     .await?;
     let g_clap = repo
@@ -251,6 +255,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Teach Gloria to clap when a build passes",
             "She has no arms and has shown no aptitude. Dropped after she shed a leaf in disgust.",
             Some(created_by),
+            None,
         )
         .await?;
     finish_goal(repo, &g_alive, "done").await?;
@@ -469,6 +474,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Eliminate the 11am queue of despair",
             "Peak hour currently has a seven-minute wait. Unacceptable for people who are technically adults.",
             Some(created_by),
+            None,
         )
         .await?;
     let g_budget = repo
@@ -477,6 +483,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Cut the monthly coffee budget by 15% without a riot",
             "The bean fund is leaking. The bean fund has feelings.",
             Some(created_by),
+            None,
         )
         .await?;
     let g_second = repo
@@ -485,6 +492,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Put a second machine in the kitchen corner",
             "Dropped: the kitchen corner is load-bearing, emotionally.",
             Some(created_by),
+            None,
         )
         .await?;
     finish_goal(repo, &g_queue, "done").await?;

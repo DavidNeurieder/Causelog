@@ -6,7 +6,7 @@
   <div>
     {% call m::crumb(project) %}
     <h1>{{ goal.title }}</h1>
-    <p><span class="tag status-{{ goal.status }}">{{ goal.status }}</span> <span class="muted small">created by {{ created_by_name }}</span></p>
+    <p><span class="tag status-{{ goal.status }}">{{ goal.status }}</span> <span class="muted small">created by {{ created_by_name }}</span>{% if assigned_to_name != "Unknown" %} <span class="muted small">· assigned to {{ assigned_to_name }}</span>{% endif %}</p>
   </div>
   <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}/delete" class="inline">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -49,6 +49,15 @@
         <option value="open" {% if goal.status == "open" %}selected{% endif %}>open</option>
         <option value="done" {% if goal.status == "done" %}selected{% endif %}>done</option>
         <option value="dropped" {% if goal.status == "dropped" %}selected{% endif %}>dropped</option>
+      </select>
+    </field>
+    <field>
+      <label for="gassign">Assign to</label>
+      <select id="gassign" name="assigned_to">
+        <option value="" {% if goal_assigned_to_id.is_empty() %}selected{% endif %}>— unassigned —</option>
+        {% for (member, _role) in members %}
+        <option value="{{ member.id }}" {% if goal_assigned_to_id == member.id.to_string() %}selected{% endif %}>{{ member.display_name }}</option>
+        {% endfor %}
       </select>
     </field>
     <button type="submit">Save changes</button>

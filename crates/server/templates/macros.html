@@ -21,6 +21,7 @@
   <div>
     <a class="strong" href="/goals/{{ gv.id }}">{{ gv.title }}</a>
     <span class="tag status-{{ gv.status }}">{{ gv.status }}</span>
+    {% if !gv.assigned_to_name.is_empty() %}<span class="muted small">→ {{ gv.assigned_to_name }}</span>{% endif %}
     {% if !gv.body_html.is_empty() %}<div class="prose">{{ gv.body_html|safe }}</div>{% endif %}
   </div>
 </div>
@@ -37,6 +38,7 @@
   <div>
     <a class="strong" href="/goals/{{ gv.id }}">{{ gv.title }}</a>
     <span class="tag status-{{ gv.status }}">{{ gv.status }}</span>
+    {% if !gv.assigned_to_name.is_empty() %}<span class="muted small">→ {{ gv.assigned_to_name }}</span>{% endif %}
   </div>
 </div>
 {% endmacro %}
@@ -92,7 +94,7 @@
 </section>
 {% endmacro %}
 
-{% macro create_goal(project, csrf) %}
+{% macro create_goal(project, csrf, members) %}
 <form method="post" action="/projects/{{ project.id }}/goals" class="panel-form">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <input type="hidden" name="status" value="open">
@@ -103,6 +105,15 @@
   <field>
     <label for="gnew-body">Details (Markdown, optional)</label>
     <textarea id="gnew-body" name="body" rows="6" placeholder="How success will be measured, as bullet points…"></textarea>
+  </field>
+  <field>
+    <label for="gnew-assign">Assign to (optional)</label>
+    <select id="gnew-assign" name="assigned_to">
+      <option value="">— unassigned —</option>
+      {% for (member, _role) in members %}
+      <option value="{{ member.id }}">{{ member.display_name }}</option>
+      {% endfor %}
+    </select>
   </field>
   <button type="submit">Add goal</button>
 </form>

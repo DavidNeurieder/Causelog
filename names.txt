@@ -1,0 +1,82 @@
+You’ve got a nice naming space here: engineering memory + decisions + experiments + durable knowledge + self-hosting. I’d avoid names that sound too much like generic project management.
+
+My strongest picks
+Trace — captures the chain from goal → decision → experiment → lesson, and the timeline/graph aspect.
+Ledger — a durable record of engineering reasoning; especially good for the immutable revision history.
+Recall — directly communicates “don’t re-learn this the hard way.”
+Rationale — very explicit about the core value: preserving why decisions were made.
+Forge — decisions and hypotheses are tested and refined into knowledge.
+Groundtruth — emphasizes experiments turning assumptions into evidence.
+Breadcrumb — a trail through how a system evolved and why.
+Context — compact and developer-friendly; the app preserves context that normally disappears.
+Archive — simple, serious, durable, though somewhat generic.
+Provenance — excellent if the graph/lineage aspect is central: where knowledge came from and what supports it.
+More distinctive / product-y
+Knot — connects decisions, experiments, notes, and goals.
+Thread — the evolving thread of reasoning behind a project.
+Trailhead — starts with a goal and follows the trail of decisions and evidence.
+Proofline — decisions connected to experiments and evidence.
+Aftermath — what remains after a decision or experiment.
+Retrospect — learning from what happened, though somewhat retrospective-only.
+Recallr — more startup-ish, but less elegant.
+Memoir — engineering history as a living record.
+Logbook — particularly fitting for timestamped observations and project history.
+Chronicle — strong for the timeline/history angle.
+Record — extremely simple and serious.
+Rationale — probably the clearest semantic fit.
+Evidence — decisions backed by experiments rather than intuition.
+Verge — where hypotheses become tested knowledge.
+Anchor — durable reference point for future engineers.
+Keystone — decisions/knowledge as structural pieces of a project.
+Bedrock — foundational engineering knowledge.
+Lore — accumulated knowledge of how a system works and why.
+Codex — curated, durable body of knowledge.
+Memory — almost brutally direct.
+Names that lean into the engineering aesthetic
+ADRift — playful, based on ADRs, though perhaps too niche.
+Decid — decision-centric, compact.
+RFD — “Request for Discussion,” familiar engineering terminology.
+Whylog — why + log; very descriptive.
+WhyDB — almost comically direct, but memorable.
+Techlore — technical lore accumulated over time.
+Engram — a biological term for a physical trace of memory; unusually good metaphor for “engineering memory.”
+Traceback — compelling developer reference, though strongly associated with errors/debugging.
+State — what the system knows at a point in time.
+Delta — changes and evolution over time.
+Invariant — durable truths that survive implementation changes.
+Derive — knowledge derived from decisions and experiments.
+Refine — particularly good if the experimentation loop is central.
+If you want to preserve the spirit of Kaizen
+
+I actually think Kaizen is conceptually strong. It means continuous improvement, which fits the experiment → lesson → improvement loop very well. The downside is that it doesn't immediately communicate engineering decision memory.
+
+Names with a similar philosophical feel:
+
+Kanso — simplicity / reduction of unnecessary complexity.
+Shizen — naturalness.
+Ren — connection / relationship.
+Kata — a repeatable form or practice; interesting for engineering practices.
+Shu — learning and following established forms.
+Dojo — a place for practice and learning, although heavily used in software.
+Kaiki — less obvious and probably not ideal unless there is a specific intended meaning.
+My shortlist
+
+If I were naming this as an actual open-source developer tool, I'd narrow it to:
+
+Name	What it communicates	Character
+Trace	history + connections + reasoning	Clean
+Engram	memory encoded from experience	Distinctive
+Ledger	durable, trustworthy record	Serious
+Rationale	why decisions happened	Explicit
+Recall	don't repeat past mistakes	Friendly
+Lore	accumulated engineering knowledge	Developer-y
+Provenance	lineage/evidence of knowledge	Technical
+Logbook	observations + history	Practical
+Groundtruth	experiments validate assumptions	Technical
+Thread	connected reasoning over time	Elegant
+
+My personal favorite is Engram. It gives you a strong metaphor: an engineering decision is an experience, an experiment creates evidence, and the resulting lesson becomes part of the system's memory. It also feels substantially less generic than “Decision Log” or “Engineering Knowledge Base.”
+
+For a more immediately understandable product, I'd pick Trace. It nicely describes the whole graph: trace a lesson back to the experiment, the experiment back to the decision, and the decision back to the goal.
+
+One other direction worth considering is names around “why”. The killer feature of this app isn't really storing what happened; it's preserving why. Names like Whylog, Rationale, Because, Whybook, or WhyDB could make that positioning very explicit.

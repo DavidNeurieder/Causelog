@@ -254,6 +254,9 @@ struct GoalTemplate {
     goal: Goal,
     body_html: String,
     created_by_name: String,
+    assigned_to_name: String,
+    goal_assigned_to_id: String,
+    members: Vec<(User, String)>,
     decisions: Vec<DecisionItemView>,
     experiments: Vec<ExperimentItemView>,
 }
@@ -307,6 +310,7 @@ struct GoalNewTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
+    members: Vec<(User, String)>,
 }
 
 #[derive(Template)]
@@ -361,6 +365,7 @@ struct GoalItemView {
     title: String,
     status: String,
     body_html: String,
+    assigned_to_name: String,
 }
 
 #[derive(Template)]
@@ -631,6 +636,14 @@ async fn creator_name(repo: &Arc<dyn Repository>, id: Option<Uuid>) -> String {
         },
         None => "Unknown".into(),
     }
+}
+
+/// Parse an optional assigned_to UUID string from a form field.
+fn parse_assigned_to(val: &Option<String>) -> Option<Uuid> {
+    val.as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .and_then(|s| Uuid::from_str(s).ok())
 }
 
 fn flash_message(key: Option<&str>) -> String {
@@ -1099,18 +1112,18 @@ pub(crate) async fn project_page(
         return Ok(login_redirect());
     };
     let project = require_project_member(&state, &id, &auth_user.user).await?;
-    let goals: Vec<GoalItemView> = state
-        .repo
-        .list_goals(project.id)
-        .await?
-        .into_iter()
-        .map(|g| GoalItemView {
+    let goals_raw = state.repo.list_goals(project.id).await?;
+    let mut goals = Vec::with_capacity(goals_raw.len());
+    for g in goals_raw {
+        let assigned_to_name = creator_name(&state.repo, g.assigned_to).await;
+        goals.push(GoalItemView {
             id: g.id.to_string(),
             title: g.title,
             status: g.status,
             body_html: render_markdown(&g.body),
-        })
-        .collect();
+            assigned_to_name,
+        });
+    }
     let decisions = state.repo.list_decisions(project.id).await?;
     let experiments = state.repo.list_experiments(project.id).await?;
     let notes = state.repo.list_notes(project.id).await?;
@@ -1231,18 +1244,18 @@ pub(crate) async fn project_goals_page(
         return Ok(login_redirect());
     };
     let project = require_project_member(&state, &id, &auth_user.user).await?;
-    let goals = state
-        .repo
-        .list_goals(project.id)
-        .await?
-        .into_iter()
-        .map(|g| GoalItemView {
+    let goals_raw = state.repo.list_goals(project.id).await?;
+    let mut goals = Vec::with_capacity(goals_raw.len());
+    for g in goals_raw {
+        let assigned_to_name = creator_name(&state.repo, g.assigned_to).await;
+        goals.push(GoalItemView {
             id: g.id.to_string(),
             title: g.title,
             status: g.status,
             body_html: render_markdown(&g.body),
-        })
-        .collect();
+            assigned_to_name,
+        });
+    }
     page(&ProjectGoalsTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1395,6 +1408,16 @@ pub(crate) async fn goal_page(
         .collect();
     let body_html = render_markdown(&goal.body);
     let created_by_name = creator_name(&state.repo, goal.created_by).await;
+    let assigned_to_name = creator_name(&state.repo, goal.assigned_to).await;
+    let goal_assigned_to_id = goal
+        .assigned_to
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+    let members = state
+        .repo
+        .list_project_members(goal.project_id)
+        .await
+        .unwrap_or_default();
     page(&GoalTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1406,6 +1429,9 @@ pub(crate) async fn goal_page(
         goal,
         body_html,
         created_by_name,
+        assigned_to_name,
+        goal_assigned_to_id,
+        members,
         decisions,
         experiments,
     })
@@ -1421,6 +1447,11 @@ pub(crate) async fn goal_new_page(
         return Ok(login_redirect());
     };
     let project = require_project_member(&state, &id, &auth_user.user).await?;
+    let members = state
+        .repo
+        .list_project_members(project.id)
+        .await
+        .unwrap_or_default();
     page(&GoalNewTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1429,6 +1460,7 @@ pub(crate) async fn goal_new_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
+        members,
     })
 }
 
@@ -1570,6 +1602,7 @@ pub(crate) struct GoalForm {
     title: String,
     body: String,
     status: String,
+    assigned_to: Option<String>,
 }
 
 pub(crate) async fn goal_create(
@@ -1599,6 +1632,7 @@ pub(crate) async fn goal_create(
             body.title.trim(),
             body.body.trim(),
             Some(auth_user.user.id),
+            parse_assigned_to(&body.assigned_to),
         )
         .await?;
     Ok(Redirect::to(&format!("/projects/{project_id}/goals?flash=goal_created")).into_response())
@@ -1632,7 +1666,13 @@ pub(crate) async fn goal_update(
     };
     state
         .repo
-        .update_goal(goal_id, body.title.trim(), body.body.trim(), status)
+        .update_goal(
+            goal_id,
+            body.title.trim(),
+            body.body.trim(),
+            status,
+            parse_assigned_to(&body.assigned_to),
+        )
         .await?;
     Ok(Redirect::to(&format!("/goals/{goal_id}?flash=goal_updated")).into_response())
 }

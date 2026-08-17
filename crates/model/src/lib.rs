@@ -57,6 +57,7 @@ pub struct Goal {
     /// `open` | `done` | `dropped`
     pub status: String,
     pub created_by: Option<Uuid>,
+    pub assigned_to: Option<Uuid>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
