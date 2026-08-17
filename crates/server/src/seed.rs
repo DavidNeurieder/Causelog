@@ -14,6 +14,8 @@ const DEMO_PASSWORD: &str = "demo-password";
 
 const TEAM_USER: &str = "alice";
 const TEAM_PASSWORD: &str = "longenough1";
+const CAROL_USER: &str = "carol";
+const CAROL_PASSWORD: &str = "longenough1";
 const PENDING_USER: &str = "bob";
 const PENDING_PASSWORD: &str = "longenough1";
 
@@ -27,8 +29,10 @@ const SEED_PROJECTS: [&str; 3] = [GLORIA_PROJECT, COFFEE_PROJECT, SQLITE_PROJECT
 /// projects showing the whole golden path — goal → decision → experiment →
 /// note, with links between them. Two of them are unapologetically silly.
 ///
-/// The demo user is **admin**. Two extra users are seeded to show multi-user:
-/// - `alice` / `longenough1` — approved, added as a member of the Gloria project.
+/// Four users are seeded to demonstrate multi-user:
+/// - `demo` / `demo-password` — admin, owns the Gloria and Coffee projects.
+/// - `alice` / `longenough1` — approved user, owns the SQLite project, member of Gloria.
+/// - `carol` / `longenough1` — approved user, member of SQLite and Coffee projects.
 /// - `bob` / `longenough1` — registered but pending admin approval.
 pub async fn seed_demo(database_url: &str) -> anyhow::Result<()> {
     let repo = SqliteRepository::connect(database_url).await?;
@@ -59,7 +63,8 @@ pub async fn seed_demo(database_url: &str) -> anyhow::Result<()> {
 
     tracing::info!(
         "demo seeded — log in as admin: '{DEMO_USER}' / '{DEMO_PASSWORD}'\n\
-         other users: '{TEAM_USER}' / '{TEAM_PASSWORD}' (approved member), \
+         other users: '{TEAM_USER}' / '{TEAM_PASSWORD}' (owns SQLite project), \
+         '{CAROL_USER}' / '{CAROL_PASSWORD}' (member of SQLite + Coffee), \
          '{PENDING_USER}' / '{PENDING_PASSWORD}' (pending approval)"
     );
     Ok(())
@@ -77,17 +82,24 @@ async fn ensure_demo_user(repo: &SqliteRepository) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Seed two extra users to demonstrate multi-user: one approved member, one
+/// Seed extra users to demonstrate multi-user: two approved members and one
 /// pending approval.
 async fn ensure_team_users(repo: &SqliteRepository) -> anyhow::Result<()> {
     let hash = auth::hash_password(TEAM_PASSWORD)
         .map_err(|e| anyhow::anyhow!("failed to hash password: {e:?}"))?;
 
-    // Alice — approved, regular user.
+    // Alice — approved, regular user, will own the SQLite project.
     if repo.find_user_by_username(TEAM_USER).await?.is_none() {
         let alice = repo.create_user(TEAM_USER, "Alice", &hash).await?;
         repo.approve_user(alice.id).await?;
         tracing::info!("created user '{TEAM_USER}' (approved, password '{TEAM_PASSWORD}')");
+    }
+
+    // Carol — approved, regular user, member of SQLite and Coffee projects.
+    if repo.find_user_by_username(CAROL_USER).await?.is_none() {
+        let carol = repo.create_user(CAROL_USER, "Carol", &hash).await?;
+        repo.approve_user(carol.id).await?;
+        tracing::info!("created user '{CAROL_USER}' (approved, password '{CAROL_PASSWORD}')");
     }
 
     // Bob — registered but not yet approved.
@@ -108,7 +120,7 @@ async fn finish_goal(repo: &SqliteRepository, goal: &Goal, status: &str) -> anyh
 }
 
 /// The serious project: a worked example of choosing a datastore for a small
-/// self-hosted service. This one is the seed content of old, kept intact.
+/// self-hosted service. Owned by alice, with carol as a member.
 async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> anyhow::Result<()> {
     let project = repo
         .create_project(
@@ -118,6 +130,14 @@ async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> an
             Some(created_by),
         )
         .await?;
+
+    // Add carol as a member.
+    if let Some(carol) = repo.find_user_by_username(CAROL_USER).await? {
+        repo.add_project_member(project.id, carol.id, "member")
+            .await
+            .ok();
+    }
+
     let goal = repo
         .create_goal(
             project.id,
@@ -206,6 +226,7 @@ async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> an
 
 /// Office-plant soap opera. Gloria has outlived three keyboards and two
 /// interns; her wellbeing is treated with the seriousness it deserves.
+/// Owned by demo, with alice and carol as members.
 async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyhow::Result<()> {
     let project = repo
         .create_project(
@@ -216,12 +237,20 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         )
         .await?;
 
-    // Add Alice as a member so the demo shows cross-user access.
+    // Add alice and carol as members so the demo shows cross-user access.
     if let Some(alice) = repo.find_user_by_username(TEAM_USER).await? {
         repo.add_project_member(project.id, alice.id, "member")
             .await
             .ok();
     }
+    if let Some(carol) = repo.find_user_by_username(CAROL_USER).await? {
+        repo.add_project_member(project.id, carol.id, "member")
+            .await
+            .ok();
+    }
+
+    let alice_id = repo.find_user_by_username(TEAM_USER).await?.map(|u| u.id);
+    let carol_id = repo.find_user_by_username(CAROL_USER).await?.map(|u| u.id);
 
     let g_alive = repo
         .create_goal(
@@ -229,7 +258,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Keep Gloria alive for 90 consecutive days",
             "Day 90 is the contract milestone. Nobody knows who holds the contract. We just know it expires.",
             Some(created_by),
-            None,
+            alice_id,
         )
         .await?;
     let g_climb = repo
@@ -238,7 +267,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
             "Get Gloria to actually climb the moss pole",
             "She has been 'considering it' since March. Her leaves go in every direction except up.",
             Some(created_by),
-            None,
+            carol_id,
         )
         .await?;
     repo.create_goal(
@@ -457,7 +486,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
 }
 
 /// The 11am queue has been declared a public health crisis. Our dignified
-/// response is documented here: more coffee.
+/// response is documented here: more coffee. Owned by demo, with carol as member.
 async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyhow::Result<()> {
     let project = repo
         .create_project(
@@ -468,13 +497,22 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         )
         .await?;
 
+    // Add carol as a member.
+    if let Some(carol) = repo.find_user_by_username(CAROL_USER).await? {
+        repo.add_project_member(project.id, carol.id, "member")
+            .await
+            .ok();
+    }
+
+    let carol_id = repo.find_user_by_username(CAROL_USER).await?.map(|u| u.id);
+
     let g_queue = repo
         .create_goal(
             project.id,
             "Eliminate the 11am queue of despair",
             "Peak hour currently has a seven-minute wait. Unacceptable for people who are technically adults.",
             Some(created_by),
-            None,
+            carol_id,
         )
         .await?;
     let g_budget = repo

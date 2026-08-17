@@ -2484,3 +2484,402 @@ async fn non_member_cannot_access_decision() {
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
     assert_eq!(redirect_to(&res), "/dashboard?flash=access_denied");
 }
+
+// ===========================================================================
+// Goal assignment tests
+// ===========================================================================
+
+/// Helper: extract a UUID from an href like `href="/goals/<uuid>"`.
+fn extract_goal_id(html: &str) -> String {
+    let marker = r#"href="/goals/"#;
+    let start = html.find(marker).expect("goal link") + marker.len();
+    let rest = &html[start..];
+    let end = rest.find('"').expect("closing quote");
+    rest[..end].to_string()
+}
+
+#[tokio::test]
+async fn goal_assignment_on_create() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let _alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Team Project", "active").await;
+
+    // Add alice as member.
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    let project_id = project_url.strip_prefix("/projects/").unwrap();
+    repo.add_project_member(Uuid::parse_str(project_id).unwrap(), alice.id, "member")
+        .await
+        .unwrap();
+
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Ship feature X"),
+                    ("body", "Critical deliverable"),
+                    ("status", "open"),
+                    ("assigned_to", &alice_id),
+                ],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Get the goal URL from the goals page.
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &admin_cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    let goal_id = extract_goal_id(&body);
+    let goal_url = format!("/goals/{goal_id}");
+
+    // Goal detail page shows the assignee.
+    let page = send(&app, with_cookie(get(&goal_url), &admin_cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("assigned to Alice"), "got: {body}");
+
+    // Goal list on the project page also shows the assignee.
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &admin_cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(body.contains("→ Alice"), "assignee in list: {body}");
+}
+
+#[tokio::test]
+async fn goal_assignment_update() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let _alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Team Project", "active").await;
+
+    // Add alice as member.
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    let project_id = project_url.strip_prefix("/projects/").unwrap();
+    repo.add_project_member(Uuid::parse_str(project_id).unwrap(), alice.id, "member")
+        .await
+        .unwrap();
+
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+
+    // Create an unassigned goal.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Unassigned work"),
+                    ("body", ""),
+                    ("status", "open"),
+                    ("assigned_to", ""),
+                ],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &admin_cookie),
+    )
+    .await;
+    let goal_id = extract_goal_id(&body_string(page).await);
+    let goal_url = format!("/goals/{goal_id}");
+
+    // Verify unassigned on detail page.
+    let page = send(&app, with_cookie(get(&goal_url), &admin_cookie)).await;
+    let body = body_string(page).await;
+    assert!(
+        !body.contains("assigned to"),
+        "should be unassigned: {body}"
+    );
+
+    // Assign to alice via edit form.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals/{goal_id}"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Unassigned work"),
+                    ("body", ""),
+                    ("status", "open"),
+                    ("assigned_to", &alice_id),
+                ],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let page = send(&app, with_cookie(get(&goal_url), &admin_cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("assigned to Alice"), "got: {body}");
+
+    // Unassign via edit form.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals/{goal_id}"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Unassigned work"),
+                    ("body", ""),
+                    ("status", "open"),
+                    ("assigned_to", ""),
+                ],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let page = send(&app, with_cookie(get(&goal_url), &admin_cookie)).await;
+    let body = body_string(page).await;
+    assert!(
+        !body.contains("assigned to"),
+        "should be unassigned again: {body}"
+    );
+}
+
+#[tokio::test]
+async fn member_creates_goal_with_assignment() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Team Project", "active").await;
+
+    // Add alice as member.
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    let project_id = project_url.strip_prefix("/projects/").unwrap();
+    repo.add_project_member(Uuid::parse_str(project_id).unwrap(), alice.id, "member")
+        .await
+        .unwrap();
+
+    // Alice creates a goal and assigns it to herself.
+    let csrf = csrf_from_page(&app, &alice_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Self-assigned work"),
+                    ("body", "Alice is on it"),
+                    ("status", "open"),
+                    ("assigned_to", &alice_id),
+                ],
+            ),
+            &alice_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // The goal shows "created by Alice" and "assigned to Alice".
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &alice_cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    let goal_id = extract_goal_id(&body);
+    let goal_url = format!("/goals/{goal_id}");
+
+    let page = send(&app, with_cookie(get(&goal_url), &alice_cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("created by Alice"), "got: {body}");
+    assert!(body.contains("assigned to Alice"), "got: {body}");
+}
+
+#[tokio::test]
+async fn goal_list_shows_multiple_assignees() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let _alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let _carol_cookie = create_approved_user(&repo, "carol", "Carol", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Team Project", "active").await;
+
+    // Add both as members.
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let carol = users.iter().find(|u| u.username == "carol").unwrap();
+    let alice_id = alice.id.to_string();
+    let carol_id = carol.id.to_string();
+    let project_id = Uuid::parse_str(project_url.strip_prefix("/projects/").unwrap()).unwrap();
+    repo.add_project_member(project_id, alice.id, "member")
+        .await
+        .unwrap();
+    repo.add_project_member(project_id, carol.id, "member")
+        .await
+        .unwrap();
+
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+
+    // Create goals assigned to different people.
+    for (title, assignee) in [("Alice's task", &alice_id), ("Carol's task", &carol_id)] {
+        let res = send(
+            &app,
+            with_cookie(
+                post_form(
+                    &format!("{project_url}/goals"),
+                    &[
+                        ("csrf_token", &csrf),
+                        ("title", title),
+                        ("body", ""),
+                        ("status", "open"),
+                        ("assigned_to", assignee),
+                    ],
+                ),
+                &admin_cookie,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    }
+
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &admin_cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(body.contains("→ Alice"), "got: {body}");
+    assert!(body.contains("→ Carol"), "got: {body}");
+    assert!(body.contains("Alice&#39;s task"), "got: {body}");
+    assert!(body.contains("Carol&#39;s task"), "got: {body}");
+}
+
+#[tokio::test]
+async fn non_member_cannot_see_goal_assignment_dropdown() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Secret Project", "active").await;
+
+    // Create a goal as admin.
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Secret Goal"),
+                    ("body", ""),
+                    ("status", "open"),
+                    ("assigned_to", ""),
+                ],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &admin_cookie),
+    )
+    .await;
+    let goal_id = extract_goal_id(&body_string(page).await);
+    let goal_url = format!("/goals/{goal_id}");
+
+    // Alice (non-member) cannot access the goal page.
+    let res = send(&app, with_cookie(get(&goal_url), &alice_cookie)).await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/dashboard?flash=access_denied");
+}
+
+#[tokio::test]
+async fn alice_owns_sqlite_project_carol_is_member() {
+    // Verify the seed scenario: alice owns SQLite project, carol is a member.
+    // We test this through direct DB access since seed runs before tests.
+    let (app, repo) = test_app_with_repo().await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let carol_cookie = create_approved_user(&repo, "carol", "Carol", "longenough1").await;
+
+    // Alice creates a project (simulating seed ownership).
+    let project_url = create_project(&app, &alice_cookie, "Alice's Project", "active").await;
+    let project_id = Uuid::parse_str(project_url.strip_prefix("/projects/").unwrap()).unwrap();
+
+    // Alice adds carol as member.
+    repo.add_project_member(
+        project_id,
+        {
+            let users = repo.list_users().await.unwrap();
+            users.iter().find(|u| u.username == "carol").unwrap().id
+        },
+        "member",
+    )
+    .await
+    .unwrap();
+
+    // Both can access the project.
+    let res = send(&app, with_cookie(get(&project_url), &alice_cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = send(&app, with_cookie(get(&project_url), &carol_cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Carol can create a goal in alice's project.
+    let csrf = csrf_from_page(&app, &carol_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Carol's contribution"),
+                    ("body", "Helping out"),
+                    ("status", "open"),
+                    ("assigned_to", ""),
+                ],
+            ),
+            &carol_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // The goal shows "created by Carol".
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &alice_cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    let goal_id = extract_goal_id(&body);
+    let goal_url = format!("/goals/{goal_id}");
+
+    let page = send(&app, with_cookie(get(&goal_url), &alice_cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("created by Carol"), "got: {body}");
+}
