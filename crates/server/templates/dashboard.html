@@ -28,16 +28,6 @@
   </details>
 </div>
 
-<div class="cards">
-  <div class="card"><span class="stat">{{ counts.projects }}</span><span class="label">projects</span></div>
-  <div class="card"><span class="stat">{{ counts.open_goals }}</span><span class="label">open goals</span></div>
-  <div class="card"><span class="stat">{{ counts.done_goals }}</span><span class="label">goals done</span></div>
-  <div class="card"><span class="stat">{{ counts.decisions }}</span><span class="label">decisions</span></div>
-  <div class="card"><span class="stat">{{ counts.decisions_decided }}</span><span class="label">decisions decided</span></div>
-  <div class="card"><span class="stat">{{ counts.experiments_total }}</span><span class="label">experiments</span></div>
-  <div class="card"><span class="stat">{{ counts.notes_total }}</span><span class="label">notes</span></div>
-</div>
-
 {% if projects.is_empty() %}
 <div class="empty">
   <p class="strong">Start your first project</p>

@@ -32,6 +32,7 @@ fn router(state: AppState) -> Router {
         .route("/login", get(pages::login_page).post(pages::login_form))
         .route("/logout", post(pages::logout_form))
         .route("/dashboard", get(pages::dashboard_page))
+        .route("/statistics", get(pages::statistics_page))
         .route(
             "/projects",
             get(pages::dashboard_page).post(pages::project_create),

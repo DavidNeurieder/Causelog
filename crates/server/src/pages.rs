@@ -152,11 +152,22 @@ struct DashboardTemplate {
     year: u32,
     display_name: String,
     csrf_token: String,
-    counts: DashboardCounts,
     projects: Vec<ProjectView>,
     /// Open the create-project form (after a rejected empty-title submit).
     create_open: bool,
     is_admin: bool,
+}
+
+#[derive(Template)]
+#[template(path = "statistics.html")]
+struct StatisticsTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    counts: DashboardCounts,
 }
 
 /// User with their project memberships, for the admin users page.
@@ -1048,7 +1059,6 @@ pub(crate) async fn dashboard_page(
     if !auth::is_approved(&auth_user.user) {
         return Ok(Redirect::to("/login?flash=not_approved").into_response());
     }
-    let counts = state.repo.dashboard_counts().await?;
     // Admin sees all projects; regular users see only projects they belong to.
     let projects = if auth::is_admin(&auth_user.user) {
         state.repo.list_projects().await?
@@ -1068,10 +1078,32 @@ pub(crate) async fn dashboard_page(
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
-        counts,
         projects: views,
         create_open: flash.flash.as_deref() == Some("invalid_title"),
         is_admin,
+    })
+}
+
+pub(crate) async fn statistics_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_approved(&auth_user.user) {
+        return Ok(Redirect::to("/login?flash=not_approved").into_response());
+    }
+    let counts = state.repo.dashboard_counts().await?;
+    page(&StatisticsTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        counts,
     })
 }
 
