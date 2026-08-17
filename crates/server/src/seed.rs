@@ -7,9 +7,15 @@ use kaizen_content::now_ms;
 use kaizen_model::{DecisionOption, Goal};
 use kaizen_server::auth;
 use kaizen_server::repository::{Repository as _, SqliteRepository};
+use uuid::Uuid;
 
 const DEMO_USER: &str = "demo";
 const DEMO_PASSWORD: &str = "demo-password";
+
+const TEAM_USER: &str = "alice";
+const TEAM_PASSWORD: &str = "longenough1";
+const PENDING_USER: &str = "bob";
+const PENDING_PASSWORD: &str = "longenough1";
 
 const SQLITE_PROJECT: &str = "SQLite + Rust API";
 const GLORIA_PROJECT: &str = "The Legend of Gloria the Monstera";
@@ -20,11 +26,16 @@ const SEED_PROJECTS: [&str; 3] = [GLORIA_PROJECT, COFFEE_PROJECT, SQLITE_PROJECT
 /// First-run friendliness: create a demo user (if none exists) and seed three
 /// projects showing the whole golden path — goal → decision → experiment →
 /// note, with links between them. Two of them are unapologetically silly.
+///
+/// The demo user is **admin**. Two extra users are seeded to show multi-user:
+/// - `alice` / `longenough1` — approved, added as a member of the Gloria project.
+/// - `bob` / `longenough1` — registered but pending admin approval.
 pub async fn seed_demo(database_url: &str) -> anyhow::Result<()> {
     let repo = SqliteRepository::connect(database_url).await?;
     repo.migrate().await?;
 
     ensure_demo_user(&repo).await?;
+    ensure_team_users(&repo).await?;
 
     let projects = repo.list_projects().await?;
     let existing: HashSet<&str> = projects.iter().map(|p| p.title.as_str()).collect();
@@ -33,17 +44,24 @@ pub async fn seed_demo(database_url: &str) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Look up the demo user for project ownership.
+    let demo_user = repo.find_user_by_username(DEMO_USER).await?.unwrap();
+
     if !existing.contains(SQLITE_PROJECT) {
-        seed_datastore_project(&repo).await?;
+        seed_datastore_project(&repo, demo_user.id).await?;
     }
     if !existing.contains(GLORIA_PROJECT) {
-        seed_gloria_project(&repo).await?;
+        seed_gloria_project(&repo, demo_user.id).await?;
     }
     if !existing.contains(COFFEE_PROJECT) {
-        seed_coffee_project(&repo).await?;
+        seed_coffee_project(&repo, demo_user.id).await?;
     }
 
-    tracing::info!("demo project seeded — log in at /login with '{DEMO_USER}' / '{DEMO_PASSWORD}'");
+    tracing::info!(
+        "demo seeded — log in as admin: '{DEMO_USER}' / '{DEMO_PASSWORD}'\n\
+         other users: '{TEAM_USER}' / '{TEAM_PASSWORD}' (approved member), \
+         '{PENDING_USER}' / '{PENDING_PASSWORD}' (pending approval)"
+    );
     Ok(())
 }
 
@@ -59,6 +77,30 @@ async fn ensure_demo_user(repo: &SqliteRepository) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Seed two extra users to demonstrate multi-user: one approved member, one
+/// pending approval.
+async fn ensure_team_users(repo: &SqliteRepository) -> anyhow::Result<()> {
+    let hash = auth::hash_password(TEAM_PASSWORD)
+        .map_err(|e| anyhow::anyhow!("failed to hash password: {e:?}"))?;
+
+    // Alice — approved, regular user.
+    if repo.find_user_by_username(TEAM_USER).await?.is_none() {
+        let alice = repo.create_user(TEAM_USER, "Alice", &hash).await?;
+        repo.approve_user(alice.id).await?;
+        tracing::info!("created user '{TEAM_USER}' (approved, password '{TEAM_PASSWORD}')");
+    }
+
+    // Bob — registered but not yet approved.
+    if repo.find_user_by_username(PENDING_USER).await?.is_none() {
+        repo.create_user(PENDING_USER, "Bob", &hash).await?;
+        tracing::info!(
+            "created user '{PENDING_USER}' (pending approval, password '{PENDING_PASSWORD}')"
+        );
+    }
+
+    Ok(())
+}
+
 async fn finish_goal(repo: &SqliteRepository, goal: &Goal, status: &str) -> anyhow::Result<()> {
     repo.update_goal(goal.id, &goal.title, &goal.body, status)
         .await?;
@@ -67,13 +109,13 @@ async fn finish_goal(repo: &SqliteRepository, goal: &Goal, status: &str) -> anyh
 
 /// The serious project: a worked example of choosing a datastore for a small
 /// self-hosted service. This one is the seed content of old, kept intact.
-async fn seed_datastore_project(repo: &SqliteRepository) -> anyhow::Result<()> {
+async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> anyhow::Result<()> {
     let project = repo
         .create_project(
             SQLITE_PROJECT,
             "A worked example: choosing a datastore for a small self-hosted service.",
             "active",
-            None,
+            Some(created_by),
         )
         .await?;
     let goal = repo
@@ -159,15 +201,22 @@ async fn seed_datastore_project(repo: &SqliteRepository) -> anyhow::Result<()> {
 
 /// Office-plant soap opera. Gloria has outlived three keyboards and two
 /// interns; her wellbeing is treated with the seriousness it deserves.
-async fn seed_gloria_project(repo: &SqliteRepository) -> anyhow::Result<()> {
+async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyhow::Result<()> {
     let project = repo
         .create_project(
             GLORIA_PROJECT,
             "Gloria is an office monstera who has outlived three keyboards, two interns, and one brutally dark era of office lighting. This project treats her continued existence with the seriousness it deserves.",
             "active",
-            None,
+            Some(created_by),
         )
         .await?;
+
+    // Add Alice as a member so the demo shows cross-user access.
+    if let Some(alice) = repo.find_user_by_username(TEAM_USER).await? {
+        repo.add_project_member(project.id, alice.id, "member")
+            .await
+            .ok();
+    }
 
     let g_alive = repo
         .create_goal(
@@ -390,13 +439,13 @@ async fn seed_gloria_project(repo: &SqliteRepository) -> anyhow::Result<()> {
 
 /// The 11am queue has been declared a public health crisis. Our dignified
 /// response is documented here: more coffee.
-async fn seed_coffee_project(repo: &SqliteRepository) -> anyhow::Result<()> {
+async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyhow::Result<()> {
     let project = repo
         .create_project(
             COFFEE_PROJECT,
             "The 11am queue has been declared a public health crisis. This project documents our dignified response: more coffee.",
             "paused",
-            None,
+            Some(created_by),
         )
         .await?;
 

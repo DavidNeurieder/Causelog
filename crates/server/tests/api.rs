@@ -2115,6 +2115,151 @@ async fn admin_can_delete_user() {
 }
 
 #[tokio::test]
+async fn admin_cannot_demote_last_admin() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    // Get the admin's own ID.
+    let users = repo.list_users().await.unwrap();
+    let admin = users.iter().find(|u| u.username == "dev").unwrap();
+    let admin_id = admin.id.to_string();
+    assert_eq!(admin.role, "admin");
+    // Try to demote self — the only admin.
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{admin_id}/role"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert!(
+        redirect_to(&res).contains("cannot_demote_last_admin"),
+        "got: {}",
+        redirect_to(&res)
+    );
+    // Admin is still admin.
+    let users = repo.list_users().await.unwrap();
+    let admin = users.iter().find(|u| u.username == "dev").unwrap();
+    assert_eq!(admin.role, "admin");
+}
+
+#[tokio::test]
+async fn admin_can_demote_when_two_admins() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    // Create Alice and promote her to admin.
+    create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{alice_id}/role"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    // Now demote Alice back — there are two admins, so this should work.
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{alice_id}/role"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert!(redirect_to(&res).contains("role_updated"));
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    assert_eq!(alice.role, "user");
+}
+
+#[tokio::test]
+async fn admin_cannot_delete_last_admin() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    // Verify there's exactly one admin.
+    assert_eq!(repo.count_admins().await.unwrap(), 1);
+    // The only admin tries to delete themselves — blocked by self-delete guard.
+    let users = repo.list_users().await.unwrap();
+    let admin = users.iter().find(|u| u.username == "dev").unwrap();
+    let admin_id = admin.id.to_string();
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{admin_id}/delete"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert!(redirect_to(&res).contains("cannot_delete_self"));
+    // Admin still exists and is still the only admin.
+    assert_eq!(repo.count_admins().await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn admin_can_delete_when_two_admins() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    // Promote Alice to admin.
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{alice_id}/role"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    // Delete Alice — two admins exist, so this should work.
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{alice_id}/delete"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert!(redirect_to(&res).contains("deleted"));
+    let users = repo.list_users().await.unwrap();
+    assert!(!users.iter().any(|u| u.username == "alice"));
+}
+
+#[tokio::test]
 async fn dashboard_scopes_projects_for_non_admin() {
     let (app, repo) = test_app_with_repo().await;
     let admin_cookie = setup_via_form(&app).await;

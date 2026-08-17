@@ -30,8 +30,11 @@ The golden path is: **goal → decision → experiment → lesson → timeline &
 
 ```sh
 cargo run -- serve
-# → http://127.0.0.1:8080/setup — create your account
+# → http://127.0.0.1:8080/setup — create the admin account
 ```
+
+After setup, register additional users at `/register`. New accounts require
+admin approval before they can log in.
 
 Or skip the setup dance with a seeded demo — three projects (two of them
 unapologetically funny), with goals, decisions, experiments, notes, links,
@@ -39,7 +42,9 @@ and a searchable history:
 
 ```sh
 cargo run -- seed-demo
-# logs in as demo / demo-password
+# demo / demo-password — admin, owns all three projects
+# alice / longenough1  — approved member (Gloria project)
+# bob / longenough1    — registered, pending admin approval
 ```
 
 ## Run it
@@ -81,7 +86,8 @@ proxy terminate TLS.
 ```sh
 docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml run --rm kaizen seed-demo
-# → http://localhost:8080 (demo / demo-password)
+# → http://localhost:8080
+# demo / demo-password (admin), alice / longenough1 (member), bob / longenough1 (pending)
 ```
 
 Data lives in `./data/kaizen.db` on the host.
@@ -113,8 +119,10 @@ docker compose -f deploy/docker-compose.yml start
 
 ## Design notes
 
-- **One user.** Kaizen starts un-set-up: the first account created at
-  `/setup` becomes the only user. No teams, no roles — that's the scope.
+- **Multi-user with admin approval.** Kaizen starts un-set-up: the first
+  account created at `/setup` becomes the admin. Additional users register at
+  `/register` and wait for admin approval. Projects can have members (owner
+  and member roles); non-members cannot see a project's contents.
 - **Immutable history.** Decisions and notes append a Markdown snapshot to a
   `revisions` table on every change, so the record of *what you decided and
   why* can't be silently rewritten.
@@ -129,9 +137,12 @@ Three layers, run with a single `cargo test --workspace`:
 
 - **Unit** — pure functions in the `content` crate (markdown sanitising,
   date parsing) and server helpers (options/link parsing, snippet
-  highlighting, password hashing, cookie/CSRF behaviour).
+  highlighting, password hashing, cookie/CSRF behaviour, registration
+  validation).
 - **Integration** (`crates/server/tests/api.rs`) — the full HTTP surface
-  against an in-memory SQLite database, from setup to search.
+  against an in-memory SQLite database, from setup to search, including
+  multi-user flows (registration, admin approval, project membership,
+  role-based access control).
 - **E2E** (`crates/server/tests/e2e.rs`) — boots the real `kaizen` binary on
   a free port with a temporary database, drives the golden path over HTTP
   with a cookie jar, then restarts the process to prove data survives, plus

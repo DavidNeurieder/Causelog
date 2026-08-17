@@ -82,6 +82,7 @@ pub trait Repository: Send + Sync {
     async fn delete_user(&self, id: Uuid) -> Result<(), RepositoryError>;
     async fn list_users(&self) -> Result<Vec<User>, RepositoryError>;
     async fn pending_users(&self) -> Result<Vec<User>, RepositoryError>;
+    async fn count_admins(&self) -> Result<i64, RepositoryError>;
 
     // -----------------------------------------------------------------------
     // Project membership
@@ -639,6 +640,13 @@ impl Repository for SqliteRepository {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.iter().map(row_to_user).collect())
+    }
+
+    async fn count_admins(&self) -> Result<i64, RepositoryError> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count)
     }
 
     // -----------------------------------------------------------------------

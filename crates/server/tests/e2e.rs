@@ -415,7 +415,7 @@ async fn seed_demo_end_to_end_and_idempotent() {
 
     let (ok, out) = run_seed().await;
     assert!(ok, "first seed failed: {out}");
-    assert!(out.contains("demo project seeded"), "got: {out}");
+    assert!(out.contains("demo seeded"), "got: {out}");
 
     // Idempotent: a second run logs that things already exist and succeeds.
     let (ok, out) = run_seed().await;

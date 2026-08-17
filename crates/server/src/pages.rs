@@ -632,6 +632,14 @@ fn flash_message(key: Option<&str>) -> String {
         Some("decision_resolved") => "Decision recorded.".into(),
         Some("decision_deleted") => "Decision deleted.".into(),
         Some("invalid_decision") => "Give the decision a title and at least one option.".into(),
+        Some("approved") => "User approved.".into(),
+        Some("role_updated") => "User role updated.".into(),
+        Some("cannot_delete_self") => "You cannot delete your own account from here.".into(),
+        Some("cannot_demote_last_admin") => "Cannot demote: this is the only admin.".into(),
+        Some("cannot_delete_last_admin") => "Cannot delete: this is the only admin.".into(),
+        Some("member_added") => "Member added.".into(),
+        Some("member_removed") => "Member removed.".into(),
+        Some("cannot_remove_last_owner") => "Cannot remove the last owner of a project.".into(),
         _ => String::new(),
     }
 }
@@ -640,7 +648,9 @@ fn flash_message(key: Option<&str>) -> String {
 fn flash_view(key: Option<&str>) -> (String, &'static str) {
     let kind = match key {
         None => "notice--info",
-        Some(k) if k.contains("invalid") || k.starts_with("no_") => "notice--error",
+        Some(k) if k.contains("invalid") || k.starts_with("no_") || k.starts_with("cannot_") => {
+            "notice--error"
+        }
         Some("logged_out") | Some("not_authorized") => "notice--info",
         Some(_) => "notice--success",
     };
@@ -2803,6 +2813,10 @@ pub(crate) async fn admin_user_role(
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
     let new_role = if user.role == "admin" {
+        // Prevent demoting the last admin.
+        if state.repo.count_admins().await? <= 1 {
+            return Ok(Redirect::to("/admin/users?flash=cannot_demote_last_admin").into_response());
+        }
         "user"
     } else {
         "admin"
@@ -2828,6 +2842,15 @@ pub(crate) async fn admin_user_delete(
     // Don't let admin delete themselves.
     if user_id == auth_user.user.id {
         return Ok(Redirect::to("/admin/users?flash=cannot_delete_self").into_response());
+    }
+    // Prevent deleting the last admin.
+    let target = state
+        .repo
+        .find_user_by_id(user_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("user not found"))?;
+    if target.role == "admin" && state.repo.count_admins().await? <= 1 {
+        return Ok(Redirect::to("/admin/users?flash=cannot_delete_last_admin").into_response());
     }
     state.repo.delete_user(user_id).await?;
     Ok(Redirect::to("/admin/users?flash=deleted").into_response())
