@@ -1,28 +1,28 @@
-# Kaizen — self-hosted deployment.
+# Causelog — self-hosted deployment.
 #
 #   docker compose -f deploy/docker-compose.yml up -d --build
 #   # first run: seed a demo user + project
-#   docker compose -f deploy/docker-compose.yml run --rm kaizen seed-demo
+#   docker compose -f deploy/docker-compose.yml run --rm causelog seed-demo
 #
-# Your data lives in ./data/kaizen.db on the host. Back it up with
+# Your data lives in ./data/causelog.db on the host. Back it up with
 # deploy/backup.sh (see README for restore).
 
 services:
-  kaizen:
+  causelog:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    container_name: kaizen
+    container_name: causelog
     restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
-      DATABASE_URL: sqlite:///data/kaizen.db
-      KAIZEN_ADDR: 0.0.0.0:8080
-      # HTTPS with a real certificate? Point Kaizen at your reverse proxy and
-      # set KAIZEN_ADDR behind it, or mount a cert/key and use:
-      #   KAIZEN_TLS_CERT: /certs/fullchain.pem
-      #   KAIZEN_TLS_KEY:  /certs/privkey.pem
+      DATABASE_URL: sqlite:///data/causelog.db
+      CAUSELOG_ADDR: 0.0.0.0:8080
+      # HTTPS with a real certificate? Point Causelog at your reverse proxy and
+      # set CAUSELOG_ADDR behind it, or mount a cert/key and use:
+      #   CAUSELOG_TLS_CERT: /certs/fullchain.pem
+      #   CAUSELOG_TLS_KEY:  /certs/privkey.pem
     volumes:
       - ./data:/data
-      # - ./certs:/certs:ro   # when using KAIZEN_TLS_CERT/KAIZEN_TLS_KEY
+      # - ./certs:/certs:ro   # when using CAUSELOG_TLS_CERT/CAUSELOG_TLS_KEY

@@ -10,8 +10,8 @@ use askama::Template;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use kaizen_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
-use kaizen_model::{Decision, DecisionOption, Experiment, Goal, Note, Project, User};
+use causelog_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
+use causelog_model::{Decision, DecisionOption, Experiment, Goal, Note, Project, User};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -1204,7 +1204,7 @@ async fn require_project(state: &AppState, id: &str) -> Result<Project, PageErro
 /// Returns `Ok(())` if authorized, or a redirect response if not.
 async fn require_member_or_admin(
     state: &AppState,
-    user: &kaizen_model::User,
+    user: &causelog_model::User,
     project_id: Uuid,
 ) -> Result<(), Response> {
     if auth::is_admin(user) {
@@ -1225,7 +1225,7 @@ async fn require_member_or_admin(
 async fn require_project_member(
     state: &AppState,
     id: &str,
-    user: &kaizen_model::User,
+    user: &causelog_model::User,
 ) -> Result<Project, PageError> {
     let project = require_project(state, id).await?;
     require_member_or_admin(state, user, project.id)

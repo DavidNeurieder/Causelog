@@ -1,11 +1,11 @@
 [package]
-name = "kaizen-search"
+name = "causelog-search"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Kaizen SQLite FTS5 search"
+description = "Causelog SQLite FTS5 search"
 
 [dependencies]
-kaizen-model = { path = "../model" }
+causelog-model = { path = "../model" }
 serde = { workspace = true }
 thiserror = { workspace = true }

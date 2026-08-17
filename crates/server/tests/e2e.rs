@@ -1,4 +1,4 @@
-//! End-to-end tests: boot the real `kaizen` binary on a free port with a
+//! End-to-end tests: boot the real `causelog` binary on a free port with a
 //! temporary database and drive it over HTTP with a cookie jar. This exercises
 //! CLI wiring, migrations, the full HTTP surface, and — critically —
 //! persistence across process restarts.
@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 
-/// Path to the compiled `kaizen` binary, provided by cargo for the package
+/// Path to the compiled `causelog` binary, provided by cargo for the package
 /// that owns the [[bin]] target.
-const BIN: &str = env!("CARGO_BIN_EXE_kaizen");
+const BIN: &str = env!("CARGO_BIN_EXE_causelog");
 
 /// Reserve a free localhost port by binding then dropping a listener.
 fn free_port() -> u16 {
@@ -57,7 +57,7 @@ async fn spawn_server(db_path: &std::path::Path) -> Server {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .expect("spawn kaizen binary");
+        .expect("spawn causelog binary");
     let server = Server {
         child,
         base: base.clone(),
@@ -110,7 +110,7 @@ async fn post(
 /// Fresh database file inside a temp dir (kept alive for the whole test).
 fn temp_db() -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().expect("temp dir");
-    let db = dir.path().join("kaizen.db");
+    let db = dir.path().join("causelog.db");
     (dir, db)
 }
 

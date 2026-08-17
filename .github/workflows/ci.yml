@@ -46,7 +46,7 @@ jobs:
           key: sqlite-bundled
 
       - name: Build server binary
-        run: cargo build --bin kaizen
+        run: cargo build --bin causelog
 
       - uses: actions/setup-node@v4
         with:
@@ -61,5 +61,5 @@ jobs:
       - name: Run browser E2E against the real binary
         working-directory: e2e
         env:
-          KAIZEN_BIN: ${{ github.workspace }}/target/debug/kaizen
+          CAUSELOG_BIN: ${{ github.workspace }}/target/debug/causelog
         run: npm run test:e2e

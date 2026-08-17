@@ -1,9 +1,9 @@
 [package]
-name = "kaizen-model"
+name = "causelog-model"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Kaizen types and SQLx queries"
+description = "Causelog types and SQLx queries"
 
 [dependencies]
 serde = { workspace = true }

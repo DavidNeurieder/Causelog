@@ -23,9 +23,9 @@ function freePort(): number {
 	return port;
 }
 
-const lockFile = join(tmpdir(), 'kaizen-e2e-port.json');
+const lockFile = join(tmpdir(), 'causelog-e2e-port.json');
 
-// The whole app is served by one `kaizen` process on a single port. Playwright
+// The whole app is served by one `causelog` process on a single port. Playwright
 // loads this config once to start the webServer and again in each worker
 // process; allocate once and reuse so the baseURL matches the running server.
 function reservePort(): number {
@@ -60,7 +60,7 @@ export default defineConfig({
 		command: 'node start-backend.mjs',
 		url: `http://127.0.0.1:${port}/health`,
 		reuseExistingServer: !process.env.CI,
-		env: { KAIZEN_PORT: String(port) }
+		env: { CAUSELOG_PORT: String(port) }
 	},
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
 });

@@ -3,27 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Kaizen — Self-hosted engineering decision memory</title>
+  <title>Causelog — Self-hosted engineering decision memory</title>
   <meta name="description" content="Record the trade-offs you weigh, the experiments that test them, and the lessons you'd otherwise re-learn the hard way. One Rust binary, embedded SQLite, immutable history.">
-  <link rel="canonical" href="https://davidneurieder.github.io/kaizen/">
+  <link rel="canonical" href="https://davidneurieder.github.io/causelog/">
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Kaizen">
-  <meta property="og:title" content="Kaizen — Self-hosted engineering decision memory">
+  <meta property="og:site_name" content="Causelog">
+  <meta property="og:title" content="Causelog — Self-hosted engineering decision memory">
   <meta property="og:description" content="Goal → decision → experiment → lesson → timeline & graph. One Rust binary, embedded SQLite, immutable history.">
-  <meta property="og:url" content="https://davidneurieder.github.io/kaizen/">
+  <meta property="og:url" content="https://davidneurieder.github.io/causelog/">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Kaizen — Self-hosted engineering decision memory">
+  <meta name="twitter:title" content="Causelog — Self-hosted engineering decision memory">
   <meta name="twitter:description" content="Goal → decision → experiment → lesson → timeline & graph. One self-hosted Rust binary with embedded SQLite.">
   <link rel="stylesheet" href="styles.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    "name": "Kaizen",
+    "name": "Causelog",
     "operatingSystem": "Linux, macOS, Windows",
     "applicationCategory": "DeveloperApplication",
     "description": "Self-hosted engineering decision memory: record trade-offs, run experiments, and capture lessons. One Rust binary with embedded SQLite.",
-    "url": "https://davidneurieder.github.io/kaizen/",
+    "url": "https://davidneurieder.github.io/causelog/",
     "softwareVersion": "0.1.0",
     "license": "https://www.gnu.org/licenses/agpl-3.0.html",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
@@ -33,18 +33,18 @@
 <body>
   <header class="hero">
     <div class="container">
-      <div class="logo" role="img" aria-label="Kaizen logo">
+      <div class="logo" role="img" aria-label="Causelog logo">
         <i class="delta"></i>
         <i class="spark a"></i>
         <i class="spark b"></i>
         <i class="spark c"></i>
       </div>
       <span class="eyebrow">Rust · Self-hosted · Engineering memory</span>
-      <h1>Kaizen</h1>
+      <h1>Causelog</h1>
       <p class="lead">A place to record the trade-offs you weigh, the experiments that test them, and the lessons you'd otherwise re-learn the hard way. One binary. Your server. Your data.</p>
       <div class="cta">
         <a class="btn btn-primary" href="#get-started">Get started</a>
-        <a class="btn btn-ghost" href="https://github.com/DavidNeurieder/kaizen">View source</a>
+        <a class="btn btn-ghost" href="https://github.com/DavidNeurieder/causelog">View source</a>
       </div>
       <p class="trust">Self-hosted · No Node.js · No database server · AGPL-3.0</p>
     </div>
@@ -98,7 +98,7 @@
           <div class="card">
             <div class="icon">📦</div>
             <h3>One binary, solo mode</h3>
-            <p>Single <code>kaizen</code> binary with embedded SQLite. Argon2 password hashing, session cookies, CSRF protection, and a seeded demo to try it out in seconds.</p>
+            <p>Single <code>causelog</code> binary with embedded SQLite. Argon2 password hashing, session cookies, CSRF protection, and a seeded demo to try it out in seconds.</p>
           </div>
         </div>
       </div>
@@ -152,9 +152,9 @@
         <h2>See it in action</h2>
         <div class="term-grid">
           <div class="terminal">
-            <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">kaizen serve</span></div>
-            <pre><span class="t-dim">$ ./target/release/kaizen serve</span>
-<span class="t-dim">[info]</span> database ready <span class="t-dim">database_url=sqlite://kaizen.db</span>
+            <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">causelog serve</span></div>
+            <pre><span class="t-dim">$ ./target/release/causelog serve</span>
+<span class="t-dim">[info]</span> database ready <span class="t-dim">database_url=sqlite://causelog.db</span>
 <span class="t-dim">[info]</span> listening on <span class="t-dim">http://127.0.0.1:8080</span>
 
 <span class="t-dim">→ open http://127.0.0.1:8080 — no user exists yet, so you land on</span>
@@ -163,7 +163,7 @@
 
           <div class="terminal">
             <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">try it instantly with the demo</span></div>
-            <pre><span class="t-dim">$ ./target/release/kaizen seed-demo</span>
+            <pre><span class="t-dim">$ ./target/release/causelog seed-demo</span>
 
 <span class="t-pass">✓</span> <span class="t-dim">user created — login with demo / demo-password</span>
 <span class="t-pass">✓</span> <span class="t-dim">3 projects seeded (Gloria the plant, Tidy the repo, ...)</span>
@@ -175,13 +175,13 @@
           <div class="terminal">
             <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">the graph shows how everything connects</span></div>
             <pre><span class="t-dim"># automatic HTTPS — no reverse proxy needed</span>
-<span class="t-dim">$ kaizen serve --tls-domain kaizen.example.com --addr 0.0.0.0:443</span>
+<span class="t-dim">$ causelog serve --tls-domain causelog.example.com --addr 0.0.0.0:443</span>
 
 <span class="t-pass">✓</span> <span class="t-dim">certificate issued (TLS-ALPN-01) · auto-renewing</span>
 <span class="t-pass">✓</span> <span class="t-dim">HTTP :80 → HTTPS redirect running</span>
 
 <span class="t-dim"># back up the single SQLite file any time</span>
-<span class="t-dim">$ sqlite3 kaizen.db .backup kaizen-backup.db</span></pre>
+<span class="t-dim">$ sqlite3 causelog.db .backup causelog-backup.db</span></pre>
           </div>
         </div>
       </div>
@@ -193,22 +193,22 @@
         <p class="center">Build the single binary, run it, and finish setup in the browser. No Node.js in production, no database server, no config files for 90% of installs.</p>
         <div class="centered-code">
           <pre class="code-block"><code># Build the release binary
-cargo build --release --bin kaizen
+cargo build --release --bin causelog
 
-# Start the server (creates kaizen.db)
-./target/release/kaizen serve
+# Start the server (creates causelog.db)
+./target/release/causelog serve
 
 # Open http://127.0.0.1:8080 → /setup wizard, then explore the demo
 
 # Or try the pre-seeded demo
-./target/release/kaizen seed-demo
+./target/release/causelog seed-demo
 # login: demo / demo-password
 
 # Automatic HTTPS
-./target/release/kaizen serve --tls-domain kaizen.example.com --addr 0.0.0.0:443
+./target/release/causelog serve --tls-domain causelog.example.com --addr 0.0.0.0:443
 
 # Back up the database
-sqlite3 kaizen.db .backup kaizen-backup.db</code></pre>
+sqlite3 causelog.db .backup causelog-backup.db</code></pre>
         </div>
 
         <h3 class="center">The tests that keep it honest</h3>
@@ -221,14 +221,14 @@ cd e2e &amp;&amp; npm run test:e2e                    # real browser vs the real
 
         <p class="note">Three layers of tests: pure-function unit tests, full HTTP integration tests against an in-memory database, and browser E2E via Playwright that drives the golden path through real Chromium.</p>
 
-        <p class="center">Docs: <a href="https://github.com/DavidNeurieder/kaizen/blob/main/README.md">README</a> · <a href="https://github.com/DavidNeurieder/kaizen/blob/main/LICENSE">License</a></p>
+        <p class="center">Docs: <a href="https://github.com/DavidNeurieder/causelog/blob/main/README.md">README</a> · <a href="https://github.com/DavidNeurieder/causelog/blob/main/LICENSE">License</a></p>
       </div>
     </section>
   </main>
 
   <footer>
     <div class="container">
-      <p>Kaizen — version 0.1.0 · AGPL-3.0-only — <a href="https://github.com/DavidNeurieder/kaizen/blob/main/LICENSE">License</a> · <a href="https://github.com/DavidNeurieder/kaizen">Source</a></p>
+      <p>Causelog — version 0.1.0 · AGPL-3.0-only — <a href="https://github.com/DavidNeurieder/causelog/blob/main/LICENSE">License</a> · <a href="https://github.com/DavidNeurieder/causelog">Source</a></p>
     </div>
   </footer>
 </body>

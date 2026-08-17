@@ -1,4 +1,4 @@
-//! Kaizen content handling: time helpers and safe Markdown → HTML rendering.
+//! Causelog content handling: time helpers and safe Markdown → HTML rendering.
 
 use pulldown_cmark::html::push_html;
 use pulldown_cmark::{Event, Options, Parser};

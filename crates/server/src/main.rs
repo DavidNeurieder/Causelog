@@ -1,4 +1,4 @@
-//! Kaizen CLI entrypoint. Solo mode: single binary + embedded SQLite.
+//! Causelog CLI entrypoint. Solo mode: single binary + embedded SQLite.
 //!
 //! `serve` runs plain HTTP, or HTTPS with a certificate you supply
 //! (`--tls-cert`/`--tls-key`) or with automatic Let's Encrypt issuance
@@ -19,7 +19,7 @@ use axum::{
 };
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser, Subcommand};
-use kaizen_server::repository::{SqliteRepository, repo_box};
+use causelog_server::repository::{SqliteRepository, repo_box};
 use rustls_acme::AcmeConfig;
 use rustls_acme::caches::DirCache;
 use tokio::net::TcpListener;
@@ -28,7 +28,7 @@ use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(
-    name = "kaizen",
+    name = "causelog",
     version,
     about = "Self-hosted engineering knowledge system"
 )]
@@ -39,12 +39,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Start the Kaizen server (default).
+    /// Start the Causelog server (default).
     Serve(ServeArgs),
     /// Create a first user and a three-project demo, then exit.
     SeedDemo {
         /// SQLite database URL or file path.
-        #[arg(long, env = "DATABASE_URL", default_value = "sqlite://kaizen.db")]
+        #[arg(long, env = "DATABASE_URL", default_value = "sqlite://causelog.db")]
         database_url: String,
     },
 }
@@ -52,36 +52,36 @@ enum Command {
 #[derive(Args)]
 struct ServeArgs {
     /// SQLite database URL or file path.
-    #[arg(long, env = "DATABASE_URL", default_value = "sqlite://kaizen.db")]
+    #[arg(long, env = "DATABASE_URL", default_value = "sqlite://causelog.db")]
     database_url: String,
     /// Address to bind (plain HTTP by default, TLS when --tls-* is given).
-    #[arg(long, env = "KAIZEN_ADDR", default_value = "127.0.0.1:8080")]
+    #[arg(long, env = "CAUSELOG_ADDR", default_value = "127.0.0.1:8080")]
     addr: String,
     /// Automate HTTPS via Let's Encrypt (TLS-ALPN-01). Takes precedence over
     /// --tls-cert/--tls-key.
-    #[arg(long, env = "KAIZEN_TLS_DOMAIN")]
+    #[arg(long, env = "CAUSELOG_TLS_DOMAIN")]
     tls_domain: Option<String>,
     /// Path to a TLS certificate chain (PEM), bring-your-own HTTPS.
-    #[arg(long, env = "KAIZEN_TLS_CERT")]
+    #[arg(long, env = "CAUSELOG_TLS_CERT")]
     tls_cert: Option<PathBuf>,
     /// Path to the matching TLS private key (PEM).
-    #[arg(long, env = "KAIZEN_TLS_KEY")]
+    #[arg(long, env = "CAUSELOG_TLS_KEY")]
     tls_key: Option<PathBuf>,
     /// Directory for the Let's Encrypt ACME cache.
-    #[arg(long, env = "KAIZEN_TLS_CACHE_DIR", default_value = "./tls")]
+    #[arg(long, env = "CAUSELOG_TLS_CACHE_DIR", default_value = "./tls")]
     tls_cache_dir: PathBuf,
     /// Do not start the HTTP→HTTPS redirect listener when TLS is active.
     #[arg(long)]
     no_http_redirect: bool,
     /// Port for the HTTP→HTTPS redirect listener (default 80).
-    #[arg(long, env = "KAIZEN_HTTP_REDIRECT_PORT", default_value_t = 80)]
+    #[arg(long, env = "CAUSELOG_HTTP_REDIRECT_PORT", default_value_t = 80)]
     http_redirect_port: u16,
 }
 
 impl Default for ServeArgs {
     fn default() -> Self {
         Self {
-            database_url: "sqlite://kaizen.db".into(),
+            database_url: "sqlite://causelog.db".into(),
             addr: "127.0.0.1:8080".into(),
             tls_domain: None,
             tls_cert: None,
@@ -127,7 +127,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     tracing::info!(database_url = %args.database_url, "database ready");
 
     let mode = tls_mode(&args)?;
-    let app = kaizen_server::app_secure(repo_box(repo));
+    let app = causelog_server::app_secure(repo_box(repo));
     let socket_addr: std::net::SocketAddr = args.addr.parse()?;
 
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
@@ -136,7 +136,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     match mode {
         TlsMode::None => {
             let listener = TcpListener::bind(socket_addr).await?;
-            tracing::info!(addr = %args.addr, "Kaizen listening (http)");
+            tracing::info!(addr = %args.addr, "Causelog listening (http)");
             axum::serve(listener, app)
                 .with_graceful_shutdown(async move {
                     shutdown_rx.changed().await.ok();
@@ -148,7 +148,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             tracing::info!(
                 addr = %args.addr,
                 cert = %cert.display(),
-                "Kaizen listening (https, custom certificate)"
+                "Causelog listening (https, custom certificate)"
             );
             if !args.no_http_redirect {
                 spawn_redirect_listener(
@@ -185,7 +185,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             tracing::info!(
                 addr = %args.addr,
                 domain = %domain,
-                "Kaizen listening (https, automatic Let's Encrypt)"
+                "Causelog listening (https, automatic Let's Encrypt)"
             );
             if !args.no_http_redirect {
                 spawn_redirect_listener(

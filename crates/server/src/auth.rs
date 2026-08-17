@@ -9,15 +9,15 @@ use axum::{
     extract::FromRequestParts,
     http::{HeaderMap, HeaderValue, header, request::Parts},
 };
-use kaizen_content::now_ms;
-use kaizen_model::{Session, User};
+use causelog_content::now_ms;
+use causelog_model::{Session, User};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::error::ApiError;
 
-pub const SESSION_COOKIE: &str = "kaizen_session";
+pub const SESSION_COOKIE: &str = "causelog_session";
 pub const CSRF_HEADER: &str = "x-csrf-token";
 pub const SESSION_TTL_MS: i64 = 30 * 24 * 3600 * 1000;
 
@@ -199,23 +199,23 @@ mod tests {
     #[test]
     fn cookie_parses_single_and_among_others() {
         let mut h = headers();
-        h.insert(header::COOKIE, "kaizen_session=abc123".parse().unwrap());
-        assert_eq!(cookie(&h, "kaizen_session"), Some("abc123".into()));
+        h.insert(header::COOKIE, "causelog_session=abc123".parse().unwrap());
+        assert_eq!(cookie(&h, "causelog_session"), Some("abc123".into()));
 
         let mut h = headers();
         h.insert(
             header::COOKIE,
-            "other=x; kaizen_session=tok; foo=y".parse().unwrap(),
+            "other=x; causelog_session=tok; foo=y".parse().unwrap(),
         );
-        assert_eq!(cookie(&h, "kaizen_session"), Some("tok".into()));
+        assert_eq!(cookie(&h, "causelog_session"), Some("tok".into()));
     }
 
     #[test]
     fn cookie_missing_or_other_name() {
         let h = headers();
-        assert_eq!(cookie(&h, "kaizen_session"), None);
+        assert_eq!(cookie(&h, "causelog_session"), None);
         let mut h = headers();
-        h.insert(header::COOKIE, "kaizen_session=abc".parse().unwrap());
+        h.insert(header::COOKIE, "causelog_session=abc".parse().unwrap());
         assert_eq!(cookie(&h, "other"), None);
     }
 
@@ -225,7 +225,7 @@ mod tests {
             .to_str()
             .unwrap()
             .to_string();
-        assert!(insecure.starts_with("kaizen_session=tok"));
+        assert!(insecure.starts_with("causelog_session=tok"));
         assert!(insecure.contains("HttpOnly"));
         assert!(insecure.contains("SameSite=Lax"));
         assert!(
@@ -247,7 +247,7 @@ mod tests {
             .unwrap()
             .to_string();
         assert!(c.contains("Max-Age=0"));
-        assert!(c.contains("kaizen_session="));
+        assert!(c.contains("causelog_session="));
     }
 
     #[test]

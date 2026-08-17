@@ -1,6 +1,6 @@
-# Kaizen — MVP Plan
+# Causelog — MVP Plan
 
-**Working name.** "Kaizen" is a placeholder: the name collides with a well-known
+**Working name.** "Causelog" is a placeholder: the name collides with a well-known
 business philosophy (trademark/searchability risk, per the source spec). Pick a
 brandable name before public launch.
 
@@ -107,7 +107,7 @@ Mirror `~/Projects/my_blog` (Forgepost) nearly line for line:
 - **askama** server-rendered templates + minimal vanilla JS/htmx (no React build)
 - argon2 + password-hash auth, session cookies
 - rustls-acme TLS for HTTPS; `axum-server`
-- Single binary `kaizen`
+- Single binary `causelog`
 - **AGPL-3.0-only**
 - Docker in `deploy/`
 
@@ -120,7 +120,7 @@ to validate the core habit.
 ## 6. Repo layout
 
 ```
-kaizen/
+causelog/
 ├── Cargo.toml            # workspace
 ├── crates/
 │   ├── model/            # types + SQLx queries
@@ -148,7 +148,7 @@ kaizen/
 | 5 | Dashboard, polish, Markdown import |
 | 6 | Docker, README, seed content, closed alpha (10–15 devs) |
 
-Dogfood: from Wk2, run real work in it (e.g. the Embrig or Kaizen build itself).
+Dogfood: from Wk2, run real work in it (e.g. the Embrig or Causelog build itself).
 
 ---
 
@@ -171,7 +171,7 @@ Measure **learning, not tickets**.
 - Launch: Show HN, r/rust, r/selfhosted, lobste.rs (STRATEGY.md §4
   "Engineering/embedded" row). Build-in-public as content (same pipeline as the
   portfolio).
-- Positioning line (later): "Kaizen is the memory system for teams that build
+- Positioning line (later): "Causelog is the memory system for teams that build
   things." Projects show what you do, decisions show why, knowledge shows what
   you learned.
 
@@ -188,5 +188,5 @@ the MVP needs pricing now.
 ## 11. Sequencing
 
 This MVP plan is authored now. **Build starts after the Embrig MVP** (prior
-sequencing decision, unchanged). Promotion docs already reference Kaizen as a
+sequencing decision, unchanged). Promotion docs already reference Causelog as a
 future bet; it will ride the same dev/B2B audience and channel.

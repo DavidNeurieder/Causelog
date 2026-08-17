@@ -1,4 +1,4 @@
-//! Kaizen core types. Schema lives in `../migrations`; row→struct mappers
+//! Causelog core types. Schema lives in `../migrations`; row→struct mappers
 //! live in the server crate's repository layer (mirroring Forgepost).
 
 use serde::{Deserialize, Serialize};

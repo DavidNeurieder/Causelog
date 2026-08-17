@@ -1,4 +1,4 @@
-//! Kaizen server errors: a single repository error type plus a JSON envelope
+//! Causelog server errors: a single repository error type plus a JSON envelope
 //! for API handlers (mirroring Forgepost). Page errors arrive with templates.
 
 use axum::{

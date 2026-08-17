@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use kaizen_model::{
+use causelog_model::{
     Decision, DecisionOption, Experiment, ExperimentEvent, Goal, Link, Note, Project, Revision,
     Session, User,
 };
@@ -428,7 +428,7 @@ impl Repository for SqliteRepository {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
         )
         .bind(if complete { "1" } else { "0" })
-        .bind(kaizen_content::now_ms())
+        .bind(causelog_content::now_ms())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -448,7 +448,7 @@ impl Repository for SqliteRepository {
             return Err(RepositoryError::Conflict("setup already complete".into()));
         }
         let id = Uuid::new_v4();
-        let now = kaizen_content::now_ms();
+        let now = causelog_content::now_ms();
         sqlx::query(
             "INSERT INTO users (id, username, display_name, role, approved, password_hash, created_at_ms)
              VALUES (?, ?, ?, 'admin', 1, ?, ?)",
@@ -505,7 +505,7 @@ impl Repository for SqliteRepository {
         let token = Uuid::new_v4().to_string();
         let csrf = Uuid::new_v4().to_string();
         let token_hash = sha256_hex(&token);
-        let expires_at_ms = kaizen_content::now_ms() + SESSION_TTL_MS;
+        let expires_at_ms = causelog_content::now_ms() + SESSION_TTL_MS;
         sqlx::query(
             "INSERT INTO sessions (token_hash, user_id, csrf, expires_at_ms)
              VALUES (?, ?, ?, ?)",
@@ -531,7 +531,7 @@ impl Repository for SqliteRepository {
              FROM sessions WHERE token_hash = ? AND expires_at_ms > ?",
         )
         .bind(token_hash)
-        .bind(kaizen_content::now_ms())
+        .bind(causelog_content::now_ms())
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|r| Session {
@@ -561,7 +561,7 @@ impl Repository for SqliteRepository {
         password_hash: &str,
     ) -> Result<User, RepositoryError> {
         let id = Uuid::new_v4();
-        let now = kaizen_content::now_ms();
+        let now = causelog_content::now_ms();
         sqlx::query(
             "INSERT INTO users (id, username, display_name, role, approved, password_hash, created_at_ms)
              VALUES (?, ?, ?, 'user', 0, ?, ?)",
@@ -672,7 +672,7 @@ impl Repository for SqliteRepository {
         .bind(project_id.to_string())
         .bind(user_id.to_string())
         .bind(role)
-        .bind(kaizen_content::now_ms())
+        .bind(causelog_content::now_ms())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -800,7 +800,7 @@ impl Repository for SqliteRepository {
         created_by: Option<Uuid>,
     ) -> Result<Project, RepositoryError> {
         let id = Uuid::new_v4();
-        let now = kaizen_content::now_ms();
+        let now = causelog_content::now_ms();
         let mut tx = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO projects (id, title, summary, status, created_by, created_at_ms, updated_at_ms)
@@ -853,7 +853,7 @@ impl Repository for SqliteRepository {
         .bind(title)
         .bind(summary)
         .bind(status)
-        .bind(kaizen_content::now_ms())
+        .bind(causelog_content::now_ms())
         .bind(id.to_string())
         .execute(&self.pool)
         .await?;
@@ -899,7 +899,7 @@ impl Repository for SqliteRepository {
         assigned_to: Option<Uuid>,
     ) -> Result<Goal, RepositoryError> {
         let id = Uuid::new_v4();
-        let now = kaizen_content::now_ms();
+        let now = causelog_content::now_ms();
         sqlx::query(
             "INSERT INTO goals (id, project_id, title, body, status, created_by, assigned_to, created_at_ms, updated_at_ms)
              VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?)",
@@ -943,7 +943,7 @@ impl Repository for SqliteRepository {
         .bind(body)
         .bind(status)
         .bind(assigned_to.map(|u| u.to_string()))
-        .bind(kaizen_content::now_ms())
+        .bind(causelog_content::now_ms())
         .bind(id.to_string())
         .execute(&self.pool)
         .await?;
@@ -1128,8 +1128,8 @@ impl Repository for SqliteRepository {
             decided_at_ms: None,
             review_at_ms: None,
             created_by,
-            created_at_ms: kaizen_content::now_ms(),
-            updated_at_ms: kaizen_content::now_ms(),
+            created_at_ms: causelog_content::now_ms(),
+            updated_at_ms: causelog_content::now_ms(),
         };
         let mut tx = self.pool.begin().await?;
         sqlx::query(
@@ -1168,7 +1168,7 @@ impl Repository for SqliteRepository {
         options: &[DecisionOption],
     ) -> Result<Decision, RepositoryError> {
         let mut tx = self.pool.begin().await?;
-        let now = kaizen_content::now_ms();
+        let now = causelog_content::now_ms();
         sqlx::query(
             "UPDATE decisions SET title = ?, context = ?, options = ?, updated_at_ms = ?
              WHERE id = ?",
@@ -1202,7 +1202,7 @@ impl Repository for SqliteRepository {
         review_at_ms: Option<i64>,
     ) -> Result<Decision, RepositoryError> {
         let mut tx = self.pool.begin().await?;
-        let now = kaizen_content::now_ms();
+        let now = causelog_content::now_ms();
         let decided_at_ms = if status == "open" { None } else { Some(now) };
         sqlx::query(
             "UPDATE decisions SET status = ?, decided_option = ?, rationale = ?,
@@ -1306,7 +1306,7 @@ impl Repository for SqliteRepository {
         created_by: Option<Uuid>,
     ) -> Result<Experiment, RepositoryError> {
         let id = Uuid::new_v4();
-        let now = kaizen_content::now_ms();
+        let now = causelog_content::now_ms();
         sqlx::query(
             "INSERT INTO experiments (id, project_id, goal_id, decision_id, title, hypothesis,
                     status, started_at_ms, ended_at_ms, result, lesson, created_by, created_at_ms, updated_at_ms)
@@ -1354,7 +1354,7 @@ impl Repository for SqliteRepository {
             .find_experiment(id)
             .await?
             .ok_or_else(|| RepositoryError::NotFound("experiment".into()))?;
-        let now = kaizen_content::now_ms();
+        let now = causelog_content::now_ms();
         let mut started = existing.started_at_ms;
         let mut ended = existing.ended_at_ms;
         match status {
@@ -1443,7 +1443,7 @@ impl Repository for SqliteRepository {
         .bind(kind)
         .bind(at_ms)
         .bind(note)
-        .bind(kaizen_content::now_ms())
+        .bind(causelog_content::now_ms())
         .execute(&self.pool)
         .await?;
         Ok(ExperimentEvent {
@@ -1452,7 +1452,7 @@ impl Repository for SqliteRepository {
             kind: kind.to_string(),
             at_ms,
             note: note.to_string(),
-            created_at_ms: kaizen_content::now_ms(),
+            created_at_ms: causelog_content::now_ms(),
         })
     }
 
@@ -1549,7 +1549,7 @@ impl Repository for SqliteRepository {
     ) -> Result<Note, RepositoryError> {
         let mut tx = self.pool.begin().await?;
         let id = Uuid::new_v4();
-        let now = kaizen_content::now_ms();
+        let now = causelog_content::now_ms();
         sqlx::query(
             "INSERT INTO notes (id, project_id, title, body, source_type, source_id, created_by, created_at_ms, updated_at_ms)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1581,7 +1581,7 @@ impl Repository for SqliteRepository {
         sqlx::query("UPDATE notes SET title = ?, body = ?, updated_at_ms = ? WHERE id = ?")
             .bind(title)
             .bind(body)
-            .bind(kaizen_content::now_ms())
+            .bind(causelog_content::now_ms())
             .bind(id.to_string())
             .execute(&mut *tx)
             .await?;
@@ -1643,7 +1643,7 @@ impl Repository for SqliteRepository {
         .bind(to_type)
         .bind(to_id.to_string())
         .bind(kind)
-        .bind(kaizen_content::now_ms())
+        .bind(causelog_content::now_ms())
         .execute(&self.pool)
         .await?;
         Ok(Link {
@@ -1654,7 +1654,7 @@ impl Repository for SqliteRepository {
             to_type: to_type.to_string(),
             to_id,
             kind: kind.to_string(),
-            created_at_ms: kaizen_content::now_ms(),
+            created_at_ms: causelog_content::now_ms(),
         })
     }
 
@@ -1754,10 +1754,10 @@ impl Repository for SqliteRepository {
         let phrase = format!("\"{}\"", query.replace('"', "\"\""));
         let rows = sqlx::query(
             "SELECT entity_type, entity_id, project_id, title,
-                    (SELECT title FROM projects WHERE id = kaizen_search.project_id) AS project_title,
-                    snippet(kaizen_search, 4, char(1), char(2), '…', 12) AS snippet
-             FROM kaizen_search
-             WHERE kaizen_search MATCH ?
+                    (SELECT title FROM projects WHERE id = causelog_search.project_id) AS project_title,
+                    snippet(causelog_search, 4, char(1), char(2), '…', 12) AS snippet
+             FROM causelog_search
+             WHERE causelog_search MATCH ?
              ORDER BY rank
              LIMIT 50",
         )
@@ -1815,7 +1815,7 @@ async fn insert_revision(
     .bind(entity_id.to_string())
     .bind(snapshot)
     .bind(created_by.map(|u| u.to_string()))
-    .bind(kaizen_content::now_ms())
+    .bind(causelog_content::now_ms())
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -1849,7 +1849,7 @@ fn decision_snapshot_md(d: &Decision) -> String {
     if let Some(review_at) = d.review_at_ms {
         s.push_str(&format!(
             "\nReview on: {}\n",
-            kaizen_content::format_date_ms(review_at)
+            causelog_content::format_date_ms(review_at)
         ));
     }
     s

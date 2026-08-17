@@ -1,6 +1,6 @@
 import { expect, test, type Browser } from '@playwright/test';
 
-// The full creator journey through the real UI against the real `kaizen`
+// The full creator journey through the real UI against the real `causelog`
 // server: setup -> project -> goal -> decision (resolved) -> experiment
 // (observations + lesson note) -> timeline + graph -> search -> logout/login.
 //
@@ -17,7 +17,7 @@ const USERNAME = 'dev';
 const DISPLAY = 'Dev';
 const PASSWORD = 'longenough1';
 const GOAL = 'Reduce time-to-recall of past decisions';
-const DECISION = 'Which datastore should Kaizen use?';
+const DECISION = 'Which datastore should Causelog use?';
 const EXPERIMENT = 'Try SQLite with WAL for six weeks';
 const LESSON = 'Dilithium crystals are out; SQLite with WAL is fine.';
 

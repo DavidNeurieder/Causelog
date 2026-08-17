@@ -3,10 +3,10 @@
 
 use std::collections::HashSet;
 
-use kaizen_content::now_ms;
-use kaizen_model::{DecisionOption, Goal};
-use kaizen_server::auth;
-use kaizen_server::repository::{Repository as _, SqliteRepository};
+use causelog_content::now_ms;
+use causelog_model::{DecisionOption, Goal};
+use causelog_server::auth;
+use causelog_server::repository::{Repository as _, SqliteRepository};
 use uuid::Uuid;
 
 const DEMO_USER: &str = "demo";

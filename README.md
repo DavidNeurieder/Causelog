@@ -1,10 +1,10 @@
-# Kaizen
+# Causelog
 
 Self-hosted engineering decision memory. A place to record the trade-offs you
 weigh, the experiments that test them, and the lessons you'd otherwise
 re-learn the hard way.
 
-Kaizen is a single Rust binary with an embedded SQLite database — no external
+Causelog is a single Rust binary with an embedded SQLite database — no external
 services, one machine, one backup to care about.
 
 ## What it does
@@ -50,10 +50,10 @@ cargo run -- seed-demo
 ## Run it
 
 ```
-Usage: kaizen [COMMAND]
+Usage: causelog [COMMAND]
 
 Commands:
-  serve       Start the Kaizen server (default)
+  serve       Start the Causelog server (default)
   seed-demo   Create a first user and a three-project demo, then exit
 ```
 
@@ -61,20 +61,20 @@ Commands:
 
 | Flag | Env | Default | Meaning |
 | --- | --- | --- | --- |
-| `--database-url` | `DATABASE_URL` | `sqlite://kaizen.db` | DB file or `sqlite::memory:` |
-| `--addr` | `KAIZEN_ADDR` | `127.0.0.1:8080` | Bind address |
-| `--tls-domain` | `KAIZEN_TLS_DOMAIN` | — | Automatic HTTPS via Let's Encrypt |
-| `--tls-cert` / `--tls-key` | `KAIZEN_TLS_CERT/KEY` | — | Bring your own cert |
-| `--tls-cache-dir` | `KAIZEN_TLS_CACHE_DIR` | `./tls` | ACME cache |
+| `--database-url` | `DATABASE_URL` | `sqlite://causelog.db` | DB file or `sqlite::memory:` |
+| `--addr` | `CAUSELOG_ADDR` | `127.0.0.1:8080` | Bind address |
+| `--tls-domain` | `CAUSELOG_TLS_DOMAIN` | — | Automatic HTTPS via Let's Encrypt |
+| `--tls-cert` / `--tls-key` | `CAUSELOG_TLS_CERT/KEY` | — | Bring your own cert |
+| `--tls-cache-dir` | `CAUSELOG_TLS_CACHE_DIR` | `./tls` | ACME cache |
 | `--no-http-redirect` | — | off | Skip the 80→443 redirect |
 
 The Let's Encrypt path is the easiest production setup behind a public IP:
 
 ```sh
-DATABASE_URL=sqlite:///srv/kaizen/kaizen.db \
-KAIZEN_ADDR=0.0.0.0:8443 \
-KAIZEN_TLS_DOMAIN=kaizen.example.com \
-kaizen serve
+DATABASE_URL=sqlite:///srv/causelog/causelog.db \
+CAUSELOG_ADDR=0.0.0.0:8443 \
+CAUSELOG_TLS_DOMAIN=causelog.example.com \
+causelog serve
 ```
 
 Certificates are renewed automatically and hot-reloaded. Behind a reverse
@@ -85,26 +85,26 @@ proxy terminate TLS.
 
 ```sh
 docker compose -f deploy/docker-compose.yml up -d --build
-docker compose -f deploy/docker-compose.yml run --rm kaizen seed-demo
+docker compose -f deploy/docker-compose.yml run --rm causelog seed-demo
 # → http://localhost:8080
 # demo / demo-password (admin), alice / longenough1 (member), bob / longenough1 (pending)
 ```
 
-Data lives in `./data/kaizen.db` on the host.
+Data lives in `./data/causelog.db` on the host.
 
 ## Backups
 
 SQLite is a single file — back it up consistently with the included script:
 
 ```sh
-./deploy/backup.sh data/kaizen.db data/backups 14   # retention: 14 daily copies
+./deploy/backup.sh data/causelog.db data/backups 14   # retention: 14 daily copies
 ```
 
 The script uses `sqlite3 .backup` (safe against a live writer) when available
 and falls back to a plain copy. Schedule it with cron:
 
 ```
-0 3 * * * /srv/kaizen/deploy/backup.sh /srv/kaizen/data/kaizen.db /srv/kaizen/data/backups 14
+0 3 * * * /srv/causelog/deploy/backup.sh /srv/causelog/data/causelog.db /srv/causelog/data/backups 14
 ```
 
 ### Restore
@@ -113,13 +113,13 @@ Stop the container, replace the database file, start it again:
 
 ```sh
 docker compose -f deploy/docker-compose.yml stop
-cp data/backups/kaizen-2026-08-15.db data/kaizen.db
+cp data/backups/causelog-2026-08-15.db data/causelog.db
 docker compose -f deploy/docker-compose.yml start
 ```
 
 ## Design notes
 
-- **Multi-user with admin approval.** Kaizen starts un-set-up: the first
+- **Multi-user with admin approval.** Causelog starts un-set-up: the first
   account created at `/setup` becomes the admin. Additional users register at
   `/register` and wait for admin approval. Projects can have members (owner
   and member roles); non-members cannot see a project's contents.
@@ -143,7 +143,7 @@ Three layers, run with a single `cargo test --workspace`:
   against an in-memory SQLite database, from setup to search, including
   multi-user flows (registration, admin approval, project membership,
   role-based access control).
-- **E2E** (`crates/server/tests/e2e.rs`) — boots the real `kaizen` binary on
+- **E2E** (`crates/server/tests/e2e.rs`) — boots the real `causelog` binary on
   a free port with a temporary database, drives the golden path over HTTP
   with a cookie jar, then restarts the process to prove data survives, plus
   `seed-demo` and CLI smoke tests.
@@ -160,7 +160,7 @@ Three layers, run with a single `cargo test --workspace`:
   npm run test:e2e
   ```
 
-  Set `KAIZEN_BIN=../target/debug/kaizen` to reuse a built binary instead of
+  Set `CAUSELOG_BIN=../target/debug/causelog` to reuse a built binary instead of
   letting the harness run `cargo run`. CI does this in a dedicated job.
 
 `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings`

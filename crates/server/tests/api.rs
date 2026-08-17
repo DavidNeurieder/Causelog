@@ -4,8 +4,8 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
-use kaizen_server::app;
-use kaizen_server::repository::{Repository, SqliteRepository};
+use causelog_server::app;
+use causelog_server::repository::{Repository, SqliteRepository};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -50,7 +50,7 @@ async fn create_project(router: &axum::Router, cookie: &str, title: &str, status
 
 /// Wrap a raw session token in the full cookie header value.
 fn session_cookie(token: &str) -> String {
-    format!("kaizen_session={token}")
+    format!("causelog_session={token}")
 }
 
 fn repo_box(repo: SqliteRepository) -> Arc<dyn Repository> {
@@ -134,7 +134,7 @@ fn with_cookie(mut req: Request<Body>, cookie: &str) -> Request<Body> {
     req
 }
 
-/// Grab the `kaizen_session=...` cookie value from a Set-Cookie response header.
+/// Grab the `causelog_session=...` cookie value from a Set-Cookie response header.
 fn session_cookie_value(res: &axum::response::Response) -> String {
     let raw = res
         .headers()
@@ -145,7 +145,7 @@ fn session_cookie_value(res: &axum::response::Response) -> String {
     raw.split(';')
         .next()
         .unwrap()
-        .strip_prefix("kaizen_session=")
+        .strip_prefix("causelog_session=")
         .unwrap()
         .to_string()
 }
@@ -185,7 +185,7 @@ async fn create_approved_user(
     display: &str,
     password: &str,
 ) -> String {
-    let hash = kaizen_server::auth::hash_password(password).unwrap();
+    let hash = causelog_server::auth::hash_password(password).unwrap();
     let user = repo.create_user(username, display, &hash).await.unwrap();
     repo.approve_user(user.id).await.unwrap();
     let session = repo.create_session(user.id).await.unwrap();
@@ -200,7 +200,7 @@ async fn create_unapproved_user(
     display: &str,
     password: &str,
 ) -> String {
-    let hash = kaizen_server::auth::hash_password(password).unwrap();
+    let hash = causelog_server::auth::hash_password(password).unwrap();
     let user = repo.create_user(username, display, &hash).await.unwrap();
     let session = repo.create_session(user.id).await.unwrap();
     session_cookie(&session.token)
@@ -372,7 +372,7 @@ async fn login_flow() {
 
 #[tokio::test]
 async fn logout_requires_csrf_and_clears_session() {
-    use kaizen_server::auth::hash_password;
+    use causelog_server::auth::hash_password;
 
     let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
     repo.migrate().await.unwrap();
@@ -380,7 +380,7 @@ async fn logout_requires_csrf_and_clears_session() {
     let user = repo.create_first_user("dev", "Dev", &hash).await.unwrap();
     let session = repo.create_session(user.id).await.unwrap();
     let app = app(repo_box(repo));
-    let cookie = format!("kaizen_session={}", session.token);
+    let cookie = format!("causelog_session={}", session.token);
 
     // No CSRF token -> 403.
     let no_csrf = send(&app, with_cookie(post_form("/logout", &[]), &cookie)).await;
@@ -464,7 +464,7 @@ async fn project_and_goal_crud() {
                 "/projects",
                 &[
                     ("csrf_token", &csrf),
-                    ("title", "Kaizen MVP"),
+                    ("title", "Causelog MVP"),
                     ("summary", "Build the whole thing"),
                     ("status", "active"),
                 ],
@@ -481,7 +481,7 @@ async fn project_and_goal_crud() {
     let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
     assert_eq!(page.status(), StatusCode::OK);
     let body = body_string(page).await;
-    assert!(body.contains("Kaizen MVP"), "got: {body}");
+    assert!(body.contains("Causelog MVP"), "got: {body}");
 
     // Add a goal.
     let res = send(
@@ -508,7 +508,7 @@ async fn project_and_goal_crud() {
     // Dashboard shows the project.
     let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
     let body = body_string(dash).await;
-    assert!(body.contains("Kaizen MVP"), "got: {body}");
+    assert!(body.contains("Causelog MVP"), "got: {body}");
 
     // Missing CSRF on a mutating request is rejected.
     let res = send(
@@ -917,7 +917,7 @@ async fn knowledge_capture_and_graph() {
                 "/projects",
                 &[
                     ("csrf_token", &csrf),
-                    ("title", "Kaizen"),
+                    ("title", "Causelog"),
                     ("summary", ""),
                     ("status", "active"),
                 ],
@@ -1305,7 +1305,7 @@ async fn setup_cannot_create_second_user() {
 
 #[tokio::test]
 async fn secure_mode_sets_secure_cookie() {
-    use kaizen_server::app_secure;
+    use causelog_server::app_secure;
 
     let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
     repo.migrate().await.unwrap();

@@ -1,9 +1,9 @@
 [package]
-name = "kaizen-content"
+name = "causelog-content"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Kaizen markdown content handling"
+description = "Causelog markdown content handling"
 
 [dependencies]
 pulldown-cmark = { workspace = true }

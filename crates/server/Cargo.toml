@@ -1,12 +1,12 @@
 [package]
-name = "kaizen-server"
+name = "causelog-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Kaizen server: Axum app + askama templates + auth"
+description = "Causelog server: Axum app + askama templates + auth"
 
 [[bin]]
-name = "kaizen"
+name = "causelog"
 path = "src/main.rs"
 
 [dependencies]
@@ -19,9 +19,9 @@ axum-server = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
-kaizen-content = { path = "../content" }
-kaizen-model = { path = "../model" }
-kaizen-search = { path = "../search" }
+causelog-content = { path = "../content" }
+causelog-model = { path = "../model" }
+causelog-search = { path = "../search" }
 libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 rustls = { workspace = true }
 rustls-acme = { workspace = true }
