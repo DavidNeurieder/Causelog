@@ -489,6 +489,7 @@ a.row-link .chev { color: var(--muted); font-size: 13px; }
 .prose code { background: var(--panel); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
 .prose pre { background: var(--panel); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); overflow-x: auto; border: 1px solid var(--border); }
 .prose pre code { background: none; padding: 0; }
+.prose input[type="checkbox"] { margin-right: var(--space-2); accent-color: var(--accent); }
 .prose img { max-width: 100%; border-radius: var(--radius-sm); }
 .prose a { color: var(--accent-hi); }
 

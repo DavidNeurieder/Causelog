@@ -142,7 +142,7 @@ async fn seed_datastore_project(repo: &SqliteRepository, created_by: Uuid) -> an
         .create_goal(
             project.id,
             "Ship the MVP with the least operational surface",
-            "One machine, one binary, no external services.",
+            "- [x] Single binary, no external services\n- [x] Embedded SQLite database\n- [x] Dark theme UI with responsive layout\n- [x] Full-text search via FTS5\n- [x] Markdown rendering for all content\n- [ ] Multi-user support with admin approval\n- [ ] Goal assignment to team members\n- [ ] Production deployment guide",
             Some(created_by),
             None,
         )
@@ -256,7 +256,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         .create_goal(
             project.id,
             "Keep Gloria alive for 90 consecutive days",
-            "Day 90 is the contract milestone. Nobody knows who holds the contract. We just know it expires.",
+            "Day 90 is the contract milestone. Nobody knows who holds the contract. We just know it expires.\n\n- [x] Repot into larger container with drainage\n- [x] Establish watering schedule (every 3 days)\n- [x] Move to indirect sunlight by the east window\n- [x] Fertilize monthly with diluted solution\n- [x] Survive the office heating incident (week 4)\n- [x] Reach day 90 milestone",
             Some(created_by),
             alice_id,
         )
@@ -265,7 +265,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         .create_goal(
             project.id,
             "Get Gloria to actually climb the moss pole",
-            "She has been 'considering it' since March. Her leaves go in every direction except up.",
+            "She has been 'considering it' since March. Her leaves go in every direction except up.\n\n- [ ] Attacherial roots to the moss pole\n- [ ] Train first vine upward with soft ties\n- [ ] Achieve at least 30cm of upward growth\n- [ ] Confirm new growth is oriented vertically\n- [ ] Stop her from growing exclusively sideways",
             Some(created_by),
             carol_id,
         )
@@ -273,7 +273,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
     repo.create_goal(
         project.id,
         "Reach 15 leaves",
-        "Current count: 13. The 14th fell off in what can only be described as passive aggression.",
+        "Current count: 13. The 14th fell off in what can only be described as passive aggression.\n\n- [x] Stabilize existing 13 leaves (stop the shedding)\n- [ ] Identify cause of leaf 14's departure\n- [ ] Encourage new growth at the node\n- [ ] Reach 14 leaves (recover the loss)\n- [ ] Reach 15 leaves (actual progress)",
         Some(created_by),
         None,
     )
@@ -282,7 +282,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         .create_goal(
             project.id,
             "Teach Gloria to clap when a build passes",
-            "She has no arms and has shown no aptitude. Dropped after she shed a leaf in disgust.",
+            "She has no arms and has shown no aptitude. Dropped after she shed a leaf in disgust.\n\n- [x] Research whether monstera can be trained to respond to stimuli\n- [ ] Develop a clap-compatible reinforcement schedule\n- [ ] Obtain tiny ceremonial bells as alternative feedback mechanism\n- [ ] Convince Gloria that CI pipelines are worth celebrating\n- [x] Abandon hope after leaf 16 incident",
             Some(created_by),
             None,
         )
@@ -510,7 +510,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         .create_goal(
             project.id,
             "Eliminate the 11am queue of despair",
-            "Peak hour currently has a seven-minute wait. Unacceptable for people who are technically adults.",
+            "Peak hour currently has a seven-minute wait. Unacceptable for people who are technically adults.\n\n- [x] Audit current queue length at 11am daily for two weeks\n- [x] Identify bottlenecks (grinder speed, milk frothing, indecisive ordering)\n- [x] Implement a second grinder station\n- [x] Create a quick-order board for the top 5 drinks\n- [x] Reduce average wait to under 2 minutes",
             Some(created_by),
             carol_id,
         )
@@ -519,7 +519,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         .create_goal(
             project.id,
             "Cut the monthly coffee budget by 15% without a riot",
-            "The bean fund is leaking. The bean fund has feelings.",
+            "The bean fund is leaking. The bean fund has feelings.\n\n- [ ] Audit current monthly spend across all bean suppliers\n- [ ] Negotiate bulk pricing with primary roaster\n- [ ] Reduce waste from over-brewing (timer + batch size review)\n- [ ] Evaluate whether the 'artisanal single-origin' upgrade is worth 40% more\n- [ ] Track savings month-over-month and report to the team",
             Some(created_by),
             None,
         )
@@ -528,7 +528,7 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         .create_goal(
             project.id,
             "Put a second machine in the kitchen corner",
-            "Dropped: the kitchen corner is load-bearing, emotionally.",
+            "The kitchen corner is load-bearing, emotionally.\n\n- [x] Measure the kitchen corner for machine clearance\n- [ ] Get a structural engineer to confirm the floor can handle it\n- [x] Select a machine that fits the available space\n- [ ] Run a second water line or install a reservoir tank\n- [x] Abandoned: the corner turned out to be a memorial to a previous coffee machine that 'knew things'",
             Some(created_by),
             None,
         )
