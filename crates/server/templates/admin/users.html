@@ -2,85 +2,97 @@
 {% block title %}User Management · Causelog{% endblock %}
 {% block content %}
 <h1>User Management</h1>
-<p class="muted">Manage user accounts, approval status, and project membership.</p>
 
-{% if users_with_projects.is_empty() %}
+<nav class="subnav" aria-label="Admin sections">
+  <a href="/admin/users" class="on">Users</a>
+  <a href="/admin/settings">Settings</a>
+</nav>
+
+{% if pending_with_projects.is_empty() && approved_with_projects.is_empty() %}
 <div class="empty">
   <p>No users yet.</p>
 </div>
 {% else %}
-<table class="list">
-  <thead>
-    <tr>
-      <th>Username</th>
-      <th>Display Name</th>
-      <th>Role</th>
-      <th>Status</th>
-      <th>Projects</th>
-      <th>Actions</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for entry in users_with_projects %}
-    <tr>
-      <td>{{ entry.user.username }}</td>
-      <td>{{ entry.user.display_name }}</td>
-      <td><span class="tag">{{ entry.user.role }}</span></td>
-      <td>
-        {% if entry.user.approved %}
-          <span class="tag tag--active">Approved</span>
-        {% else %}
-          <span class="tag tag--paused">Pending</span>
-        {% endif %}
-      </td>
-      <td class="projects-cell">
-        {% for project in entry.projects %}
-        <span class="tag">
-          {{ project.title }}
-          <form method="post" action="/admin/users/{{ entry.user.id }}/remove-from-project" class="inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="project_id" value="{{ project.id }}">
-            <button type="submit" class="tag-x" title="Remove from {{ project.title }}">&times;</button>
-          </form>
-        </span>
-        {% endfor %}
-        <form method="post" action="/admin/users/{{ entry.user.id }}/add-to-project" class="inline add-to-project-form">
+
+{% if !pending_with_projects.is_empty() %}
+<h2>Pending Approval</h2>
+<div class="admin-cards">
+  {% for entry in pending_with_projects %}
+  <div class="admin-card admin-card--pending">
+    <div class="admin-card-header">
+      <span class="admin-card-name">{{ entry.user.username }}</span>
+      <span class="admin-card-display">{{ entry.user.display_name }}</span>
+      <span class="tag">{{ entry.user.role }}</span>
+      <span class="tag tag--pending">pending</span>
+    </div>
+    <div class="admin-card-actions">
+      <form method="post" action="/admin/users/{{ entry.user.id }}/approve" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn--sm">Approve</button>
+      </form>
+      <form method="post" action="/admin/users/{{ entry.user.id }}/reject" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn--sm btn--danger">Reject</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<h2>All Users</h2>
+<div class="admin-cards">
+  {% for entry in approved_with_projects %}
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-name">{{ entry.user.username }}</span>
+      <span class="admin-card-display">{{ entry.user.display_name }}</span>
+      {% if entry.user.role == "admin" %}
+      <span class="tag tag--admin">admin</span>
+      {% else %}
+      <span class="tag">{{ entry.user.role }}</span>
+      {% endif %}
+      <span class="tag tag--active">approved</span>
+    </div>
+
+    <div class="admin-card-projects">
+      {% for project in entry.projects %}
+      <span class="tag">
+        {{ project.title }}
+        <form method="post" action="/admin/users/{{ entry.user.id }}/remove-from-project" class="inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <select name="project_id" required>
-            <option value="">+ add to project</option>
-            {% for p in all_projects %}
-            <option value="{{ p.id }}">{{ p.title }}</option>
-            {% endfor %}
-          </select>
-          <button type="submit" class="btn btn--sm">Add</button>
+          <input type="hidden" name="project_id" value="{{ project.id }}">
+          <button type="submit" class="tag-x" title="Remove from {{ project.title }}">&times;</button>
         </form>
-      </td>
-      <td class="actions">
-        {% if !entry.user.approved %}
-        <form method="post" action="/admin/users/{{ entry.user.id }}/approve" class="inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button type="submit" class="btn btn--sm">Approve</button>
-        </form>
-        <form method="post" action="/admin/users/{{ entry.user.id }}/reject" class="inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button type="submit" class="btn btn--sm btn--danger">Reject</button>
-        </form>
-        {% else %}
-        <form method="post" action="/admin/users/{{ entry.user.id }}/role" class="inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button type="submit" class="btn btn--sm">
-            {% if entry.user.role == "admin" %}Demote{% else %}Promote{% endif %}
-          </button>
-        </form>
-        <form method="post" action="/admin/users/{{ entry.user.id }}/delete" class="inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button type="submit" class="btn btn--sm btn--danger" onclick="return confirm('Delete this user?')">Delete</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+      </span>
+      {% endfor %}
+      <form method="post" action="/admin/users/{{ entry.user.id }}/add-to-project" class="inline projects-add">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <select name="project_id" required>
+          <option value="">+ add to project</option>
+          {% for p in all_projects %}
+          <option value="{{ p.id }}">{{ p.title }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn--sm">Add</button>
+      </form>
+    </div>
+
+    <div class="admin-card-actions">
+      <form method="post" action="/admin/users/{{ entry.user.id }}/role" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn--sm">
+          {% if entry.user.role == "admin" %}Demote{% else %}Promote{% endif %}
+        </button>
+      </form>
+      <form method="post" action="/admin/users/{{ entry.user.id }}/delete" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn--sm btn--danger" onclick="return confirm('Delete this user?')">Delete</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
 {% endif %}
 {% endblock %}

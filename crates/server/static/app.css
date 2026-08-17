@@ -560,6 +560,64 @@ details.create-project summary::before { content: ""; margin: 0; }
 details.create-project field { margin-bottom: var(--space-3); }
 
 /* ---------------------------------------------------------------------------
+   Admin cards
+   ------------------------------------------------------------------------- */
+
+.admin-cards { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-3) 0 var(--space-5); }
+.admin-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+.admin-card--pending { border-left: 3px solid var(--warn); }
+.admin-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.admin-card-name { font-weight: 600; color: var(--fg); }
+.admin-card-display { color: var(--muted); font-size: 14px; }
+.admin-card-projects {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.admin-card-actions {
+  margin-top: var(--space-3);
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.projects-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.projects-add select {
+  width: auto;
+  max-width: 220px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.tag--admin { color: var(--accent-hi); border-color: color-mix(in srgb, var(--accent-hi) 40%, transparent); }
+.tag--pending { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.tag-x {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1;
+}
+.tag-x:hover { color: var(--danger); }
+
+/* ---------------------------------------------------------------------------
    Responsive
    ------------------------------------------------------------------------- */
 

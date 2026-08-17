@@ -174,7 +174,8 @@ struct AdminUsersTemplate {
     year: u32,
     display_name: String,
     csrf_token: String,
-    users_with_projects: Vec<UserWithProjects>,
+    pending_with_projects: Vec<UserWithProjects>,
+    approved_with_projects: Vec<UserWithProjects>,
     all_projects: Vec<Project>,
 }
 
@@ -2847,10 +2848,16 @@ pub(crate) async fn admin_users_page(
     }
     let users = state.repo.list_users().await?;
     let all_projects = state.repo.list_projects().await?;
-    let mut users_with_projects = Vec::with_capacity(users.len());
+    let mut pending_with_projects = Vec::new();
+    let mut approved_with_projects = Vec::new();
     for user in users {
         let projects = state.repo.list_projects_for_user(user.id).await?;
-        users_with_projects.push(UserWithProjects { user, projects });
+        let entry = UserWithProjects { user, projects };
+        if entry.user.approved {
+            approved_with_projects.push(entry);
+        } else {
+            pending_with_projects.push(entry);
+        }
     }
     page(&AdminUsersTemplate {
         authed: true,
@@ -2859,7 +2866,8 @@ pub(crate) async fn admin_users_page(
         year: current_year(),
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
-        users_with_projects,
+        pending_with_projects,
+        approved_with_projects,
         all_projects,
     })
 }

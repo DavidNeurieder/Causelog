@@ -2,6 +2,12 @@
 {% block title %}Settings · Causelog{% endblock %}
 {% block content %}
 <h1>Settings</h1>
+
+<nav class="subnav" aria-label="Admin sections">
+  <a href="/admin/users">Users</a>
+  <a href="/admin/settings" class="on">Settings</a>
+</nav>
+
 <p class="muted">System configuration (placeholder).</p>
 
 <form method="post" action="/admin/settings" class="panel-form">
