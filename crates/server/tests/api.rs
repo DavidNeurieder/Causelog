@@ -2883,3 +2883,104 @@ async fn alice_owns_sqlite_project_carol_is_member() {
     let body = body_string(page).await;
     assert!(body.contains("created by Carol"), "got: {body}");
 }
+
+#[tokio::test]
+async fn search_scoped_to_user_projects() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+
+    // Admin creates two projects with distinctive search terms.
+    let project_a = create_project(&app, &admin_cookie, "Alpha", "active").await;
+    let project_b = create_project(&app, &admin_cookie, "Beta", "active").await;
+
+    // Note in project A.
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_a}/notes"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Alpha note"),
+                    ("body", "Unique alpha token: flurbex"),
+                ],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Note in project B.
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_b}/notes"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Beta note"),
+                    ("body", "Unique beta token: zymolog"),
+                ],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Add alice as member of project A only.
+    let admin_user = repo.list_users().await.unwrap();
+    let alice_user = admin_user.iter().find(|u| u.username == "alice").unwrap();
+    let a_id = project_a.strip_prefix("/projects/").unwrap();
+    repo.add_project_member(
+        a_id.parse().unwrap(),
+        alice_user.id,
+        "member",
+    )
+    .await
+    .unwrap();
+
+    // Admin can search both projects.
+    let page = send(
+        &app,
+        with_cookie(get("/search?q=flurbex"), &admin_cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(body.contains("Alpha note"), "admin should see alpha: {body}");
+
+    let page = send(
+        &app,
+        with_cookie(get("/search?q=zymolog"), &admin_cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(body.contains("Beta note"), "admin should see beta: {body}");
+
+    // Alice searches — should only find project A (her member project).
+    let page = send(
+        &app,
+        with_cookie(get("/search?q=flurbex"), &alice_cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(
+        body.contains("Alpha note"),
+        "alice should see alpha: {body}"
+    );
+
+    let page = send(
+        &app,
+        with_cookie(get("/search?q=zymolog"), &alice_cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(
+        !body.contains("Beta note"),
+        "alice must NOT see beta: {body}"
+    );
+}

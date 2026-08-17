@@ -288,7 +288,13 @@ pub trait Repository: Send + Sync {
     async fn graph(&self, project_id: Uuid) -> Result<GraphData, RepositoryError>;
 
     /// Full-text search over every entity, most relevant first.
-    async fn search(&self, query: &str) -> Result<Vec<SearchRow>, RepositoryError>;
+    /// `None` for project_ids means admin (search everything);
+    /// `Some(ids)` restricts results to those projects.
+    async fn search(
+        &self,
+        query: &str,
+        project_ids: Option<&[Uuid]>,
+    ) -> Result<Vec<SearchRow>, RepositoryError>;
 }
 
 /// One full-text search hit.
@@ -1744,7 +1750,11 @@ impl Repository for SqliteRepository {
         Ok(data)
     }
 
-    async fn search(&self, query: &str) -> Result<Vec<SearchRow>, RepositoryError> {
+    async fn search(
+        &self,
+        query: &str,
+        project_ids: Option<&[Uuid]>,
+    ) -> Result<Vec<SearchRow>, RepositoryError> {
         let query = query.trim();
         if query.is_empty() {
             return Ok(Vec::new());
@@ -1752,18 +1762,48 @@ impl Repository for SqliteRepository {
         // Phrase-match the whole query so malformed FTS5 syntax can't cause a
         // 500; embedded quotes are escaped by doubling.
         let phrase = format!("\"{}\"", query.replace('"', "\"\""));
-        let rows = sqlx::query(
-            "SELECT entity_type, entity_id, project_id, title,
-                    (SELECT title FROM projects WHERE id = causelog_search.project_id) AS project_title,
-                    snippet(causelog_search, 4, char(1), char(2), '…', 12) AS snippet
-             FROM causelog_search
-             WHERE causelog_search MATCH ?
-             ORDER BY rank
-             LIMIT 50",
-        )
-        .bind(phrase)
-        .fetch_all(&self.pool)
-        .await?;
+
+        // Build project filter: admins (None) see everything; regular users
+        // only see entities from projects they are members of.
+        let (sql, project_id_strs): (String, Vec<String>) = match project_ids {
+            Some([]) => {
+                // No accessible projects → return empty immediately.
+                return Ok(Vec::new());
+            }
+            Some(ids) => {
+                let placeholders: Vec<String> = ids.iter().map(|_| "?".to_string()).collect();
+                let id_strs: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+                let sql = format!(
+                    "SELECT entity_type, entity_id, project_id, title,
+                            (SELECT title FROM projects WHERE id = causelog_search.project_id) AS project_title,
+                            snippet(causelog_search, 4, char(1), char(2), '…', 12) AS snippet
+                     FROM causelog_search
+                     WHERE causelog_search MATCH ?
+                       AND project_id IN ({})
+                     ORDER BY rank
+                     LIMIT 50",
+                    placeholders.join(", ")
+                );
+                (sql, id_strs)
+            }
+            None => {
+                let sql = "SELECT entity_type, entity_id, project_id, title,
+                            (SELECT title FROM projects WHERE id = causelog_search.project_id) AS project_title,
+                            snippet(causelog_search, 4, char(1), char(2), '…', 12) AS snippet
+                     FROM causelog_search
+                     WHERE causelog_search MATCH ?
+                     ORDER BY rank
+                     LIMIT 50"
+                    .to_string();
+                (sql, vec![])
+            }
+        };
+
+        let mut q = sqlx::query(&sql).bind(phrase);
+        for id_str in &project_id_strs {
+            q = q.bind(id_str);
+        }
+        let rows = q.fetch_all(&self.pool).await?;
         Ok(rows
             .iter()
             .map(|r| SearchRow {

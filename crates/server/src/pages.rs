@@ -2760,7 +2760,20 @@ pub(crate) async fn search_page(
         return Ok(login_redirect());
     };
     let raw = query.q.unwrap_or_default();
-    let results: Vec<SearchRow> = state.repo.search(&raw).await?;
+    let project_ids = if auth::is_admin(&auth_user.user) {
+        None
+    } else {
+        let projects = state
+            .repo
+            .list_projects_for_user(auth_user.user.id)
+            .await?;
+        let ids: Vec<Uuid> = projects.iter().map(|p| p.id).collect();
+        Some(ids)
+    };
+    let results: Vec<SearchRow> = state
+        .repo
+        .search(&raw, project_ids.as_deref())
+        .await?;
     let results_view = results
         .into_iter()
         .map(|r| {
