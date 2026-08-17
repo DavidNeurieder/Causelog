@@ -16,6 +16,7 @@
     {% if authed %}
     <nav class="site">
       <a href="/dashboard">Dashboard</a>
+      <a href="/admin/users">Admin</a>
       <form method="get" action="/search" class="inline">
         <input class="search" type="search" name="q" placeholder="Search…" aria-label="Search">
       </form>
@@ -28,6 +29,7 @@
     {% else %}
     <nav class="site">
       <a href="/login">Log in</a>
+      <a href="/register">Register</a>
     </nav>
     {% endif %}
   </div>

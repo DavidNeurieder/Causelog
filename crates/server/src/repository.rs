@@ -66,16 +66,66 @@ pub trait Repository: Send + Sync {
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError>;
 
     // -----------------------------------------------------------------------
+    // Multi-user: registration, approval, user management
+    // -----------------------------------------------------------------------
+
+    /// Register a new user (pending approval by default).
+    async fn create_user(
+        &self,
+        username: &str,
+        display_name: &str,
+        password_hash: &str,
+    ) -> Result<User, RepositoryError>;
+    async fn approve_user(&self, id: Uuid) -> Result<(), RepositoryError>;
+    async fn reject_user(&self, id: Uuid) -> Result<(), RepositoryError>;
+    async fn set_user_role(&self, id: Uuid, role: &str) -> Result<(), RepositoryError>;
+    async fn delete_user(&self, id: Uuid) -> Result<(), RepositoryError>;
+    async fn list_users(&self) -> Result<Vec<User>, RepositoryError>;
+    async fn pending_users(&self) -> Result<Vec<User>, RepositoryError>;
+
+    // -----------------------------------------------------------------------
+    // Project membership
+    // -----------------------------------------------------------------------
+
+    async fn add_project_member(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> Result<(), RepositoryError>;
+    async fn remove_project_member(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), RepositoryError>;
+    async fn list_project_members(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Vec<(User, String)>, RepositoryError>;
+    async fn is_project_member(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+    ) -> Result<bool, RepositoryError>;
+    async fn user_project_role(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+    ) -> Result<Option<String>, RepositoryError>;
+
+    // -----------------------------------------------------------------------
     // Projects & goals
     // -----------------------------------------------------------------------
 
     async fn list_projects(&self) -> Result<Vec<Project>, RepositoryError>;
+    async fn list_projects_for_user(&self, user_id: Uuid) -> Result<Vec<Project>, RepositoryError>;
     async fn find_project(&self, id: Uuid) -> Result<Option<Project>, RepositoryError>;
     async fn create_project(
         &self,
         title: &str,
         summary: &str,
         status: &str,
+        created_by: Option<Uuid>,
     ) -> Result<Project, RepositoryError>;
     async fn update_project(
         &self,
@@ -391,22 +441,23 @@ impl Repository for SqliteRepository {
             return Err(RepositoryError::Conflict("setup already complete".into()));
         }
         let id = Uuid::new_v4();
+        let now = kaizen_content::now_ms();
         sqlx::query(
-            "INSERT INTO users (id, username, display_name, password_hash, created_at_ms)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (id, username, display_name, role, approved, password_hash, created_at_ms)
+             VALUES (?, ?, ?, 'admin', 1, ?, ?)",
         )
         .bind(id.to_string())
         .bind(username)
         .bind(display_name)
         .bind(password_hash)
-        .bind(kaizen_content::now_ms())
+        .bind(now)
         .execute(&mut *tx)
         .await?;
         sqlx::query(
             "INSERT INTO settings (key, value, updated_at) VALUES ('setup.complete', '1', ?)
              ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = excluded.updated_at",
         )
-        .bind(kaizen_content::now_ms())
+        .bind(now)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -414,14 +465,16 @@ impl Repository for SqliteRepository {
             id,
             username: username.to_string(),
             display_name: display_name.to_string(),
-            created_at_ms: kaizen_content::now_ms(),
+            role: "admin".to_string(),
+            approved: true,
             password_hash: password_hash.to_string(),
+            created_at_ms: now,
         })
     }
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, RepositoryError> {
         let row = sqlx::query(
-            "SELECT id, username, display_name, password_hash, created_at_ms
+            "SELECT id, username, display_name, role, approved, password_hash, created_at_ms
              FROM users WHERE username = ?",
         )
         .bind(username)
@@ -432,7 +485,7 @@ impl Repository for SqliteRepository {
 
     async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, RepositoryError> {
         let row = sqlx::query(
-            "SELECT id, username, display_name, password_hash, created_at_ms
+            "SELECT id, username, display_name, role, approved, password_hash, created_at_ms
              FROM users WHERE id = ?",
         )
         .bind(id.to_string())
@@ -491,12 +544,208 @@ impl Repository for SqliteRepository {
     }
 
     // -----------------------------------------------------------------------
+    // Multi-user: registration, approval, user management
+    // -----------------------------------------------------------------------
+
+    async fn create_user(
+        &self,
+        username: &str,
+        display_name: &str,
+        password_hash: &str,
+    ) -> Result<User, RepositoryError> {
+        let id = Uuid::new_v4();
+        let now = kaizen_content::now_ms();
+        sqlx::query(
+            "INSERT INTO users (id, username, display_name, role, approved, password_hash, created_at_ms)
+             VALUES (?, ?, ?, 'user', 0, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(username)
+        .bind(display_name)
+        .bind(password_hash)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            if let sqlx::Error::Database(ref db) = e {
+                let msg = db.message();
+                if msg.contains("UNIQUE constraint failed") && msg.contains("users") {
+                    return RepositoryError::Conflict(format!("username '{username}' is already taken"));
+                }
+            }
+            RepositoryError::Database(e)
+        })?;
+        Ok(User {
+            id,
+            username: username.to_string(),
+            display_name: display_name.to_string(),
+            role: "user".to_string(),
+            approved: false,
+            password_hash: password_hash.to_string(),
+            created_at_ms: now,
+        })
+    }
+
+    async fn approve_user(&self, id: Uuid) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE users SET approved = 1 WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn reject_user(&self, id: Uuid) -> Result<(), RepositoryError> {
+        // Rejecting deletes the user (pending registration).
+        sqlx::query("DELETE FROM users WHERE id = ? AND approved = 0")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn set_user_role(&self, id: Uuid, role: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE users SET role = ? WHERE id = ?")
+            .bind(role)
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_user(&self, id: Uuid) -> Result<(), RepositoryError> {
+        // Cascading deletes handle project_members and sessions.
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_users(&self) -> Result<Vec<User>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, username, display_name, role, approved, password_hash, created_at_ms
+             FROM users ORDER BY created_at_ms ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_user).collect())
+    }
+
+    async fn pending_users(&self) -> Result<Vec<User>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, username, display_name, role, approved, password_hash, created_at_ms
+             FROM users WHERE approved = 0 ORDER BY created_at_ms ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_user).collect())
+    }
+
+    // -----------------------------------------------------------------------
+    // Project membership
+    // -----------------------------------------------------------------------
+
+    async fn add_project_member(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO project_members (project_id, user_id, role, created_at_ms)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(project_id.to_string())
+        .bind(user_id.to_string())
+        .bind(role)
+        .bind(kaizen_content::now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn remove_project_member(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM project_members WHERE project_id = ? AND user_id = ?")
+            .bind(project_id.to_string())
+            .bind(user_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_project_members(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Vec<(User, String)>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT u.id, u.username, u.display_name, u.role AS user_role, u.approved,
+                    u.password_hash, u.created_at_ms, pm.role AS member_role
+             FROM project_members pm
+             JOIN users u ON u.id = pm.user_id
+             WHERE pm.project_id = ?
+             ORDER BY pm.created_at_ms ASC",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let user = User {
+                    id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+                    username: r.get("username"),
+                    display_name: r.get("display_name"),
+                    role: r.get("user_role"),
+                    approved: r.get::<i64, _>("approved") != 0,
+                    password_hash: r.get("password_hash"),
+                    created_at_ms: r.get("created_at_ms"),
+                };
+                let member_role: String = r.get("member_role");
+                (user, member_role)
+            })
+            .collect())
+    }
+
+    async fn is_project_member(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+    ) -> Result<bool, RepositoryError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM project_members WHERE project_id = ? AND user_id = ?",
+        )
+        .bind(project_id.to_string())
+        .bind(user_id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count > 0)
+    }
+
+    async fn user_project_role(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+    ) -> Result<Option<String>, RepositoryError> {
+        let row =
+            sqlx::query("SELECT role FROM project_members WHERE project_id = ? AND user_id = ?")
+                .bind(project_id.to_string())
+                .bind(user_id.to_string())
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|r| r.get("role")))
+    }
+
+    // -----------------------------------------------------------------------
     // Projects & goals
     // -----------------------------------------------------------------------
 
     async fn list_projects(&self) -> Result<Vec<Project>, RepositoryError> {
         let rows = sqlx::query(
-            "SELECT id, title, summary, status, created_at_ms, updated_at_ms
+            "SELECT id, title, summary, status, created_by, created_at_ms, updated_at_ms
              FROM projects ORDER BY updated_at_ms DESC",
         )
         .fetch_all(&self.pool)
@@ -504,9 +753,23 @@ impl Repository for SqliteRepository {
         Ok(rows.iter().map(row_to_project).collect())
     }
 
+    async fn list_projects_for_user(&self, user_id: Uuid) -> Result<Vec<Project>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT p.id, p.title, p.summary, p.status, p.created_by, p.created_at_ms, p.updated_at_ms
+             FROM projects p
+             JOIN project_members pm ON pm.project_id = p.id
+             WHERE pm.user_id = ?
+             ORDER BY p.updated_at_ms DESC",
+        )
+        .bind(user_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_project).collect())
+    }
+
     async fn find_project(&self, id: Uuid) -> Result<Option<Project>, RepositoryError> {
         let row = sqlx::query(
-            "SELECT id, title, summary, status, created_at_ms, updated_at_ms
+            "SELECT id, title, summary, status, created_by, created_at_ms, updated_at_ms
              FROM projects WHERE id = ?",
         )
         .bind(id.to_string())
@@ -520,26 +783,43 @@ impl Repository for SqliteRepository {
         title: &str,
         summary: &str,
         status: &str,
+        created_by: Option<Uuid>,
     ) -> Result<Project, RepositoryError> {
         let id = Uuid::new_v4();
         let now = kaizen_content::now_ms();
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
-            "INSERT INTO projects (id, title, summary, status, created_at_ms, updated_at_ms)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO projects (id, title, summary, status, created_by, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id.to_string())
         .bind(title)
         .bind(summary)
         .bind(status)
+        .bind(created_by.map(|u| u.to_string()))
         .bind(now)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        // If a creator is specified, add them as project owner.
+        if let Some(owner_id) = created_by {
+            sqlx::query(
+                "INSERT INTO project_members (project_id, user_id, role, created_at_ms)
+                 VALUES (?, ?, 'owner', ?)",
+            )
+            .bind(id.to_string())
+            .bind(owner_id.to_string())
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
         Ok(Project {
             id,
             title: title.to_string(),
             summary: summary.to_string(),
             status: status.to_string(),
+            created_by,
             created_at_ms: now,
             updated_at_ms: now,
         })
@@ -1544,6 +1824,8 @@ fn row_to_user(r: &sqlx::sqlite::SqliteRow) -> User {
         id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
         username: r.get("username"),
         display_name: r.get("display_name"),
+        role: r.get("role"),
+        approved: r.get::<i64, _>("approved") != 0,
         password_hash: r.get("password_hash"),
         created_at_ms: r.get("created_at_ms"),
     }
@@ -1555,6 +1837,9 @@ fn row_to_project(r: &sqlx::sqlite::SqliteRow) -> Project {
         title: r.get("title"),
         summary: r.get("summary"),
         status: r.get("status"),
+        created_by: r
+            .get::<Option<String>, _>("created_by")
+            .and_then(|s| Uuid::from_str(&s).ok()),
         created_at_ms: r.get("created_at_ms"),
         updated_at_ms: r.get("updated_at_ms"),
     }

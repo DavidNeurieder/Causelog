@@ -25,6 +25,10 @@ fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(pages::home_page))
         .route("/setup", get(pages::setup_page).post(pages::setup_form))
+        .route(
+            "/register",
+            get(pages::register_page).post(pages::register_form),
+        )
         .route("/login", get(pages::login_page).post(pages::login_form))
         .route("/logout", post(pages::logout_form))
         .route("/dashboard", get(pages::dashboard_page))
@@ -99,6 +103,23 @@ fn router(state: AppState) -> Router {
         )
         .route("/projects/{id}/graph", get(pages::graph_page))
         .route("/projects/{id}/stats", get(pages::project_stats_page))
+        .route(
+            "/projects/{id}/members",
+            get(pages::project_members_page).post(pages::project_member_add),
+        )
+        .route(
+            "/projects/{id}/members/{uid}/remove",
+            post(pages::project_member_remove),
+        )
+        .route("/admin/users", get(pages::admin_users_page))
+        .route("/admin/users/{id}/approve", post(pages::admin_user_approve))
+        .route("/admin/users/{id}/reject", post(pages::admin_user_reject))
+        .route("/admin/users/{id}/role", post(pages::admin_user_role))
+        .route("/admin/users/{id}/delete", post(pages::admin_user_delete))
+        .route(
+            "/admin/settings",
+            get(pages::admin_settings_page).post(pages::admin_settings_form),
+        )
         .route("/search", get(pages::search_page))
         .route("/static/{name}", get(pages::static_file))
         .route("/health", get(routes::health))

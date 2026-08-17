@@ -73,6 +73,7 @@ async fn seed_datastore_project(repo: &SqliteRepository) -> anyhow::Result<()> {
             SQLITE_PROJECT,
             "A worked example: choosing a datastore for a small self-hosted service.",
             "active",
+            None,
         )
         .await?;
     let goal = repo
@@ -164,6 +165,7 @@ async fn seed_gloria_project(repo: &SqliteRepository) -> anyhow::Result<()> {
             GLORIA_PROJECT,
             "Gloria is an office monstera who has outlived three keyboards, two interns, and one brutally dark era of office lighting. This project treats her continued existence with the seriousness it deserves.",
             "active",
+            None,
         )
         .await?;
 
@@ -394,6 +396,7 @@ async fn seed_coffee_project(repo: &SqliteRepository) -> anyhow::Result<()> {
             COFFEE_PROJECT,
             "The 11am queue has been declared a public health crisis. This project documents our dignified response: more coffee.",
             "paused",
+            None,
         )
         .await?;
 

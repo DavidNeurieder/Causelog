@@ -19,6 +19,9 @@ impl ApiError {
     pub fn forbidden() -> Self {
         Self(RepositoryError::Forbidden)
     }
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        Self(RepositoryError::NotFound(msg.into()))
+    }
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self(RepositoryError::InvalidInput(msg.into()))
     }

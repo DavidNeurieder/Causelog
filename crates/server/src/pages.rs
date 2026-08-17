@@ -11,7 +11,7 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use kaizen_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
-use kaizen_model::{Decision, DecisionOption, Experiment, Goal, Note, Project};
+use kaizen_model::{Decision, DecisionOption, Experiment, Goal, Note, Project, User};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -115,6 +115,20 @@ struct LoginTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "register.html")]
+struct RegisterTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    error: String,
+    username: String,
+    display: String,
+}
+
+#[derive(Template)]
 #[template(path = "error.html")]
 struct ErrorTemplate {
     authed: bool,
@@ -140,6 +154,45 @@ struct DashboardTemplate {
     projects: Vec<ProjectView>,
     /// Open the create-project form (after a rejected empty-title submit).
     create_open: bool,
+    is_admin: bool,
+}
+
+#[derive(Template)]
+#[template(path = "admin/users.html")]
+struct AdminUsersTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    users: Vec<User>,
+}
+
+#[derive(Template)]
+#[template(path = "admin/settings.html")]
+struct AdminSettingsTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+}
+
+#[derive(Template)]
+#[template(path = "project/members.html")]
+struct ProjectMembersTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    members: Vec<(User, String)>,
+    all_users: Vec<User>,
+    is_owner: bool,
 }
 
 #[derive(Template)]
@@ -724,6 +777,106 @@ fn validate_setup(body: &SetupForm) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Registration (self-signup, pending approval)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub(crate) struct RegisterForm {
+    username: String,
+    display: String,
+    password: String,
+    confirm: String,
+}
+
+pub(crate) async fn register_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    if !state.repo.is_setup_complete().await? {
+        return Ok(Redirect::to("/setup").into_response());
+    }
+    if auth::session_user(&state, &headers).await.is_some() {
+        return Ok(Redirect::to("/dashboard").into_response());
+    }
+    page(&RegisterTemplate {
+        authed: false,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: String::new(),
+        csrf_token: String::new(),
+        error: String::new(),
+        username: String::new(),
+        display: String::new(),
+    })
+}
+
+pub(crate) async fn register_form(
+    State(state): State<AppState>,
+    Form(body): Form<RegisterForm>,
+) -> Result<Response, PageError> {
+    let error = validate_register(&body);
+    if !error.is_empty() {
+        return page(&RegisterTemplate {
+            authed: false,
+            flash: String::new(),
+            flash_kind: "notice--info",
+            year: current_year(),
+            display_name: String::new(),
+            csrf_token: String::new(),
+            error,
+            username: body.username.trim().to_string(),
+            display: body.display.trim().to_string(),
+        });
+    }
+    let hash = auth::hash_password(&body.password)?;
+    match state
+        .repo
+        .create_user(&body.username, &body.display, &hash)
+        .await
+    {
+        Ok(_) => Ok(Redirect::to("/login?flash=registered").into_response()),
+        Err(crate::repository::RepositoryError::Conflict(msg)) => page(&RegisterTemplate {
+            authed: false,
+            flash: String::new(),
+            flash_kind: "notice--info",
+            year: current_year(),
+            display_name: String::new(),
+            csrf_token: String::new(),
+            error: msg,
+            username: body.username.trim().to_string(),
+            display: body.display.trim().to_string(),
+        }),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn validate_register(body: &RegisterForm) -> String {
+    let username = body.username.trim();
+    if username.is_empty()
+        || !username
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+    {
+        return "Username must use only lowercase letters, digits, '_' and '-'.".into();
+    }
+    if username.len() < 3 {
+        return "Username must be at least 3 characters.".into();
+    }
+    if body.display.trim().is_empty() {
+        return "Enter a display name.".into();
+    }
+    if body.password.len() < 8 {
+        return "Password must be at least 8 characters.".into();
+    }
+    if body.password != body.confirm {
+        return "Passwords do not match.".into();
+    }
+    String::new()
+}
+
+// ---------------------------------------------------------------------------
 // Login / logout
 // ---------------------------------------------------------------------------
 
@@ -763,9 +916,15 @@ pub(crate) async fn login_form(
     let username = body.username.trim();
     let error = match state.repo.find_user_by_username(username).await? {
         Some(user) if auth::verify_password(&user.password_hash, &body.password) => {
-            let session = state.repo.create_session(user.id).await?;
-            let cookie = auth::set_session_cookie_secure(&session.token, state.secure_cookies);
-            return Ok(([(header::SET_COOKIE, cookie)], Redirect::to("/dashboard")).into_response());
+            if !auth::is_approved(&user) {
+                "your account is pending admin approval".to_string()
+            } else {
+                let session = state.repo.create_session(user.id).await?;
+                let cookie = auth::set_session_cookie_secure(&session.token, state.secure_cookies);
+                return Ok(
+                    ([(header::SET_COOKIE, cookie)], Redirect::to("/dashboard")).into_response()
+                );
+            }
         }
         _ => "invalid username or password".to_string(),
     };
@@ -838,13 +997,22 @@ pub(crate) async fn dashboard_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
+    if !auth::is_approved(&auth_user.user) {
+        return Ok(Redirect::to("/login?flash=not_approved").into_response());
+    }
     let counts = state.repo.dashboard_counts().await?;
-    let projects = state.repo.list_projects().await?;
+    // Admin sees all projects; regular users see only projects they belong to.
+    let projects = if auth::is_admin(&auth_user.user) {
+        state.repo.list_projects().await?
+    } else {
+        state.repo.list_projects_for_user(auth_user.user.id).await?
+    };
     let mut views = Vec::with_capacity(projects.len());
     for p in projects {
         let counts = state.repo.project_counts(p.id).await?;
         views.push(ProjectView { project: p, counts });
     }
+    let is_admin = auth::is_admin(&auth_user.user);
     page(&DashboardTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -855,6 +1023,7 @@ pub(crate) async fn dashboard_page(
         counts,
         projects: views,
         create_open: flash.flash.as_deref() == Some("invalid_title"),
+        is_admin,
     })
 }
 
@@ -874,13 +1043,21 @@ pub(crate) async fn project_create(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
+    if !auth::is_approved(&auth_user.user) {
+        return Ok(Redirect::to("/login?flash=not_approved").into_response());
+    }
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     if body.title.trim().is_empty() {
         return Ok(Redirect::to("/dashboard?flash=invalid_title").into_response());
     }
     let project = state
         .repo
-        .create_project(body.title.trim(), body.summary.trim(), "active")
+        .create_project(
+            body.title.trim(),
+            body.summary.trim(),
+            "active",
+            Some(auth_user.user.id),
+        )
         .await?;
     Ok(Redirect::to(&format!("/projects/{}", project.id)).into_response())
 }
@@ -894,15 +1071,10 @@ pub(crate) async fn project_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project_id = parse_uuid(&id)?;
-    let project = state
-        .repo
-        .find_project(project_id)
-        .await?
-        .ok_or_else(|| not_found("project"))?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     let goals: Vec<GoalItemView> = state
         .repo
-        .list_goals(project_id)
+        .list_goals(project.id)
         .await?
         .into_iter()
         .map(|g| GoalItemView {
@@ -912,9 +1084,9 @@ pub(crate) async fn project_page(
             body_html: render_markdown(&g.body),
         })
         .collect();
-    let decisions = state.repo.list_decisions(project_id).await?;
-    let experiments = state.repo.list_experiments(project_id).await?;
-    let notes = state.repo.list_notes(project_id).await?;
+    let decisions = state.repo.list_decisions(project.id).await?;
+    let experiments = state.repo.list_experiments(project.id).await?;
+    let notes = state.repo.list_notes(project.id).await?;
     page(&ProjectTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -958,7 +1130,7 @@ pub(crate) async fn project_stats_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project = require_project(&state, &id).await?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     let project_id = project.id;
     let counts: ProjectCounts = state.repo.project_counts(project_id).await?;
     let goals_done_pct = percent(counts.goals_done, counts.goals_total);
@@ -988,6 +1160,40 @@ async fn require_project(state: &AppState, id: &str) -> Result<Project, PageErro
     Ok(project)
 }
 
+/// Check that the user is an admin or a member of the project.
+/// Returns `Ok(())` if authorized, or a redirect response if not.
+async fn require_member_or_admin(
+    state: &AppState,
+    user: &kaizen_model::User,
+    project_id: Uuid,
+) -> Result<(), Response> {
+    if auth::is_admin(user) {
+        return Ok(());
+    }
+    if state
+        .repo
+        .is_project_member(user.id, project_id)
+        .await
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+    Err(Redirect::to("/dashboard?flash=access_denied").into_response())
+}
+
+/// Load a project and verify the user is an admin or member.
+async fn require_project_member(
+    state: &AppState,
+    id: &str,
+    user: &kaizen_model::User,
+) -> Result<Project, PageError> {
+    let project = require_project(state, id).await?;
+    require_member_or_admin(state, user, project.id)
+        .await
+        .map_err(|_| ApiError::forbidden())?;
+    Ok(project)
+}
+
 pub(crate) async fn project_goals_page(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -997,7 +1203,7 @@ pub(crate) async fn project_goals_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project = require_project(&state, &id).await?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     let goals = state
         .repo
         .list_goals(project.id)
@@ -1031,7 +1237,7 @@ pub(crate) async fn project_decisions_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project = require_project(&state, &id).await?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     let decisions = state.repo.list_decisions(project.id).await?;
     page(&ProjectDecisionsTemplate {
         authed: true,
@@ -1065,7 +1271,7 @@ pub(crate) async fn project_experiments_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project = require_project(&state, &id).await?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     let experiments = state.repo.list_experiments(project.id).await?;
     page(&ProjectExperimentsTemplate {
         authed: true,
@@ -1095,7 +1301,7 @@ pub(crate) async fn project_notes_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project = require_project(&state, &id).await?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     let notes = state.repo.list_notes(project.id).await?;
     page(&ProjectNotesTemplate {
         authed: true,
@@ -1124,6 +1330,9 @@ pub(crate) async fn goal_page(
         .find_goal(goal_id)
         .await?
         .ok_or_else(|| not_found("goal"))?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, goal.project_id).await {
+        return Ok(redirect);
+    }
     let project = state
         .repo
         .find_project(goal.project_id)
@@ -1182,7 +1391,7 @@ pub(crate) async fn goal_new_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project = require_project(&state, &id).await?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     page(&GoalNewTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1203,7 +1412,7 @@ pub(crate) async fn decision_new_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project = require_project(&state, &id).await?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     let goals = state.repo.list_goals(project.id).await?;
     page(&DecisionNewTemplate {
         authed: true,
@@ -1226,7 +1435,7 @@ pub(crate) async fn experiment_new_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project = require_project(&state, &id).await?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     let goals = state.repo.list_goals(project.id).await?;
     let decisions = state
         .repo
@@ -1265,7 +1474,7 @@ pub(crate) async fn note_new_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project = require_project(&state, &id).await?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
     page(&NoteNewTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1288,6 +1497,9 @@ pub(crate) async fn project_update(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&id)?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     if body.title.trim().is_empty() {
         return Ok(
             Redirect::to(&format!("/projects/{project_id}?flash=invalid_title")).into_response(),
@@ -1316,6 +1528,9 @@ pub(crate) async fn project_delete(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&id)?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     state.repo.delete_project(project_id).await?;
     Ok(Redirect::to("/dashboard?flash=deleted").into_response())
 }
@@ -1339,6 +1554,9 @@ pub(crate) async fn goal_create(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&id)?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     if body.title.trim().is_empty() {
         return Ok(
             Redirect::to(&format!("/projects/{project_id}/goals?flash=invalid_title"))
@@ -1364,6 +1582,9 @@ pub(crate) async fn goal_update(
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&project_id)?;
     let goal_id = parse_uuid(&goal_id)?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     if body.title.trim().is_empty() {
         return Ok(
             Redirect::to(&format!("/projects/{project_id}/goals?flash=invalid_title"))
@@ -1394,6 +1615,9 @@ pub(crate) async fn goal_delete(
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&project_id)?;
     let goal_id = parse_uuid(&goal_id)?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     state.repo.delete_goal(goal_id).await?;
     Ok(Redirect::to(&format!("/projects/{project_id}/goals?flash=goal_deleted")).into_response())
 }
@@ -1475,6 +1699,9 @@ pub(crate) async fn decision_create(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&id)?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     let options = body.options();
     if body.title.trim().is_empty() || options.is_empty() {
         return Ok(Redirect::to(&format!(
@@ -1513,6 +1740,11 @@ pub(crate) async fn decision_page(
         .find_decision(decision_id)
         .await?
         .ok_or_else(|| not_found("decision"))?;
+    if let Err(redirect) =
+        require_member_or_admin(&state, &auth_user.user, decision.project_id).await
+    {
+        return Ok(redirect);
+    }
     let project = state
         .repo
         .find_project(decision.project_id)
@@ -1594,6 +1826,16 @@ pub(crate) async fn decision_update(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let decision_id = parse_uuid(&id)?;
+    let decision = state
+        .repo
+        .find_decision(decision_id)
+        .await?
+        .ok_or_else(|| not_found("decision"))?;
+    if let Err(redirect) =
+        require_member_or_admin(&state, &auth_user.user, decision.project_id).await
+    {
+        return Ok(redirect);
+    }
     let options = body.options();
     if body.title.trim().is_empty() || options.is_empty() {
         return Ok(
@@ -1633,6 +1875,16 @@ pub(crate) async fn decision_resolve(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let decision_id = parse_uuid(&id)?;
+    let decision = state
+        .repo
+        .find_decision(decision_id)
+        .await?
+        .ok_or_else(|| not_found("decision"))?;
+    if let Err(redirect) =
+        require_member_or_admin(&state, &auth_user.user, decision.project_id).await
+    {
+        return Ok(redirect);
+    }
     let requested = body.status.as_str();
     let decided_option = if requested == "decided" && !body.decided_option.is_empty() {
         Some(body.decided_option.clone())
@@ -1682,6 +1934,9 @@ pub(crate) async fn decision_delete(
         .await?
         .ok_or_else(|| not_found("decision"))?
         .project_id;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     state.repo.delete_decision(decision_id).await?;
     Ok(Redirect::to(&format!(
         "/projects/{project_id}/decisions?flash=decision_deleted"
@@ -1752,6 +2007,11 @@ pub(crate) async fn experiment_page(
         .find_experiment(experiment_id)
         .await?
         .ok_or_else(|| not_found("experiment"))?;
+    if let Err(redirect) =
+        require_member_or_admin(&state, &auth_user.user, experiment.project_id).await
+    {
+        return Ok(redirect);
+    }
     let project = state
         .repo
         .find_project(experiment.project_id)
@@ -1835,6 +2095,16 @@ pub(crate) async fn experiment_update(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let experiment_id = parse_uuid(&id)?;
+    let experiment = state
+        .repo
+        .find_experiment(experiment_id)
+        .await?
+        .ok_or_else(|| not_found("experiment"))?;
+    if let Err(redirect) =
+        require_member_or_admin(&state, &auth_user.user, experiment.project_id).await
+    {
+        return Ok(redirect);
+    }
     if body.title.trim().is_empty() {
         return Ok(
             Redirect::to(&format!("/experiments/{experiment_id}?flash=invalid_title"))
@@ -1883,6 +2153,9 @@ pub(crate) async fn experiment_delete(
         .await?
         .ok_or_else(|| not_found("experiment"))?
         .project_id;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     state.repo.delete_experiment(experiment_id).await?;
     Ok(Redirect::to(&format!(
         "/projects/{project_id}/experiments?flash=experiment_deleted"
@@ -1909,6 +2182,16 @@ pub(crate) async fn event_create(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let experiment_id = parse_uuid(&id)?;
+    let experiment = state
+        .repo
+        .find_experiment(experiment_id)
+        .await?
+        .ok_or_else(|| not_found("experiment"))?;
+    if let Err(redirect) =
+        require_member_or_admin(&state, &auth_user.user, experiment.project_id).await
+    {
+        return Ok(redirect);
+    }
     let kind = if matches!(
         body.kind.as_str(),
         "observation" | "measurement" | "milestone"
@@ -1943,6 +2226,16 @@ pub(crate) async fn event_delete(
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let experiment_id = parse_uuid(&id)?;
     let event_id = parse_uuid(&event_id)?;
+    let experiment = state
+        .repo
+        .find_experiment(experiment_id)
+        .await?
+        .ok_or_else(|| not_found("experiment"))?;
+    if let Err(redirect) =
+        require_member_or_admin(&state, &auth_user.user, experiment.project_id).await
+    {
+        return Ok(redirect);
+    }
     state.repo.delete_event(event_id).await?;
     Ok(Redirect::to(&format!("/experiments/{experiment_id}?flash=event_deleted")).into_response())
 }
@@ -1956,12 +2249,8 @@ pub(crate) async fn timeline_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project_id = parse_uuid(&id)?;
-    let project = state
-        .repo
-        .find_project(project_id)
-        .await?
-        .ok_or_else(|| not_found("project"))?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+    let project_id = project.id;
     let entries = state.repo.timeline(project_id).await?;
     let entries_view = entries
         .into_iter()
@@ -2006,6 +2295,9 @@ pub(crate) async fn note_create(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&id)?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     if body.title.trim().is_empty() {
         return Ok(
             Redirect::to(&format!("/projects/{project_id}/notes?flash=invalid_title"))
@@ -2034,6 +2326,9 @@ pub(crate) async fn note_page(
         .find_note(note_id)
         .await?
         .ok_or_else(|| not_found("note"))?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, note.project_id).await {
+        return Ok(redirect);
+    }
     let project = state
         .repo
         .find_project(note.project_id)
@@ -2098,6 +2393,14 @@ pub(crate) async fn note_update(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let note_id = parse_uuid(&id)?;
+    let note = state
+        .repo
+        .find_note(note_id)
+        .await?
+        .ok_or_else(|| not_found("note"))?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, note.project_id).await {
+        return Ok(redirect);
+    }
     if body.title.trim().is_empty() {
         return Ok(Redirect::to(&format!("/notes/{note_id}?flash=invalid_title")).into_response());
     }
@@ -2125,6 +2428,9 @@ pub(crate) async fn note_delete(
         .await?
         .ok_or_else(|| not_found("note"))?
         .project_id;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     state.repo.delete_note(note_id).await?;
     Ok(Redirect::to(&format!("/projects/{project_id}/notes?flash=note_deleted")).into_response())
 }
@@ -2147,6 +2453,11 @@ pub(crate) async fn note_extract(
         .find_experiment(experiment_id)
         .await?
         .ok_or_else(|| not_found("experiment"))?;
+    if let Err(redirect) =
+        require_member_or_admin(&state, &auth_user.user, experiment.project_id).await
+    {
+        return Ok(redirect);
+    }
     let body_text = if experiment.lesson.trim().is_empty() {
         experiment.result.trim().to_string()
     } else {
@@ -2190,6 +2501,9 @@ pub(crate) async fn link_create(
     };
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&id)?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     let Some((from_type, from_id)) = split_entity(&body.from) else {
         return Ok(
             Redirect::to(&format!("/projects/{project_id}/graph?flash=invalid_link"))
@@ -2245,6 +2559,9 @@ pub(crate) async fn link_delete(
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     let project_id = parse_uuid(&id)?;
     let link_id = parse_uuid(&link_id)?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, project_id).await {
+        return Ok(redirect);
+    }
     state.repo.delete_link(link_id).await?;
     Ok(Redirect::to(&format!("/projects/{project_id}/graph?flash=link_deleted")).into_response())
 }
@@ -2258,12 +2575,8 @@ pub(crate) async fn graph_page(
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
-    let project_id = parse_uuid(&id)?;
-    let project = state
-        .repo
-        .find_project(project_id)
-        .await?
-        .ok_or_else(|| not_found("project"))?;
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+    let project_id = project.id;
     let data: GraphData = state.repo.graph(project_id).await?;
     let mut titles: HashMap<(String, Uuid), String> = HashMap::new();
     let mut nodes = Vec::with_capacity(data.nodes.len());
@@ -2405,6 +2718,304 @@ fn highlight_snippet(raw: &str) -> String {
     escape_html(raw)
         .replace('\u{1}', "<mark>")
         .replace('\u{2}', "</mark>")
+}
+
+// ---------------------------------------------------------------------------
+// Admin: user management
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn admin_users_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_admin(&auth_user.user) {
+        return Ok(Redirect::to("/dashboard?flash=access_denied").into_response());
+    }
+    let users = state.repo.list_users().await?;
+    page(&AdminUsersTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        users,
+    })
+}
+
+pub(crate) async fn admin_user_approve(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_admin(&auth_user.user) {
+        return Err(ApiError::forbidden().into());
+    }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let user_id = parse_uuid(&id)?;
+    state.repo.approve_user(user_id).await?;
+    Ok(Redirect::to("/admin/users?flash=approved").into_response())
+}
+
+pub(crate) async fn admin_user_reject(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_admin(&auth_user.user) {
+        return Err(ApiError::forbidden().into());
+    }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let user_id = parse_uuid(&id)?;
+    state.repo.reject_user(user_id).await?;
+    Ok(Redirect::to("/admin/users?flash=rejected").into_response())
+}
+
+pub(crate) async fn admin_user_role(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_admin(&auth_user.user) {
+        return Err(ApiError::forbidden().into());
+    }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let user_id = parse_uuid(&id)?;
+    let user = state
+        .repo
+        .find_user_by_id(user_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("user not found"))?;
+    let new_role = if user.role == "admin" {
+        "user"
+    } else {
+        "admin"
+    };
+    state.repo.set_user_role(user_id, new_role).await?;
+    Ok(Redirect::to("/admin/users?flash=role_updated").into_response())
+}
+
+pub(crate) async fn admin_user_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_admin(&auth_user.user) {
+        return Err(ApiError::forbidden().into());
+    }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let user_id = parse_uuid(&id)?;
+    // Don't let admin delete themselves.
+    if user_id == auth_user.user.id {
+        return Ok(Redirect::to("/admin/users?flash=cannot_delete_self").into_response());
+    }
+    state.repo.delete_user(user_id).await?;
+    Ok(Redirect::to("/admin/users?flash=deleted").into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Admin: settings (placeholder for future system config)
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn admin_settings_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_admin(&auth_user.user) {
+        return Err(ApiError::forbidden().into());
+    }
+    page(&AdminSettingsTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+    })
+}
+
+pub(crate) async fn admin_settings_form(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_admin(&auth_user.user) {
+        return Err(ApiError::forbidden().into());
+    }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    // Placeholder: no settings to save yet.
+    Ok(Redirect::to("/admin/settings?flash=updated").into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Project members
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn project_members_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_approved(&auth_user.user) {
+        return Ok(Redirect::to("/login?flash=not_approved").into_response());
+    }
+    let project_id = parse_uuid(&id)?;
+    // Must be admin or project member.
+    if !auth::is_admin(&auth_user.user)
+        && !state
+            .repo
+            .is_project_member(auth_user.user.id, project_id)
+            .await?
+    {
+        return Err(ApiError::forbidden().into());
+    }
+    let project = state
+        .repo
+        .find_project(project_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("project not found"))?;
+    let members = state.repo.list_project_members(project_id).await?;
+    let all_users = state.repo.list_users().await?;
+    let is_owner = auth::is_admin(&auth_user.user)
+        || state
+            .repo
+            .user_project_role(auth_user.user.id, project_id)
+            .await?
+            == Some("owner".to_string());
+    page(&ProjectMembersTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        members,
+        all_users,
+        is_owner,
+    })
+}
+
+#[derive(Deserialize)]
+pub(crate) struct MemberForm {
+    pub csrf_token: Option<String>,
+    pub user_id: String,
+}
+
+pub(crate) async fn project_member_add(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<MemberForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_approved(&auth_user.user) {
+        return Ok(Redirect::to("/login?flash=not_approved").into_response());
+    }
+    let project_id = parse_uuid(&id)?;
+    // Must be admin or project owner.
+    if !auth::is_admin(&auth_user.user)
+        && state
+            .repo
+            .user_project_role(auth_user.user.id, project_id)
+            .await?
+            != Some("owner".to_string())
+    {
+        return Err(ApiError::forbidden().into());
+    }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let member_id = parse_uuid(&body.user_id)?;
+    state
+        .repo
+        .add_project_member(project_id, member_id, "member")
+        .await?;
+    Ok(Redirect::to(&format!(
+        "/projects/{}/members?flash=member_added",
+        project_id
+    ))
+    .into_response())
+}
+
+pub(crate) async fn project_member_remove(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, uid)): Path<(String, String)>,
+    Form(body): Form<CsrfForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_approved(&auth_user.user) {
+        return Ok(Redirect::to("/login?flash=not_approved").into_response());
+    }
+    let project_id = parse_uuid(&id)?;
+    let member_id = parse_uuid(&uid)?;
+    // Must be admin or project owner.
+    if !auth::is_admin(&auth_user.user)
+        && state
+            .repo
+            .user_project_role(auth_user.user.id, project_id)
+            .await?
+            != Some("owner".to_string())
+    {
+        return Err(ApiError::forbidden().into());
+    }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    // Don't let the last owner remove themselves.
+    let role = state.repo.user_project_role(member_id, project_id).await?;
+    if role == Some("owner".to_string()) {
+        let members = state.repo.list_project_members(project_id).await?;
+        let owner_count = members.iter().filter(|(_, r)| r == "owner").count();
+        if owner_count <= 1 {
+            return Ok(Redirect::to(&format!(
+                "/projects/{}/members?flash=cannot_remove_last_owner",
+                project_id
+            ))
+            .into_response());
+        }
+    }
+    state
+        .repo
+        .remove_project_member(project_id, member_id)
+        .await?;
+    Ok(Redirect::to(&format!(
+        "/projects/{}/members?flash=member_removed",
+        project_id
+    ))
+    .into_response())
 }
 
 #[cfg(test)]
@@ -2591,6 +3202,64 @@ mod tests {
         assert!(!validate_setup(&setup_form("dev", "Dev", "short1", "short1")).is_empty());
         assert!(
             !validate_setup(&setup_form("dev", "Dev", "longenough1", "longenough2")).is_empty()
+        );
+    }
+
+    // -- validate_register --------------------------------------------------
+
+    fn register_form(username: &str, display: &str, password: &str, confirm: &str) -> RegisterForm {
+        RegisterForm {
+            username: username.into(),
+            display: display.into(),
+            password: password.into(),
+            confirm: confirm.into(),
+        }
+    }
+
+    #[test]
+    fn validate_register_accepts_valid() {
+        assert_eq!(
+            validate_register(&register_form(
+                "alice",
+                "Alice",
+                "longenough1",
+                "longenough1"
+            )),
+            ""
+        );
+        assert_eq!(
+            validate_register(&register_form("bob_2-x", "B", "longenough1", "longenough1")),
+            ""
+        );
+    }
+
+    #[test]
+    fn validate_register_rejects_bad_username() {
+        let base = |u: &str| register_form(u, "Alice", "longenough1", "longenough1");
+        assert!(!validate_register(&base("")).is_empty());
+        assert!(!validate_register(&base("Alice")).is_empty(), "uppercase");
+        assert!(!validate_register(&base("alice bob")).is_empty(), "space");
+        assert!(!validate_register(&base("al")).is_empty(), "too short");
+        assert!(!validate_register(&base("aliév")).is_empty(), "non-ascii");
+    }
+
+    #[test]
+    fn validate_register_rejects_password_issues() {
+        assert!(
+            !validate_register(&register_form("alice", "", "longenough1", "longenough1"))
+                .is_empty()
+        );
+        assert!(
+            !validate_register(&register_form("alice", "Alice", "short1", "short1")).is_empty()
+        );
+        assert!(
+            !validate_register(&register_form(
+                "alice",
+                "Alice",
+                "longenough1",
+                "longenough2"
+            ))
+            .is_empty()
         );
     }
 

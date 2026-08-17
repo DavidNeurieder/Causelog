@@ -2,7 +2,7 @@
 {% block title %}Dashboard · Kaizen{% endblock %}
 {% block content %}
 <div class="row space-between">
-  <h1>Dashboard</h1>
+  <h1>Dashboard{% if is_admin %} <span class="tag">Admin</span>{% endif %}</h1>
   <details class="create-project" {% if create_open %}open{% endif %}>
     <summary>New project</summary>
     <form method="post" action="/projects" class="panel-form">

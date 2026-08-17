@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}User Management · Kaizen{% endblock %}
+{% block content %}
+<h1>User Management</h1>
+<p class="muted">Manage user accounts and approval status.</p>
+
+<table class="list">
+  <thead>
+    <tr>
+      <th>Username</th>
+      <th>Display Name</th>
+      <th>Role</th>
+      <th>Status</th>
+      <th>Joined</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for user in users %}
+    <tr>
+      <td>{{ user.username }}</td>
+      <td>{{ user.display_name }}</td>
+      <td><span class="tag">{{ user.role }}</span></td>
+      <td>
+        {% if user.approved %}
+          <span class="tag tag--active">Approved</span>
+        {% else %}
+          <span class="tag tag--paused">Pending</span>
+        {% endif %}
+      </td>
+      <td>{{ user.created_at_ms }}</td>
+      <td class="actions">
+        {% if !user.approved %}
+        <form method="post" action="/admin/users/{{ user.id }}/approve" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn--sm">Approve</button>
+        </form>
+        <form method="post" action="/admin/users/{{ user.id }}/reject" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn--sm btn--danger">Reject</button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/users/{{ user.id }}/role" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn--sm">
+            {% if user.role == "admin" %}Demote{% else %}Promote{% endif %}
+          </button>
+        </form>
+        <form method="post" action="/admin/users/{{ user.id }}/delete" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn--sm btn--danger" onclick="return confirm('Delete this user?')">Delete</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if users.is_empty() %}
+<div class="empty">
+  <p>No users yet.</p>
+</div>
+{% endif %}
+{% endblock %}

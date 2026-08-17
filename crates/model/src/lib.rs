@@ -9,6 +9,9 @@ pub struct User {
     pub id: Uuid,
     pub username: String,
     pub display_name: String,
+    /// `admin` | `user`
+    pub role: String,
+    pub approved: bool,
     pub created_at_ms: i64,
     /// Argon2 hash. Never serialized or exposed through the API.
     #[serde(skip)]
@@ -31,8 +34,18 @@ pub struct Project {
     pub summary: String,
     /// `active` | `paused` | `archived`
     pub status: String,
+    pub created_by: Option<Uuid>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectMember {
+    pub project_id: Uuid,
+    pub user_id: Uuid,
+    /// `owner` | `member`
+    pub role: String,
+    pub created_at_ms: i64,
 }
 
 #[derive(Debug, Clone)]

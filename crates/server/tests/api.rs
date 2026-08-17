@@ -8,12 +8,49 @@ use kaizen_server::app;
 use kaizen_server::repository::{Repository, SqliteRepository};
 use std::sync::Arc;
 use tower::ServiceExt;
+use uuid::Uuid;
 
 /// Build the router with a fresh in-memory database, migrated.
 async fn test_app() -> axum::Router {
+    let (router, _repo) = test_app_with_repo().await;
+    router
+}
+
+/// Build the router with a fresh in-memory database, migrated.
+/// Returns both the router and the repository handle for direct DB access.
+async fn test_app_with_repo() -> (axum::Router, Arc<dyn Repository>) {
     let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
     repo.migrate().await.unwrap();
-    app(repo_box(repo))
+    let repo = repo_box(repo);
+    (app(repo.clone()), repo)
+}
+
+/// Create a project via POST /projects and return the redirect URL.
+async fn create_project(router: &axum::Router, cookie: &str, title: &str, status: &str) -> String {
+    let csrf = csrf_from_page(router, cookie).await;
+    let res = send(
+        router,
+        with_cookie(
+            post_form(
+                "/projects",
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", title),
+                    ("summary", ""),
+                    ("status", status),
+                ],
+            ),
+            cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    redirect_to(&res)
+}
+
+/// Wrap a raw session token in the full cookie header value.
+fn session_cookie(token: &str) -> String {
+    format!("kaizen_session={token}")
 }
 
 fn repo_box(repo: SqliteRepository) -> Arc<dyn Repository> {
@@ -137,7 +174,42 @@ async fn setup_via_form(router: &axum::Router) -> String {
     )
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER, "setup should redirect");
-    session_cookie_value(&res)
+    session_cookie(&session_cookie_value(&res))
+}
+
+/// Create a user directly via the repository, approve them, create a session,
+/// and return the full cookie header value.
+async fn create_approved_user(
+    repo: &Arc<dyn Repository>,
+    username: &str,
+    display: &str,
+    password: &str,
+) -> String {
+    let hash = kaizen_server::auth::hash_password(password).unwrap();
+    let user = repo.create_user(username, display, &hash).await.unwrap();
+    repo.approve_user(user.id).await.unwrap();
+    let session = repo.create_session(user.id).await.unwrap();
+    session_cookie(&session.token)
+}
+
+/// Create a user directly via the repository (unapproved), create a session,
+/// and return the full cookie header value.
+async fn create_unapproved_user(
+    repo: &Arc<dyn Repository>,
+    username: &str,
+    display: &str,
+    password: &str,
+) -> String {
+    let hash = kaizen_server::auth::hash_password(password).unwrap();
+    let user = repo.create_user(username, display, &hash).await.unwrap();
+    let session = repo.create_session(user.id).await.unwrap();
+    session_cookie(&session.token)
+}
+
+/// Get a CSRF token from a GET request (typically the dashboard).
+async fn csrf_from_page(router: &axum::Router, cookie: &str) -> String {
+    let dash = send(router, with_cookie(get("/dashboard"), cookie)).await;
+    extract_csrf(&body_string(dash).await)
 }
 
 #[tokio::test]
@@ -151,11 +223,7 @@ async fn setup_creates_user_and_session() {
     let cookie = setup_via_form(&app).await;
     assert!(!cookie.is_empty());
 
-    let res = send(
-        &app,
-        with_cookie(get("/"), &format!("kaizen_session={cookie}")),
-    )
-    .await;
+    let res = send(&app, with_cookie(get("/"), &cookie)).await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
     assert_eq!(redirect_to(&res), "/dashboard");
 }
@@ -269,11 +337,7 @@ async fn login_flow() {
     let app = test_app().await;
     let cookie = setup_via_form(&app).await;
 
-    let res = send(
-        &app,
-        with_cookie(get("/login"), &format!("kaizen_session={cookie}")),
-    )
-    .await;
+    let res = send(&app, with_cookie(get("/login"), &cookie)).await;
     assert_eq!(
         res.status(),
         StatusCode::SEE_OTHER,
@@ -380,7 +444,7 @@ fn extract_href(html: &str, prefix: &str) -> String {
 #[tokio::test]
 async fn project_and_goal_crud() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
 
     // Dashboard is behind auth.
     let res = send(&app, get("/dashboard")).await;
@@ -485,7 +549,7 @@ async fn project_and_goal_crud() {
 #[tokio::test]
 async fn dashboard_create_form_has_visible_title() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
 
     // The dashboard's create-project form must expose a real, visible title
     // field — not a hidden empty one (that made the UI unable to create
@@ -532,7 +596,7 @@ async fn dashboard_create_form_has_visible_title() {
 #[tokio::test]
 async fn decision_lifecycle_with_history() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
 
     let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
     let csrf = extract_csrf(&body_string(dash).await);
@@ -656,7 +720,7 @@ async fn decision_lifecycle_with_history() {
 #[tokio::test]
 async fn experiment_lifecycle_and_timeline() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
 
     let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
     let csrf = extract_csrf(&body_string(dash).await);
@@ -840,7 +904,7 @@ async fn experiment_lifecycle_and_timeline() {
 #[tokio::test]
 async fn knowledge_capture_and_graph() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
 
     let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
     let csrf = extract_csrf(&body_string(dash).await);
@@ -1113,7 +1177,7 @@ async fn knowledge_capture_and_graph() {
 #[tokio::test]
 async fn full_text_search() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
 
     let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
     let csrf = extract_csrf(&body_string(dash).await);
@@ -1301,7 +1365,7 @@ async fn setup_project(app: &axum::Router, cookie: &str) -> (String, String, Str
 #[tokio::test]
 async fn decision_update_appends_revision() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
     let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
 
     let res = send(
@@ -1377,7 +1441,7 @@ async fn decision_update_appends_revision() {
 #[tokio::test]
 async fn resolve_without_chosen_option_reverts_to_open() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
     let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
 
     let res = send(
@@ -1444,7 +1508,7 @@ async fn resolve_without_chosen_option_reverts_to_open() {
 #[tokio::test]
 async fn experiment_delete_removes_it_and_its_events() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
     let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
 
     let res = send(
@@ -1524,7 +1588,7 @@ async fn experiment_delete_removes_it_and_its_events() {
 #[tokio::test]
 async fn note_update_appends_revision_and_delete_removes() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
     let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
 
     let res = send(
@@ -1590,7 +1654,7 @@ async fn note_update_appends_revision_and_delete_removes() {
 #[tokio::test]
 async fn links_reject_self_and_bad_entities() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
     let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
 
     // Create two notes to link.
@@ -1694,7 +1758,7 @@ async fn links_reject_self_and_bad_entities() {
 #[tokio::test]
 async fn search_is_isolated_per_project() {
     let app = test_app().await;
-    let cookie = format!("kaizen_session={}", setup_via_form(&app).await);
+    let cookie = setup_via_form(&app).await;
     let (project_a, csrf, cookie) = setup_project(&app, &cookie).await;
 
     // Note in project A with a distinctive token.
@@ -1777,4 +1841,501 @@ async fn search_is_isolated_per_project() {
     let body = body_string(page).await;
     assert!(!body.contains("A secret"), "got: {body}");
     assert!(body.contains("B secret"), "got: {body}");
+}
+
+// ===========================================================================
+// Multi-user integration tests
+// ===========================================================================
+
+#[tokio::test]
+async fn register_creates_pending_user() {
+    let (app, repo) = test_app_with_repo().await;
+    setup_via_form(&app).await;
+    let res = send(
+        &app,
+        post_form(
+            "/register",
+            &[
+                ("username", "alice"),
+                ("display", "Alice"),
+                ("password", "longenough1"),
+                ("confirm", "longenough1"),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/login?flash=registered");
+    // User exists but is not approved
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    assert!(!alice.approved);
+    assert_eq!(alice.role, "user");
+}
+
+#[tokio::test]
+async fn register_rejects_duplicate_username() {
+    let (app, _repo) = test_app_with_repo().await;
+    setup_via_form(&app).await;
+    // Register alice
+    send(
+        &app,
+        post_form(
+            "/register",
+            &[
+                ("username", "alice"),
+                ("display", "Alice"),
+                ("password", "longenough1"),
+                ("confirm", "longenough1"),
+            ],
+        ),
+    )
+    .await;
+    // Register alice again
+    let res = send(
+        &app,
+        post_form(
+            "/register",
+            &[
+                ("username", "alice"),
+                ("display", "Alice2"),
+                ("password", "longenough1"),
+                ("confirm", "longenough1"),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+    assert!(body.contains("already taken"), "got: {body}");
+}
+
+#[tokio::test]
+async fn register_validates_input() {
+    let (_app, _repo) = test_app_with_repo().await;
+    let res = send(
+        &_app,
+        post_form(
+            "/register",
+            &[
+                ("username", "ab"),
+                ("display", ""),
+                ("password", "short"),
+                ("confirm", "different"),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+    assert!(body.contains("at least 3 characters"), "got: {body}");
+}
+
+#[tokio::test]
+async fn unapproved_user_cannot_login() {
+    let (app, repo) = test_app_with_repo().await;
+    setup_via_form(&app).await;
+    create_unapproved_user(&repo, "alice", "Alice", "longenough1").await;
+    let res = send(
+        &app,
+        post_form(
+            "/login",
+            &[("username", "alice"), ("password", "longenough1")],
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+    assert!(body.contains("pending admin approval"), "got: {body}");
+}
+
+#[tokio::test]
+async fn unapproved_user_redirected_from_dashboard() {
+    let (app, repo) = test_app_with_repo().await;
+    setup_via_form(&app).await;
+    let cookie = create_unapproved_user(&repo, "alice", "Alice", "longenough1").await;
+    let res = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/login?flash=not_approved");
+}
+
+#[tokio::test]
+async fn approved_user_can_login_and_see_dashboard() {
+    let (app, repo) = test_app_with_repo().await;
+    setup_via_form(&app).await;
+    let cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let res = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+    assert!(body.contains("Dashboard"), "got: {body}");
+}
+
+#[tokio::test]
+async fn admin_users_page_requires_admin() {
+    let (app, repo) = test_app_with_repo().await;
+    setup_via_form(&app).await;
+    let cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let res = send(&app, with_cookie(get("/admin/users"), &cookie)).await;
+    // Non-admin gets redirected
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/dashboard?flash=access_denied");
+}
+
+#[tokio::test]
+async fn admin_can_approve_user() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    create_unapproved_user(&repo, "alice", "Alice", "longenough1").await;
+    // Get alice's ID
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    // Approve via admin route
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{alice_id}/approve"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/admin/users?flash=approved");
+    // Alice can now login
+    let res = send(
+        &app,
+        post_form(
+            "/login",
+            &[("username", "alice"), ("password", "longenough1")],
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/dashboard");
+}
+
+#[tokio::test]
+async fn admin_can_reject_user() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    create_unapproved_user(&repo, "alice", "Alice", "longenough1").await;
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{alice_id}/reject"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/admin/users?flash=rejected");
+    // Alice is deleted
+    let users = repo.list_users().await.unwrap();
+    assert!(!users.iter().any(|u| u.username == "alice"));
+}
+
+#[tokio::test]
+async fn admin_can_toggle_role() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    // Toggle to admin
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{alice_id}/role"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    assert_eq!(alice.role, "admin");
+    // Toggle back to user
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{alice_id}/role"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    assert_eq!(alice.role, "user");
+}
+
+#[tokio::test]
+async fn admin_can_delete_user() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("/admin/users/{alice_id}/delete"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let users = repo.list_users().await.unwrap();
+    assert!(!users.iter().any(|u| u.username == "alice"));
+}
+
+#[tokio::test]
+async fn dashboard_scopes_projects_for_non_admin() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    // Admin creates a project
+    let _project_url = create_project(&app, &admin_cookie, "Secret Project", "active").await;
+    // Alice should NOT see it on her dashboard
+    let res = send(&app, with_cookie(get("/dashboard"), &alice_cookie)).await;
+    let body = body_string(res).await;
+    assert!(
+        !body.contains("Secret Project"),
+        "alice should not see admin project"
+    );
+}
+
+#[tokio::test]
+async fn dashboard_shows_all_for_admin() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    // Alice creates a project
+    let _project_url = create_project(&app, &alice_cookie, "Alice Project", "active").await;
+    // Admin should see it
+    let res = send(&app, with_cookie(get("/dashboard"), &admin_cookie)).await;
+    let body = body_string(res).await;
+    assert!(
+        body.contains("Alice Project"),
+        "admin should see all projects"
+    );
+}
+
+#[tokio::test]
+async fn non_member_cannot_view_project() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Secret Project", "active").await;
+    // Alice should be blocked
+    let res = send(&app, with_cookie(get(&project_url), &alice_cookie)).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn non_member_cannot_create_goal() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Secret Project", "active").await;
+    let csrf = csrf_from_page(&app, &alice_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "New Goal"),
+                    ("body", ""),
+                    ("status", "open"),
+                ],
+            ),
+            &alice_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/dashboard?flash=access_denied");
+}
+
+#[tokio::test]
+async fn member_can_view_project() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Shared Project", "active").await;
+    // Add alice as member
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let project_id = project_url.strip_prefix("/projects/").unwrap();
+    repo.add_project_member(Uuid::parse_str(project_id).unwrap(), alice.id, "member")
+        .await
+        .unwrap();
+    // Alice can now view the project
+    let res = send(&app, with_cookie(get(&project_url), &alice_cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+    assert!(body.contains("Shared Project"), "got: {body}");
+}
+
+#[tokio::test]
+async fn owner_can_add_and_remove_members() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let _alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Team Project", "active").await;
+    let project_id = project_url.strip_prefix("/projects/").unwrap();
+    // Get alice's ID
+    let users = repo.list_users().await.unwrap();
+    let alice = users.iter().find(|u| u.username == "alice").unwrap();
+    let alice_id = alice.id.to_string();
+    // Add alice as member
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/members"),
+                &[("csrf_token", &csrf), ("user_id", &alice_id)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert!(redirect_to(&res).contains("member_added"));
+    // Verify membership
+    assert!(
+        repo.is_project_member(alice.id, Uuid::parse_str(project_id).unwrap())
+            .await
+            .unwrap()
+    );
+    // Remove alice
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/members/{alice_id}/remove"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert!(redirect_to(&res).contains("member_removed"));
+    assert!(
+        !repo
+            .is_project_member(alice.id, Uuid::parse_str(project_id).unwrap())
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn cannot_remove_last_owner() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let project_url = create_project(&app, &admin_cookie, "Only Owner", "active").await;
+    let project_id = project_url.strip_prefix("/projects/").unwrap();
+    // Get admin's ID
+    let users = repo.list_users().await.unwrap();
+    let admin = users.iter().find(|u| u.username == "dev").unwrap();
+    let admin_id = admin.id.to_string();
+    // Try to remove self (the only owner)
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/members/{admin_id}/remove"),
+                &[("csrf_token", &csrf)],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert!(redirect_to(&res).contains("cannot_remove_last_owner"));
+    // Owner still exists
+    assert!(
+        repo.is_project_member(admin.id, Uuid::parse_str(project_id).unwrap())
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn non_member_cannot_access_decision() {
+    let (app, repo) = test_app_with_repo().await;
+    let admin_cookie = setup_via_form(&app).await;
+    let alice_cookie = create_approved_user(&repo, "alice", "Alice", "longenough1").await;
+    let project_url = create_project(&app, &admin_cookie, "Secret", "active").await;
+    // Admin creates a decision
+    let csrf = csrf_from_page(&app, &admin_cookie).await;
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Important Decision"),
+                    ("context", "Because"),
+                    ("goal_id", ""),
+                    ("opt_1_label", "A"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", "B"),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &admin_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    // Get decision URL from decisions page
+    let dec_page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/decisions")), &admin_cookie),
+    )
+    .await;
+    let body = body_string(dec_page).await;
+    let dec_url = extract_href(&body, "/decisions/");
+    // Alice cannot view the decision
+    let res = send(&app, with_cookie(get(&dec_url), &alice_cookie)).await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(redirect_to(&res), "/dashboard?flash=access_denied");
 }

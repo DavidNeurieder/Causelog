@@ -21,6 +21,16 @@ pub const SESSION_COOKIE: &str = "kaizen_session";
 pub const CSRF_HEADER: &str = "x-csrf-token";
 pub const SESSION_TTL_MS: i64 = 30 * 24 * 3600 * 1000;
 
+/// Whether the user has admin role.
+pub fn is_admin(user: &User) -> bool {
+    user.role == "admin"
+}
+
+/// Whether the user has been approved by an admin.
+pub fn is_approved(user: &User) -> bool {
+    user.approved
+}
+
 pub fn hash_password(password: &str) -> Result<String, ApiError> {
     let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
