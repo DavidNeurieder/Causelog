@@ -1,6 +1,7 @@
 {% macro subnav(project, active) %}
 <nav class="subnav" aria-label="Project sections">
   <a href="/projects/{{ project.id }}" {% if active == "overview" %}class="on"{% endif %}>Overview</a>
+  <a href="/projects/{{ project.id }}/board" {% if active == "board" %}class="on"{% endif %}>Board</a>
   <a href="/projects/{{ project.id }}/goals" {% if active == "goals" %}class="on"{% endif %}>Goals</a>
   <a href="/projects/{{ project.id }}/decisions" {% if active == "decisions" %}class="on"{% endif %}>Decisions</a>
   <a href="/projects/{{ project.id }}/experiments" {% if active == "experiments" %}class="on"{% endif %}>Experiments</a>

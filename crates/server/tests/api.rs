@@ -796,7 +796,7 @@ async fn experiment_lifecycle_and_timeline() {
                     ("csrf_token", &csrf),
                     ("title", "WAL trial"),
                     ("hypothesis", "WAL speeds up reads."),
-                    ("status", "running"),
+                    ("status", "ongoing"),
                     ("result", ""),
                     ("lesson", ""),
                 ],

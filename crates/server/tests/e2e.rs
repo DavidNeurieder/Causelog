@@ -267,7 +267,7 @@ async fn golden_path_journey_and_persistence() {
 
     // Start running, then finish with a result and lesson.
     for (status_field, result_field, lesson_field) in [
-        ("running", "", ""),
+        ("ongoing", "", ""),
         ("done", "Reads got 2x faster.", "WAL is worth enabling."),
     ] {
         let (status, _, _) = post(

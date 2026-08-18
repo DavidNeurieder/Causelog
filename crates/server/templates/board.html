@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block head %}<meta name="csrf-token" content="{{ csrf_token }}">{% endblock %}
+{% block title %}Board · {{ project.title }} · Causelog{% endblock %}
+{% block content %}
+{% call m::crumb(project) %}
+<h1>Board</h1>
+{% call m::subnav(project, "board") %}
+
+<div class="board-tabs">
+  <button class="board-tab on" data-tab="goals">Goals</button>
+  <button class="board-tab" data-tab="decisions">Decisions</button>
+  <button class="board-tab" data-tab="experiments">Experiments</button>
+</div>
+
+<div class="board" id="board">
+
+  {# ── Goals board ── #}
+  <div class="board-section" data-entity="goal" data-tab="goals">
+    <div class="board-column" data-status="open">
+      <h3>open <span class="board-count">{{ goals_open.len() }}</span></h3>
+      <div class="board-cards">
+        {% for g in goals_open %}
+        <div class="board-card" draggable="true" data-entity="goal" data-id="{{ g.id }}">
+          <a class="strong" href="/goals/{{ g.id }}">{{ g.title }}</a>
+          {% if !g.assigned_to_name.is_empty() %}<span class="muted small">→ {{ g.assigned_to_name }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="board-column" data-status="ongoing">
+      <h3>ongoing <span class="board-count">{{ goals_ongoing.len() }}</span></h3>
+      <div class="board-cards">
+        {% for g in goals_ongoing %}
+        <div class="board-card" draggable="true" data-entity="goal" data-id="{{ g.id }}">
+          <a class="strong" href="/goals/{{ g.id }}">{{ g.title }}</a>
+          {% if !g.assigned_to_name.is_empty() %}<span class="muted small">→ {{ g.assigned_to_name }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="board-column" data-status="done">
+      <h3>done <span class="board-count">{{ goals_done.len() }}</span></h3>
+      <div class="board-cards">
+        {% for g in goals_done %}
+        <div class="board-card" draggable="true" data-entity="goal" data-id="{{ g.id }}">
+          <a class="strong" href="/goals/{{ g.id }}">{{ g.title }}</a>
+          {% if !g.assigned_to_name.is_empty() %}<span class="muted small">→ {{ g.assigned_to_name }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="board-column" data-status="dropped">
+      <h3>dropped <span class="board-count">{{ goals_dropped.len() }}</span></h3>
+      <div class="board-cards">
+        {% for g in goals_dropped %}
+        <div class="board-card" draggable="true" data-entity="goal" data-id="{{ g.id }}">
+          <a class="strong" href="/goals/{{ g.id }}">{{ g.title }}</a>
+          {% if !g.assigned_to_name.is_empty() %}<span class="muted small">→ {{ g.assigned_to_name }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Decisions board ── #}
+  <div class="board-section" data-entity="decision" data-tab="decisions" hidden>
+    <div class="board-column" data-status="open">
+      <h3>open <span class="board-count">{{ decisions_open.len() }}</span></h3>
+      <div class="board-cards">
+        {% for d in decisions_open %}
+        <div class="board-card" draggable="true" data-entity="decision" data-id="{{ d.id }}">
+          <a class="strong" href="/decisions/{{ d.id }}">{{ d.title }}</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="board-column" data-status="decided">
+      <h3>decided <span class="board-count">{{ decisions_decided.len() }}</span></h3>
+      <div class="board-cards">
+        {% for d in decisions_decided %}
+        <div class="board-card" draggable="true" data-entity="decision" data-id="{{ d.id }}">
+          <a class="strong" href="/decisions/{{ d.id }}">{{ d.title }}</a>
+          {% if !d.decided_label.is_empty() %}<span class="muted small">→ {{ d.decided_label }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="board-column" data-status="rejected">
+      <h3>rejected <span class="board-count">{{ decisions_rejected.len() }}</span></h3>
+      <div class="board-cards">
+        {% for d in decisions_rejected %}
+        <div class="board-card" draggable="true" data-entity="decision" data-id="{{ d.id }}">
+          <a class="strong" href="/decisions/{{ d.id }}">{{ d.title }}</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Experiments board ── #}
+  <div class="board-section" data-entity="experiment" data-tab="experiments" hidden>
+    <div class="board-column" data-status="planned">
+      <h3>planned <span class="board-count">{{ experiments_planned.len() }}</span></h3>
+      <div class="board-cards">
+        {% for e in experiments_planned %}
+        <div class="board-card" draggable="true" data-entity="experiment" data-id="{{ e.id }}">
+          <a class="strong" href="/experiments/{{ e.id }}">{{ e.title }}</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="board-column" data-status="ongoing">
+      <h3>ongoing <span class="board-count">{{ experiments_ongoing.len() }}</span></h3>
+      <div class="board-cards">
+        {% for e in experiments_ongoing %}
+        <div class="board-card" draggable="true" data-entity="experiment" data-id="{{ e.id }}">
+          <a class="strong" href="/experiments/{{ e.id }}">{{ e.title }}</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="board-column" data-status="done">
+      <h3>done <span class="board-count">{{ experiments_done.len() }}</span></h3>
+      <div class="board-cards">
+        {% for e in experiments_done %}
+        <div class="board-card" draggable="true" data-entity="experiment" data-id="{{ e.id }}">
+          <a class="strong" href="/experiments/{{ e.id }}">{{ e.title }}</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="board-column" data-status="abandoned">
+      <h3>abandoned <span class="board-count">{{ experiments_abandoned.len() }}</span></h3>
+      <div class="board-cards">
+        {% for e in experiments_abandoned %}
+        <div class="board-card" draggable="true" data-entity="experiment" data-id="{{ e.id }}">
+          <a class="strong" href="/experiments/{{ e.id }}">{{ e.title }}</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/kanban.js"></script>
+{% endblock %}

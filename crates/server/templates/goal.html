@@ -63,6 +63,7 @@
         <label for="gstatus">Status</label>
         <select id="gstatus" name="status">
           <option value="open" {% if goal.status == "open" %}selected{% endif %}>open</option>
+          <option value="ongoing" {% if goal.status == "ongoing" %}selected{% endif %}>ongoing</option>
           <option value="done" {% if goal.status == "done" %}selected{% endif %}>done</option>
           <option value="dropped" {% if goal.status == "dropped" %}selected{% endif %}>dropped</option>
         </select>

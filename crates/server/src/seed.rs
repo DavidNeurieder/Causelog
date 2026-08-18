@@ -452,7 +452,7 @@ async fn seed_gloria_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
         e_window.id,
         "The corner window vs the Desk of Mystery",
         "The corner window grows Gloria faster than the desk with the 'good vibes' lighting.",
-        "running",
+        "ongoing",
         "",
         "",
     )

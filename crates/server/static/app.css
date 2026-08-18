@@ -34,6 +34,7 @@
   --st-paused: var(--warn);
   --st-planned: var(--muted);
   --st-running: var(--accent);
+  --st-ongoing: var(--accent);
   --st-decided: var(--success);
   --st-rejected: var(--danger);
   --st-abandoned: var(--muted);
@@ -428,7 +429,7 @@ a.row-link .chev { color: var(--muted); font-size: 13px; }
 
 .status-active, .status-done, .status-decided { color: var(--st-done); border-color: color-mix(in srgb, var(--st-done) 40%, transparent); }
 .status-paused { color: var(--st-paused); border-color: color-mix(in srgb, var(--st-paused) 40%, transparent); }
-.status-open, .status-running { color: var(--st-open); border-color: color-mix(in srgb, var(--st-open) 40%, transparent); }
+.status-open, .status-running, .status-ongoing { color: var(--st-open); border-color: color-mix(in srgb, var(--st-open) 40%, transparent); }
 .status-rejected { color: var(--st-rejected); border-color: color-mix(in srgb, var(--st-rejected) 40%, transparent); }
 .status-planned, .status-abandoned, .status-archived, .status-dropped { color: var(--muted); }
 
@@ -685,6 +686,99 @@ details.create-project field { margin-bottom: var(--space-3); }
   gap: var(--space-3);
 }
 .edit-row > field { margin-bottom: 0; }
+
+/* ---------------------------------------------------------------------------
+   Kanban board
+   ------------------------------------------------------------------------- */
+
+.board-tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+.board-tab {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.board-tab:hover { color: var(--fg); background: var(--panel-2); }
+.board-tab.on { color: var(--accent-hi); background: var(--panel); border-color: var(--accent); }
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+.board-section { display: contents; }
+.board-section[hidden] { display: none; }
+
+.board-column {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  min-height: 120px;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.board-column.drag-over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-2));
+}
+.board-column h3 {
+  margin: 0 0 var(--space-3);
+  font-size: 14px;
+  color: var(--fg-2);
+  text-transform: lowercase;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.board-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 5px;
+}
+
+.board-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 40px;
+}
+.board-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  cursor: grab;
+  transition: box-shadow 120ms ease, opacity 120ms ease;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.board-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+.board-card.dragging { opacity: 0.4; }
+.board-card a { font-size: 14px; }
 
 /* ---------------------------------------------------------------------------
    Responsive

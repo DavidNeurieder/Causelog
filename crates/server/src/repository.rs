@@ -155,6 +155,7 @@ pub trait Repository: Send + Sync {
         status: &str,
         assigned_to: Option<Uuid>,
     ) -> Result<(), RepositoryError>;
+    async fn update_goal_status(&self, id: Uuid, status: &str) -> Result<(), RepositoryError>;
     async fn delete_goal(&self, id: Uuid) -> Result<(), RepositoryError>;
 
     /// Counts shown on the dashboard.
@@ -186,6 +187,7 @@ pub trait Repository: Send + Sync {
         context: &str,
         options: &[DecisionOption],
     ) -> Result<Decision, RepositoryError>;
+    async fn update_decision_status(&self, id: Uuid, status: &str) -> Result<(), RepositoryError>;
     /// Resolve the decision (status `decided`/`rejected`), set rationale, and
     /// append a revision.
     async fn resolve_decision(
@@ -230,6 +232,7 @@ pub trait Repository: Send + Sync {
         result: &str,
         lesson: &str,
     ) -> Result<Experiment, RepositoryError>;
+    async fn update_experiment_status(&self, id: Uuid, status: &str) -> Result<(), RepositoryError>;
     async fn delete_experiment(&self, id: Uuid) -> Result<(), RepositoryError>;
 
     async fn list_events(
@@ -373,7 +376,7 @@ pub struct ProjectCounts {
     pub decisions_rejected: i64,
     pub experiments_total: i64,
     pub experiments_planned: i64,
-    pub experiments_running: i64,
+    pub experiments_ongoing: i64,
     pub experiments_done: i64,
     pub experiments_abandoned: i64,
     pub notes: i64,
@@ -964,6 +967,17 @@ impl Repository for SqliteRepository {
         Ok(())
     }
 
+    async fn update_goal_status(&self, id: Uuid, status: &str) -> Result<(), RepositoryError> {
+        let now = causelog_content::now_ms();
+        sqlx::query("UPDATE goals SET status = ?, updated_at_ms = ? WHERE id = ?")
+            .bind(status)
+            .bind(now)
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn dashboard_counts(&self) -> Result<DashboardCounts, RepositoryError> {
         let projects: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects")
             .fetch_one(&self.pool)
@@ -1051,7 +1065,7 @@ impl Repository for SqliteRepository {
         for row in experiments {
             match row.get::<String, _>(0).as_str() {
                 "planned" => counts.experiments_planned = row.get(1),
-                "running" => counts.experiments_running = row.get(1),
+                "ongoing" => counts.experiments_ongoing = row.get(1),
                 "done" => counts.experiments_done = row.get(1),
                 "abandoned" => counts.experiments_abandoned = row.get(1),
                 _ => {}
@@ -1061,7 +1075,7 @@ impl Repository for SqliteRepository {
         counts.decisions_total =
             counts.decisions_open + counts.decisions_decided + counts.decisions_rejected;
         counts.experiments_total = counts.experiments_planned
-            + counts.experiments_running
+            + counts.experiments_ongoing
             + counts.experiments_done
             + counts.experiments_abandoned;
         counts.notes = sqlx::query_scalar("SELECT COUNT(*) FROM notes WHERE project_id = ?")
@@ -1245,6 +1259,17 @@ impl Repository for SqliteRepository {
         Ok(())
     }
 
+    async fn update_decision_status(&self, id: Uuid, status: &str) -> Result<(), RepositoryError> {
+        let now = causelog_content::now_ms();
+        sqlx::query("UPDATE decisions SET status = ?, updated_at_ms = ? WHERE id = ?")
+            .bind(status)
+            .bind(now)
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn list_revisions(
         &self,
         entity_type: &str,
@@ -1364,7 +1389,7 @@ impl Repository for SqliteRepository {
         let mut started = existing.started_at_ms;
         let mut ended = existing.ended_at_ms;
         match status {
-            "running" => {
+            "ongoing" => {
                 if started.is_none() {
                     started = Some(now);
                 }
@@ -1401,6 +1426,17 @@ impl Repository for SqliteRepository {
 
     async fn delete_experiment(&self, id: Uuid) -> Result<(), RepositoryError> {
         sqlx::query("DELETE FROM experiments WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn update_experiment_status(&self, id: Uuid, status: &str) -> Result<(), RepositoryError> {
+        let now = causelog_content::now_ms();
+        sqlx::query("UPDATE experiments SET status = ?, updated_at_ms = ? WHERE id = ?")
+            .bind(status)
+            .bind(now)
             .bind(id.to_string())
             .execute(&self.pool)
             .await?;

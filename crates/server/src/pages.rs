@@ -10,6 +10,7 @@ use askama::Template;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::Json;
 use causelog_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
 use causelog_model::{Decision, DecisionOption, Experiment, Goal, Note, Project, User};
 use serde::Deserialize;
@@ -199,6 +200,29 @@ struct AdminSettingsTemplate {
     year: u32,
     display_name: String,
     csrf_token: String,
+}
+
+#[derive(Template)]
+#[template(path = "board.html")]
+struct BoardTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    goals_open: Vec<GoalItemView>,
+    goals_ongoing: Vec<GoalItemView>,
+    goals_done: Vec<GoalItemView>,
+    goals_dropped: Vec<GoalItemView>,
+    decisions_open: Vec<DecisionItemView>,
+    decisions_decided: Vec<DecisionItemView>,
+    decisions_rejected: Vec<DecisionItemView>,
+    experiments_planned: Vec<ExperimentItemView>,
+    experiments_ongoing: Vec<ExperimentItemView>,
+    experiments_done: Vec<ExperimentItemView>,
+    experiments_abandoned: Vec<ExperimentItemView>,
 }
 
 #[derive(Template)]
@@ -1034,6 +1058,7 @@ pub(crate) async fn logout_form(
 pub(crate) async fn static_file(Path(name): Path<String>) -> Result<Response, PageError> {
     let (body, content_type) = match name.as_str() {
         "app.css" => (include_str!("../static/app.css"), "text/css"),
+        "kanban.js" => (include_str!("../static/kanban.js"), "application/javascript"),
         "favicon.svg" => (include_str!("../static/favicon.svg"), "image/svg+xml"),
         _ => {
             return Err(PageError(ApiError(RepositoryError::NotFound(
@@ -1699,7 +1724,7 @@ pub(crate) async fn goal_update(
                 .into_response(),
         );
     }
-    let status = if matches!(body.status.as_str(), "open" | "done" | "dropped") {
+    let status = if matches!(body.status.as_str(), "open" | "ongoing" | "done" | "dropped") {
         body.status.as_str()
     } else {
         "open"
@@ -2233,7 +2258,7 @@ pub(crate) async fn experiment_update(
     }
     let status = if matches!(
         body.status.as_str(),
-        "planned" | "running" | "done" | "abandoned"
+        "planned" | "ongoing" | "done" | "abandoned"
     ) {
         body.status.as_str()
     } else {
@@ -3236,6 +3261,184 @@ pub(crate) async fn project_member_remove(
         project_id
     ))
     .into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Kanban board
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn board_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+
+    let goals_raw = state.repo.list_goals(project.id).await?;
+    let decisions_raw = state.repo.list_decisions(project.id).await?;
+    let experiments_raw = state.repo.list_experiments(project.id).await?;
+
+    let mut goals_open = Vec::new();
+    let mut goals_ongoing = Vec::new();
+    let mut goals_done = Vec::new();
+    let mut goals_dropped = Vec::new();
+    for g in goals_raw {
+        let assigned_to_name = creator_name(&state.repo, g.assigned_to).await;
+        let view = GoalItemView {
+            id: g.id.to_string(),
+            title: g.title,
+            status: g.status.clone(),
+            body_html: render_markdown(&g.body),
+            assigned_to_name,
+        };
+        match g.status.as_str() {
+            "ongoing" => goals_ongoing.push(view),
+            "done" => goals_done.push(view),
+            "dropped" => goals_dropped.push(view),
+            _ => goals_open.push(view),
+        }
+    }
+
+    let mut decisions_open = Vec::new();
+    let mut decisions_decided = Vec::new();
+    let mut decisions_rejected = Vec::new();
+    for d in decisions_raw {
+        let decided_label = decided_label(&d);
+        let view = DecisionItemView {
+            id: d.id.to_string(),
+            title: d.title,
+            status: d.status.clone(),
+            decided_label,
+        };
+        match d.status.as_str() {
+            "decided" => decisions_decided.push(view),
+            "rejected" => decisions_rejected.push(view),
+            _ => decisions_open.push(view),
+        }
+    }
+
+    let mut experiments_planned = Vec::new();
+    let mut experiments_ongoing = Vec::new();
+    let mut experiments_done = Vec::new();
+    let mut experiments_abandoned = Vec::new();
+    for e in experiments_raw {
+        let view = ExperimentItemView {
+            id: e.id.to_string(),
+            title: e.title,
+            status: e.status.clone(),
+        };
+        match e.status.as_str() {
+            "ongoing" => experiments_ongoing.push(view),
+            "done" => experiments_done.push(view),
+            "abandoned" => experiments_abandoned.push(view),
+            _ => experiments_planned.push(view),
+        }
+    }
+
+    page(&BoardTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        goals_open,
+        goals_ongoing,
+        goals_done,
+        goals_dropped,
+        decisions_open,
+        decisions_decided,
+        decisions_rejected,
+        experiments_planned,
+        experiments_ongoing,
+        experiments_done,
+        experiments_abandoned,
+    })
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct StatusChangeRequest {
+    entity: String,
+    id: String,
+    status: String,
+}
+
+pub(crate) async fn api_status_change(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Json(body): axum::extract::Json<StatusChangeRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Err(ApiError::forbidden());
+    };
+    if !auth::is_approved(&auth_user.user) {
+        return Err(ApiError::forbidden());
+    }
+
+    let entity_id = Uuid::parse_str(&body.id).map_err(|_| {
+        ApiError::bad_request("invalid entity id")
+    })?;
+
+    match body.entity.as_str() {
+        "goal" => {
+            if !matches!(body.status.as_str(), "open" | "ongoing" | "done" | "dropped") {
+                return Err(ApiError::bad_request("invalid goal status"));
+            }
+            let goal = state
+                .repo
+                .find_goal(entity_id)
+                .await?
+                .ok_or_else(|| ApiError::not_found("goal"))?;
+            require_member_or_admin(&state, &auth_user.user, goal.project_id)
+                .await
+                .map_err(|_| ApiError::forbidden())?;
+            state.repo.update_goal_status(entity_id, &body.status).await?;
+        }
+        "decision" => {
+            if !matches!(body.status.as_str(), "open" | "decided" | "rejected") {
+                return Err(ApiError::bad_request("invalid decision status"));
+            }
+            let decision = state
+                .repo
+                .find_decision(entity_id)
+                .await?
+                .ok_or_else(|| ApiError::not_found("decision"))?;
+            require_member_or_admin(&state, &auth_user.user, decision.project_id)
+                .await
+                .map_err(|_| ApiError::forbidden())?;
+            state
+                .repo
+                .update_decision_status(entity_id, &body.status)
+                .await?;
+        }
+        "experiment" => {
+            if !matches!(body.status.as_str(), "planned" | "ongoing" | "done" | "abandoned") {
+                return Err(ApiError::bad_request("invalid experiment status"));
+            }
+            let experiment = state
+                .repo
+                .find_experiment(entity_id)
+                .await?
+                .ok_or_else(|| ApiError::not_found("experiment"))?;
+            require_member_or_admin(&state, &auth_user.user, experiment.project_id)
+                .await
+                .map_err(|_| ApiError::forbidden())?;
+            state
+                .repo
+                .update_experiment_status(entity_id, &body.status)
+                .await?;
+        }
+        _ => {
+            return Err(ApiError::bad_request("invalid entity type"));
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 #[cfg(test)]

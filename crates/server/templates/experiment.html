@@ -29,7 +29,7 @@
   </div>
   {% if !view.started_at.is_empty() || !view.ended_at.is_empty() %}
   <div class="meta-card-row muted small">
-    {% if !view.started_at.is_empty() %}started {{ view.started_at }}{% endif %}
+    {% if !view.started_at.is_empty() %}started {{ view.started_at }}{% else %}started{% endif %}
     {% if !view.ended_at.is_empty() %} · ended {{ view.ended_at }}{% endif %}
   </div>
   {% endif %}
@@ -133,7 +133,7 @@
         <label for="x-status">Status</label>
         <select id="x-status" name="status">
           <option value="planned" {% if experiment.status == "planned" %}selected{% endif %}>planned</option>
-          <option value="running" {% if experiment.status == "running" %}selected{% endif %}>running</option>
+          <option value="ongoing" {% if experiment.status == "ongoing" %}selected{% endif %}>ongoing</option>
           <option value="done" {% if experiment.status == "done" %}selected{% endif %}>done</option>
           <option value="abandoned" {% if experiment.status == "abandoned" %}selected{% endif %}>abandoned</option>
         </select>

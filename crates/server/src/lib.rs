@@ -41,6 +41,8 @@ fn router(state: AppState) -> Router {
             "/projects/{id}",
             get(pages::project_page).post(pages::project_update),
         )
+        .route("/projects/{id}/board", get(pages::board_page))
+        .route("/api/status", post(pages::api_status_change))
         .route("/projects/{id}/delete", post(pages::project_delete))
         .route(
             "/projects/{id}/goals",
