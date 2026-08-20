@@ -3,9 +3,9 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use http_body_util::BodyExt;
 use causelog_server::app;
 use causelog_server::repository::{Repository, SqliteRepository};
+use http_body_util::BodyExt;
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -2954,48 +2954,31 @@ async fn search_scoped_to_user_projects() {
     let admin_user = repo.list_users().await.unwrap();
     let alice_user = admin_user.iter().find(|u| u.username == "alice").unwrap();
     let a_id = project_a.strip_prefix("/projects/").unwrap();
-    repo.add_project_member(
-        a_id.parse().unwrap(),
-        alice_user.id,
-        "member",
-    )
-    .await
-    .unwrap();
+    repo.add_project_member(a_id.parse().unwrap(), alice_user.id, "member")
+        .await
+        .unwrap();
 
     // Admin can search both projects.
-    let page = send(
-        &app,
-        with_cookie(get("/search?q=flurbex"), &admin_cookie),
-    )
-    .await;
+    let page = send(&app, with_cookie(get("/search?q=flurbex"), &admin_cookie)).await;
     let body = body_string(page).await;
-    assert!(body.contains("Alpha note"), "admin should see alpha: {body}");
+    assert!(
+        body.contains("Alpha note"),
+        "admin should see alpha: {body}"
+    );
 
-    let page = send(
-        &app,
-        with_cookie(get("/search?q=zymolog"), &admin_cookie),
-    )
-    .await;
+    let page = send(&app, with_cookie(get("/search?q=zymolog"), &admin_cookie)).await;
     let body = body_string(page).await;
     assert!(body.contains("Beta note"), "admin should see beta: {body}");
 
     // Alice searches — should only find project A (her member project).
-    let page = send(
-        &app,
-        with_cookie(get("/search?q=flurbex"), &alice_cookie),
-    )
-    .await;
+    let page = send(&app, with_cookie(get("/search?q=flurbex"), &alice_cookie)).await;
     let body = body_string(page).await;
     assert!(
         body.contains("Alpha note"),
         "alice should see alpha: {body}"
     );
 
-    let page = send(
-        &app,
-        with_cookie(get("/search?q=zymolog"), &alice_cookie),
-    )
-    .await;
+    let page = send(&app, with_cookie(get("/search?q=zymolog"), &alice_cookie)).await;
     let body = body_string(page).await;
     assert!(
         !body.contains("Beta note"),
@@ -3074,7 +3057,10 @@ async fn admin_add_remove_user_to_project() {
     let body = body_string(page).await;
     // After removal, alice's row should not have a remove-from-project form.
     assert!(
-        !body.contains(&format!("/admin/users/{}/remove-from-project", alice_user.id)),
+        !body.contains(&format!(
+            "/admin/users/{}/remove-from-project",
+            alice_user.id
+        )),
         "alice should not have a remove-from-project form: {body}"
     );
 
@@ -3135,7 +3121,12 @@ async fn api_goal_update_fields() {
     let data = json_response(res).await;
     assert_eq!(data["ok"], true);
     assert_eq!(data["title"], "Updated title");
-    assert!(data["body_html"].as_str().unwrap().contains("Updated body."));
+    assert!(
+        data["body_html"]
+            .as_str()
+            .unwrap()
+            .contains("Updated body.")
+    );
     assert_eq!(data["status"], "done");
 
     // Verify on the rendered page.
@@ -3300,15 +3291,21 @@ async fn api_experiment_update_fields() {
     assert_eq!(data["ok"], true);
     assert_eq!(data["title"], "Updated experiment");
     assert_eq!(data["status"], "ongoing");
-    assert!(data["hypothesis_html"].as_str().unwrap().contains("New hypothesis."));
+    assert!(
+        data["hypothesis_html"]
+            .as_str()
+            .unwrap()
+            .contains("New hypothesis.")
+    );
     assert!(data["result_html"].as_str().unwrap().contains("It worked."));
-    assert!(data["lesson_html"].as_str().unwrap().contains("Trust the process."));
+    assert!(
+        data["lesson_html"]
+            .as_str()
+            .unwrap()
+            .contains("Trust the process.")
+    );
 
-    let page = send(
-        &app,
-        with_cookie(get(&exp_url), &cookie),
-    )
-    .await;
+    let page = send(&app, with_cookie(get(&exp_url), &cookie)).await;
     let body = body_string(page).await;
     assert!(body.contains("Updated experiment"), "got: {body}");
     assert!(body.contains("status-ongoing"), "got: {body}");
@@ -3429,7 +3426,12 @@ async fn api_decision_update_fields() {
     let data = json_response(res).await;
     assert_eq!(data["ok"], true);
     assert_eq!(data["title"], "Updated decision");
-    assert!(data["context_html"].as_str().unwrap().contains("New context."));
+    assert!(
+        data["context_html"]
+            .as_str()
+            .unwrap()
+            .contains("New context.")
+    );
 
     // Options should be preserved.
     let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;

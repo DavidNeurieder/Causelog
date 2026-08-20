@@ -44,10 +44,7 @@ fn router(state: AppState) -> Router {
         .route("/api/status", post(pages::api_status_change))
         .route("/api/goals/{id}", post(pages::api_goal_update))
         .route("/api/notes/{id}", post(pages::api_note_update))
-        .route(
-            "/api/experiments/{id}",
-            post(pages::api_experiment_update),
-        )
+        .route("/api/experiments/{id}", post(pages::api_experiment_update))
         .route("/api/projects/{id}", post(pages::api_project_update))
         .route("/api/decisions/{id}", post(pages::api_decision_update))
         .route(

@@ -3,6 +3,9 @@ name = "causelog-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Causelog server: Axum app + askama templates + auth"
 
 [[bin]]
@@ -19,9 +22,9 @@ axum-server = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
-causelog-content = { path = "../content" }
-causelog-model = { path = "../model" }
-causelog-search = { path = "../search" }
+causelog-content = { version = "0.1.0", path = "../content" }
+causelog-model = { version = "0.1.0", path = "../model" }
+causelog-search = { version = "0.1.0", path = "../search" }
 libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 rustls = { workspace = true }
 rustls-acme = { workspace = true }

@@ -3,9 +3,12 @@ name = "causelog-search"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Causelog SQLite FTS5 search"
 
 [dependencies]
-causelog-model = { path = "../model" }
+causelog-model = { version = "0.1.0", path = "../model" }
 serde = { workspace = true }
 thiserror = { workspace = true }

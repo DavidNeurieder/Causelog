@@ -7,10 +7,10 @@
 //! against the session.
 
 use askama::Template;
+use axum::Json;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::Json;
 use causelog_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
 use causelog_model::{Decision, DecisionOption, Experiment, Goal, Note, Project, User};
 use serde::Deserialize;
@@ -201,7 +201,6 @@ struct AdminSettingsTemplate {
     display_name: String,
     csrf_token: String,
 }
-
 
 #[derive(Template)]
 #[template(path = "project/members.html")]
@@ -1027,8 +1026,14 @@ pub(crate) async fn logout_form(
 pub(crate) async fn static_file(Path(name): Path<String>) -> Result<Response, PageError> {
     let (body, content_type) = match name.as_str() {
         "app.css" => (include_str!("../static/app.css"), "text/css"),
-        "kanban.js" => (include_str!("../static/kanban.js"), "application/javascript"),
-        "editable.js" => (include_str!("../static/editable.js"), "application/javascript"),
+        "kanban.js" => (
+            include_str!("../static/kanban.js"),
+            "application/javascript",
+        ),
+        "editable.js" => (
+            include_str!("../static/editable.js"),
+            "application/javascript",
+        ),
         "favicon.svg" => (include_str!("../static/favicon.svg"), "image/svg+xml"),
         _ => {
             return Err(PageError(ApiError(RepositoryError::NotFound(
@@ -1754,7 +1759,10 @@ pub(crate) async fn goal_update(
                 .into_response(),
         );
     }
-    let status = if matches!(body.status.as_str(), "open" | "ongoing" | "done" | "dropped") {
+    let status = if matches!(
+        body.status.as_str(),
+        "open" | "ongoing" | "done" | "dropped"
+    ) {
         body.status.as_str()
     } else {
         "open"
@@ -2846,17 +2854,11 @@ pub(crate) async fn search_page(
     let project_ids = if auth::is_admin(&auth_user.user) {
         None
     } else {
-        let projects = state
-            .repo
-            .list_projects_for_user(auth_user.user.id)
-            .await?;
+        let projects = state.repo.list_projects_for_user(auth_user.user.id).await?;
         let ids: Vec<Uuid> = projects.iter().map(|p| p.id).collect();
         Some(ids)
     };
-    let results: Vec<SearchRow> = state
-        .repo
-        .search(&raw, project_ids.as_deref())
-        .await?;
+    let results: Vec<SearchRow> = state.repo.search(&raw, project_ids.as_deref()).await?;
     let results_view = results
         .into_iter()
         .map(|r| {
@@ -3300,13 +3302,15 @@ pub(crate) async fn api_status_change(
         return Err(ApiError::forbidden());
     }
 
-    let entity_id = Uuid::parse_str(&body.id).map_err(|_| {
-        ApiError::bad_request("invalid entity id")
-    })?;
+    let entity_id =
+        Uuid::parse_str(&body.id).map_err(|_| ApiError::bad_request("invalid entity id"))?;
 
     match body.entity.as_str() {
         "goal" => {
-            if !matches!(body.status.as_str(), "open" | "ongoing" | "done" | "dropped") {
+            if !matches!(
+                body.status.as_str(),
+                "open" | "ongoing" | "done" | "dropped"
+            ) {
                 return Err(ApiError::bad_request("invalid goal status"));
             }
             let goal = state
@@ -3317,7 +3321,10 @@ pub(crate) async fn api_status_change(
             require_member_or_admin(&state, &auth_user.user, goal.project_id)
                 .await
                 .map_err(|_| ApiError::forbidden())?;
-            state.repo.update_goal_status(entity_id, &body.status).await?;
+            state
+                .repo
+                .update_goal_status(entity_id, &body.status)
+                .await?;
         }
         "decision" => {
             if !matches!(body.status.as_str(), "open" | "decided" | "rejected") {
@@ -3337,7 +3344,10 @@ pub(crate) async fn api_status_change(
                 .await?;
         }
         "experiment" => {
-            if !matches!(body.status.as_str(), "planned" | "ongoing" | "done" | "abandoned") {
+            if !matches!(
+                body.status.as_str(),
+                "planned" | "ongoing" | "done" | "abandoned"
+            ) {
                 return Err(ApiError::bad_request("invalid experiment status"));
             }
             let experiment = state
@@ -3397,7 +3407,11 @@ pub(crate) async fn api_goal_update(
     let title = body.title.as_deref().unwrap_or("").trim();
     let title = if title.is_empty() { &goal.title } else { title };
     let body_md = body.body.as_deref().unwrap_or("").trim();
-    let body_md = if body_md.is_empty() { goal.body.as_str() } else { body_md };
+    let body_md = if body_md.is_empty() {
+        goal.body.as_str()
+    } else {
+        body_md
+    };
     let status = body.status.as_deref().unwrap_or(&goal.status);
     let status = if matches!(status, "open" | "ongoing" | "done" | "dropped") {
         status
@@ -3462,7 +3476,11 @@ pub(crate) async fn api_note_update(
     let title = body.title.as_deref().unwrap_or("").trim();
     let title = if title.is_empty() { &note.title } else { title };
     let body_md = body.body.as_deref().unwrap_or("").trim();
-    let body_md = if body_md.is_empty() { note.body.as_str() } else { body_md };
+    let body_md = if body_md.is_empty() {
+        note.body.as_str()
+    } else {
+        body_md
+    };
 
     state.repo.update_note(note_id, title, body_md).await?;
     let body_html = render_markdown(body_md);
@@ -3505,7 +3523,11 @@ pub(crate) async fn api_experiment_update(
         .map_err(|_| ApiError::forbidden())?;
 
     let title = body.title.as_deref().unwrap_or("").trim();
-    let title = if title.is_empty() { &experiment.title } else { title };
+    let title = if title.is_empty() {
+        &experiment.title
+    } else {
+        title
+    };
     let hypothesis = body.hypothesis.as_deref().unwrap_or("").trim();
     let hypothesis = if hypothesis.is_empty() {
         experiment.hypothesis.as_str()
@@ -3564,7 +3586,8 @@ pub(crate) async fn api_project_update(
         return Err(ApiError::forbidden());
     };
     auth::verify_csrf_form(&headers, Some(&body.csrf_token), &auth_user.csrf_token)?;
-    let project_id = Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid project id"))?;
+    let project_id =
+        Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid project id"))?;
     let project = state
         .repo
         .find_project(project_id)
@@ -3575,9 +3598,17 @@ pub(crate) async fn api_project_update(
         .map_err(|_| ApiError::forbidden())?;
 
     let title = body.title.as_deref().unwrap_or("").trim();
-    let title = if title.is_empty() { &project.title } else { title };
+    let title = if title.is_empty() {
+        &project.title
+    } else {
+        title
+    };
     let summary = body.summary.as_deref().unwrap_or("").trim();
-    let summary = if summary.is_empty() { project.summary.as_str() } else { summary };
+    let summary = if summary.is_empty() {
+        project.summary.as_str()
+    } else {
+        summary
+    };
     let status = body.status.as_deref().unwrap_or("active");
     let status = if matches!(status, "active" | "paused" | "archived") {
         status
@@ -3627,9 +3658,17 @@ pub(crate) async fn api_decision_update(
         .map_err(|_| ApiError::forbidden())?;
 
     let title = body.title.as_deref().unwrap_or("").trim();
-    let title = if title.is_empty() { &decision.title } else { title };
+    let title = if title.is_empty() {
+        &decision.title
+    } else {
+        title
+    };
     let context = body.context.as_deref().unwrap_or("").trim();
-    let context = if context.is_empty() { decision.context.as_str() } else { context };
+    let context = if context.is_empty() {
+        decision.context.as_str()
+    } else {
+        context
+    };
 
     // Preserve existing options — only title and context are editable via this endpoint.
     let options: Vec<DecisionOption> = decision
@@ -3962,5 +4001,4 @@ mod tests {
             .is_empty()
         );
     }
-
 }

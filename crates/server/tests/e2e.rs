@@ -719,7 +719,10 @@ async fn inline_edit_via_json_api() {
         .await
         .unwrap();
     let body = page.text().await.unwrap();
-    assert!(body.contains("Updated experiment"), "experiment title: {body}");
+    assert!(
+        body.contains("Updated experiment"),
+        "experiment title: {body}"
+    );
     assert!(body.contains("status-ongoing"), "experiment status: {body}");
 }
 

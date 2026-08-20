@@ -232,7 +232,8 @@ pub trait Repository: Send + Sync {
         result: &str,
         lesson: &str,
     ) -> Result<Experiment, RepositoryError>;
-    async fn update_experiment_status(&self, id: Uuid, status: &str) -> Result<(), RepositoryError>;
+    async fn update_experiment_status(&self, id: Uuid, status: &str)
+    -> Result<(), RepositoryError>;
     async fn delete_experiment(&self, id: Uuid) -> Result<(), RepositoryError>;
 
     async fn list_events(
@@ -1432,7 +1433,11 @@ impl Repository for SqliteRepository {
         Ok(())
     }
 
-    async fn update_experiment_status(&self, id: Uuid, status: &str) -> Result<(), RepositoryError> {
+    async fn update_experiment_status(
+        &self,
+        id: Uuid,
+        status: &str,
+    ) -> Result<(), RepositoryError> {
         let now = causelog_content::now_ms();
         sqlx::query("UPDATE experiments SET status = ?, updated_at_ms = ? WHERE id = ?")
             .bind(status)
