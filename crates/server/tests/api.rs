@@ -1010,8 +1010,8 @@ async fn knowledge_capture_and_graph() {
     assert!(body.contains("Served by decisions"), "got: {body}");
     assert!(body.contains("Which datastore?"), "got: {body}");
     assert!(
-        body.contains(&format!(r#"action="{project_url}/goals/{goal_id}""#)),
-        "goal edit form: got: {body}"
+        body.contains("editable"),
+        "goal page missing editable fields: got: {body}"
     );
 
     // Experiment resolving the decision; capture its lesson as a note.

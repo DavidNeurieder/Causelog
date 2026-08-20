@@ -4,7 +4,18 @@
 {% block content %}
 <div class="row space-between">
   <div>
-    <h1>{{ project.title }}</h1>
+    <div class="editable" data-entity="project" data-id="{{ project.id }}" data-field="title">
+      <div class="editable-display">
+        <h1>{{ project.title }}</h1>
+      </div>
+      <div class="editable-edit">
+        <input type="text" name="title" value="{{ project.title }}" required>
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "overview", "Overview") %}
@@ -17,36 +28,38 @@
 
 <div class="meta-card">
   <div class="meta-card-row">
-    <span class="tag status-{{ project.status }}">{{ project.status }}</span>
+    <div class="editable" data-entity="project" data-id="{{ project.id }}" data-field="status" style="display:inline-block">
+      <div class="editable-display">
+        <span class="tag status-{{ project.status }}">{{ project.status }}</span>
+      </div>
+      <div class="editable-edit">
+        <select name="status">
+          <option value="active" {% if project.status == "active" %}selected{% endif %}>active</option>
+          <option value="paused" {% if project.status == "paused" %}selected{% endif %}>paused</option>
+          <option value="archived" {% if project.status == "archived" %}selected{% endif %}>archived</option>
+        </select>
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
-  {% if !project.summary.is_empty() %}
-  <div class="meta-card-row muted">{{ project.summary }}</div>
-  {% endif %}
+  <div class="meta-card-row">
+    <div class="editable" data-entity="project" data-id="{{ project.id }}" data-field="summary">
+      <div class="editable-display">
+        <span class="muted">{% if project.summary.is_empty() %}Click to add a summary…{% else %}{{ project.summary }}{% endif %}</span>
+      </div>
+      <div class="editable-edit">
+        <input type="text" name="summary" value="{{ project.summary }}">
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
-
-<details>
-  <summary>Edit project</summary>
-  <form method="post" action="/projects/{{ project.id }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <field>
-      <label for="title">Title</label>
-      <input id="title" name="title" value="{{ project.title }}" required>
-    </field>
-    <field>
-      <label for="summary">Summary</label>
-      <input id="summary" name="summary" value="{{ project.summary }}">
-    </field>
-    <field>
-      <label for="status">Status</label>
-      <select id="status" name="status">
-        <option value="active" {% if project.status == "active" %}selected{% endif %}>active</option>
-        <option value="paused" {% if project.status == "paused" %}selected{% endif %}>paused</option>
-        <option value="archived" {% if project.status == "archived" %}selected{% endif %}>archived</option>
-      </select>
-    </field>
-    <button type="submit">Save changes</button>
-  </form>
-</details>
 
 <div class="row quick-add">
   <a class="btn" href="/projects/{{ project.id }}/goals/new">Add a goal</a>

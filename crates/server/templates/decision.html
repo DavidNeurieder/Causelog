@@ -5,7 +5,18 @@
 <div class="row space-between">
   <div>
     {% call m::crumb(project) %}
-    <h1>{{ decision.title }}</h1>
+    <div class="editable" data-entity="decision" data-id="{{ decision.id }}" data-field="title">
+      <div class="editable-display">
+        <h1>{{ decision.title }}</h1>
+      </div>
+      <div class="editable-edit">
+        <input type="text" name="title" value="{{ decision.title }}" required>
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "decisions", "Decisions") %}
@@ -24,12 +35,21 @@
   </div>
 </div>
 
-{% if !view.context_html.is_empty() %}
 <div class="section-panel">
   <h2>Context</h2>
-  <div class="prose">{{ view.context_html|safe }}</div>
+  <div class="editable" data-entity="decision" data-id="{{ decision.id }}" data-field="context">
+    <div class="editable-display">
+      <div class="prose">{% if view.context_html.is_empty() %}<span class="muted">Click to add context…</span>{% else %}{{ view.context_html|safe }}{% endif %}</div>
+    </div>
+    <div class="editable-edit">
+      <textarea name="context" rows="4">{{ decision.context }}</textarea>
+      <div class="editable-actions">
+        <button type="button" class="editable-save primary">Save</button>
+        <button type="button" class="editable-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
 </div>
-{% endif %}
 
 <div class="section-panel">
   <h2>Options</h2>
@@ -101,51 +121,6 @@
   </form>
 </div>
 {% endif %}
-
-<details>
-  <summary>Edit decision</summary>
-  <form method="post" action="/decisions/{{ decision.id }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <field>
-      <label for="etitle">Title</label>
-      <input id="etitle" name="title" value="{{ decision.title }}" required>
-    </field>
-    <field>
-      <label for="econtext">Context (Markdown)</label>
-      <textarea id="econtext" name="context" rows="4">{{ decision.context }}</textarea>
-    </field>
-    <field>
-      <label for="egoal">Serves goal</label>
-      <select id="egoal" name="goal_id">
-        <option value="">— none —</option>
-        {% for goal in goal_options %}
-        <option value="{{ goal.id }}" {% if goal.selected %}selected{% endif %}>{{ goal.title }}</option>
-        {% endfor %}
-      </select>
-    </field>
-    <div class="options-edit">
-      <div class="option-group">
-        <h4>Option 1</h4>
-        <field><label for="eo1">Label</label><input id="eo1" name="opt_1_label" value="{{ view.opt1.label }}"></field>
-        <field><label for="eo1p">Pros</label><textarea id="eo1p" name="opt_1_pros" rows="2">{{ view.opt1.pros }}</textarea></field>
-        <field><label for="eo1c">Cons</label><textarea id="eo1c" name="opt_1_cons" rows="2">{{ view.opt1.cons }}</textarea></field>
-      </div>
-      <div class="option-group">
-        <h4>Option 2</h4>
-        <field><label for="eo2">Label</label><input id="eo2" name="opt_2_label" value="{{ view.opt2.label }}"></field>
-        <field><label for="eo2p">Pros</label><textarea id="eo2p" name="opt_2_pros" rows="2">{{ view.opt2.pros }}</textarea></field>
-        <field><label for="eo2c">Cons</label><textarea id="eo2c" name="opt_2_cons" rows="2">{{ view.opt2.cons }}</textarea></field>
-      </div>
-      <div class="option-group">
-        <h4>Option 3</h4>
-        <field><label for="eo3">Label</label><input id="eo3" name="opt_3_label" value="{{ view.opt3.label }}"></field>
-        <field><label for="eo3p">Pros</label><textarea id="eo3p" name="opt_3_pros" rows="2">{{ view.opt3.pros }}</textarea></field>
-        <field><label for="eo3c">Cons</label><textarea id="eo3c" name="opt_3_cons" rows="2">{{ view.opt3.cons }}</textarea></field>
-      </div>
-    </div>
-    <button type="submit">Save changes</button>
-  </form>
-</details>
 
 <div class="section-panel">
   <h2>History</h2>

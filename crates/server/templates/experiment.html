@@ -5,7 +5,18 @@
 <div class="row space-between">
   <div>
     {% call m::crumb(project) %}
-    <h1>{{ experiment.title }}</h1>
+    <div class="editable" data-entity="experiment" data-id="{{ experiment.id }}" data-field="title">
+      <div class="editable-display">
+        <h1>{{ experiment.title }}</h1>
+      </div>
+      <div class="editable-edit">
+        <input type="text" name="title" value="{{ experiment.title }}" required>
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "experiments", "Experiments") %}
@@ -23,7 +34,23 @@
 
 <div class="meta-card">
   <div class="meta-card-row">
-    <span class="tag status-{{ experiment.status }}">{{ experiment.status }}</span>
+    <div class="editable" data-entity="experiment" data-id="{{ experiment.id }}" data-field="status" style="display:inline-block">
+      <div class="editable-display">
+        <span class="tag status-{{ experiment.status }}">{{ experiment.status }}</span>
+      </div>
+      <div class="editable-edit">
+        <select name="status">
+          <option value="planned" {% if experiment.status == "planned" %}selected{% endif %}>planned</option>
+          <option value="ongoing" {% if experiment.status == "ongoing" %}selected{% endif %}>ongoing</option>
+          <option value="done" {% if experiment.status == "done" %}selected{% endif %}>done</option>
+          <option value="abandoned" {% if experiment.status == "abandoned" %}selected{% endif %}>abandoned</option>
+        </select>
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
     {% if !view.goal_title.is_empty() %}<span class="muted small">goal: {{ view.goal_title }}</span>{% endif %}
     {% if !view.decision_title.is_empty() %}<span class="muted small">decision: {{ view.decision_title }}</span>{% endif %}
     <span class="muted small">created by {{ created_by_name }}</span>
@@ -62,35 +89,53 @@
   </form>
 </div>
 
-{% if !view.hypothesis_html.is_empty() %}
-<details open>
-  <summary>Hypothesis</summary>
-  <div class="section-panel">
-    <h2>Hypothesis</h2>
-    <div class="prose">{{ view.hypothesis_html|safe }}</div>
+<div class="section-panel">
+  <h2>Hypothesis</h2>
+  <div class="editable" data-entity="experiment" data-id="{{ experiment.id }}" data-field="hypothesis" data-display="hypothesis">
+    <div class="editable-display">
+      <div class="prose">{% if view.hypothesis_html.is_empty() %}<span class="muted">Click to add a hypothesis…</span>{% else %}{{ view.hypothesis_html|safe }}{% endif %}</div>
+    </div>
+    <div class="editable-edit">
+      <textarea name="hypothesis" rows="4">{{ experiment.hypothesis }}</textarea>
+      <div class="editable-actions">
+        <button type="button" class="editable-save primary">Save</button>
+        <button type="button" class="editable-cancel">Cancel</button>
+      </div>
+    </div>
   </div>
-</details>
-{% endif %}
+</div>
 
-{% if !experiment.result.is_empty() %}
-<details open>
-  <summary>Result</summary>
-  <div class="section-panel">
-    <h2>Result</h2>
-    <div class="prose">{{ view.result_html|safe }}</div>
+<div class="section-panel">
+  <h2>Result</h2>
+  <div class="editable" data-entity="experiment" data-id="{{ experiment.id }}" data-field="result" data-display="result">
+    <div class="editable-display">
+      <div class="prose">{% if experiment.result.is_empty() %}<span class="muted">Click to add a result…</span>{% else %}{{ view.result_html|safe }}{% endif %}</div>
+    </div>
+    <div class="editable-edit">
+      <textarea name="result" rows="4" placeholder="What happened, with evidence (links to measurements)…">{{ experiment.result }}</textarea>
+      <div class="editable-actions">
+        <button type="button" class="editable-save primary">Save</button>
+        <button type="button" class="editable-cancel">Cancel</button>
+      </div>
+    </div>
   </div>
-</details>
-{% endif %}
+</div>
 
-{% if !experiment.lesson.is_empty() %}
-<details open>
-  <summary>Lesson</summary>
-  <div class="section-panel">
-    <h2>Lesson</h2>
-    <div class="prose">{{ view.lesson_html|safe }}</div>
+<div class="section-panel">
+  <h2>Lesson</h2>
+  <div class="editable" data-entity="experiment" data-id="{{ experiment.id }}" data-field="lesson" data-display="lesson">
+    <div class="editable-display">
+      <div class="prose">{% if experiment.lesson.is_empty() %}<span class="muted">Click to add a lesson…</span>{% else %}{{ view.lesson_html|safe }}{% endif %}</div>
+    </div>
+    <div class="editable-edit">
+      <textarea name="lesson" rows="4" placeholder="The durable, transferable insight — capture it now while it's fresh…">{{ experiment.lesson }}</textarea>
+      <div class="editable-actions">
+        <button type="button" class="editable-save primary">Save</button>
+        <button type="button" class="editable-cancel">Cancel</button>
+      </div>
+    </div>
   </div>
-</details>
-{% endif %}
+</div>
 
 <div class="section-panel">
   <h2>Timeline</h2>
@@ -114,40 +159,4 @@
   </ol>
   {% endif %}
 </div>
-
-<details>
-  <summary>Edit experiment</summary>
-  <form method="post" action="/experiments/{{ experiment.id }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <field>
-      <label for="x-title">Title</label>
-      <input id="x-title" name="title" value="{{ experiment.title }}" required>
-    </field>
-    <field>
-      <label for="x-hypothesis">Hypothesis (Markdown)</label>
-      <textarea id="x-hypothesis" name="hypothesis" rows="4">{{ experiment.hypothesis }}</textarea>
-    </field>
-    <div class="edit-row">
-      <field>
-        <label for="x-status">Status</label>
-        <select id="x-status" name="status">
-          <option value="planned" {% if experiment.status == "planned" %}selected{% endif %}>planned</option>
-          <option value="ongoing" {% if experiment.status == "ongoing" %}selected{% endif %}>ongoing</option>
-          <option value="done" {% if experiment.status == "done" %}selected{% endif %}>done</option>
-          <option value="abandoned" {% if experiment.status == "abandoned" %}selected{% endif %}>abandoned</option>
-        </select>
-      </field>
-      <field></field>
-    </div>
-    <field>
-      <label for="x-result">Result (Markdown)</label>
-      <textarea id="x-result" name="result" rows="4" placeholder="What happened, with evidence (links to measurements)…"></textarea>
-    </field>
-    <field>
-      <label for="x-lesson">Lesson (Markdown)</label>
-      <textarea id="x-lesson" name="lesson" rows="4" placeholder="The durable, transferable insight — capture it now while it's fresh…"></textarea>
-    </field>
-    <button type="submit">Save changes</button>
-  </form>
-</details>
 {% endblock %}

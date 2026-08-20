@@ -5,7 +5,18 @@
 <div class="row space-between">
   <div>
     {% call m::crumb(project) %}
-    <h1>{{ goal.title }}</h1>
+    <div class="editable" data-entity="goal" data-id="{{ goal.id }}" data-field="title">
+      <div class="editable-display">
+        <h1>{{ goal.title }}</h1>
+      </div>
+      <div class="editable-edit">
+        <input type="text" name="title" value="{{ goal.title }}" required>
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "goals", "Goals") %}
@@ -18,18 +29,59 @@
 
 <div class="meta-card">
   <div class="meta-card-row">
-    <span class="tag status-{{ goal.status }}">{{ goal.status }}</span>
+    <div class="editable" data-entity="goal" data-id="{{ goal.id }}" data-field="status" style="display:inline-block">
+      <div class="editable-display">
+        <span class="tag status-{{ goal.status }}">{{ goal.status }}</span>
+      </div>
+      <div class="editable-edit">
+        <select name="status">
+          <option value="open" {% if goal.status == "open" %}selected{% endif %}>open</option>
+          <option value="ongoing" {% if goal.status == "ongoing" %}selected{% endif %}>ongoing</option>
+          <option value="done" {% if goal.status == "done" %}selected{% endif %}>done</option>
+          <option value="dropped" {% if goal.status == "dropped" %}selected{% endif %}>dropped</option>
+        </select>
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
     <span class="muted small">created by {{ created_by_name }}</span>
-    {% if assigned_to_name != "Unknown" %}<span class="muted small">· assigned to {{ assigned_to_name }}</span>{% endif %}
+    <div class="editable" data-entity="goal" data-id="{{ goal.id }}" data-field="assigned_to" style="display:inline-block">
+      <div class="editable-display">
+        <span class="muted small assigned-name">{% if assigned_to_name != "Unknown" %}· assigned to {{ assigned_to_name }}{% else %}· unassigned{% endif %}</span>
+      </div>
+      <div class="editable-edit">
+        <select name="assigned_to">
+          <option value="" {% if goal_assigned_to_id.is_empty() %}selected{% endif %}>— unassigned —</option>
+          {% for (member, _role) in members %}
+          <option value="{{ member.id }}" {% if goal_assigned_to_id == member.id.to_string() %}selected{% endif %}>{{ member.display_name }}</option>
+          {% endfor %}
+        </select>
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
-{% if !body_html.is_empty() %}
 <div class="section-panel">
   <h2>Details</h2>
-  <div class="prose">{{ body_html|safe }}</div>
+  <div class="editable" data-entity="goal" data-id="{{ goal.id }}" data-field="body">
+    <div class="editable-display">
+      <div class="prose">{% if body_html.is_empty() %}<span class="muted">Click to add details…</span>{% else %}{{ body_html|safe }}{% endif %}</div>
+    </div>
+    <div class="editable-edit">
+      <textarea name="body" rows="8">{{ goal.body }}</textarea>
+      <div class="editable-actions">
+        <button type="button" class="editable-save primary">Save</button>
+        <button type="button" class="editable-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
 </div>
-{% endif %}
 
 {% if !decisions.is_empty() %}
 <div class="section-panel">
@@ -44,40 +96,4 @@
   {% call m::experiment_list(experiments) %}
 </div>
 {% endif %}
-
-<details>
-  <summary>Edit goal</summary>
-  <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <field>
-      <label for="gtitle">Title</label>
-      <input id="gtitle" name="title" value="{{ goal.title }}" required>
-    </field>
-    <field>
-      <label for="gbody">Details (Markdown)</label>
-      <textarea id="gbody" name="body" rows="8">{{ goal.body }}</textarea>
-    </field>
-    <div class="edit-row">
-      <field>
-        <label for="gstatus">Status</label>
-        <select id="gstatus" name="status">
-          <option value="open" {% if goal.status == "open" %}selected{% endif %}>open</option>
-          <option value="ongoing" {% if goal.status == "ongoing" %}selected{% endif %}>ongoing</option>
-          <option value="done" {% if goal.status == "done" %}selected{% endif %}>done</option>
-          <option value="dropped" {% if goal.status == "dropped" %}selected{% endif %}>dropped</option>
-        </select>
-      </field>
-      <field>
-        <label for="gassign">Assign to</label>
-        <select id="gassign" name="assigned_to">
-          <option value="" {% if goal_assigned_to_id.is_empty() %}selected{% endif %}>— unassigned —</option>
-          {% for (member, _role) in members %}
-          <option value="{{ member.id }}" {% if goal_assigned_to_id == member.id.to_string() %}selected{% endif %}>{{ member.display_name }}</option>
-          {% endfor %}
-        </select>
-      </field>
-    </div>
-    <button type="submit">Save changes</button>
-  </form>
-</details>
 {% endblock %}

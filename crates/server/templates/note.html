@@ -5,7 +5,18 @@
 <div class="row space-between">
   <div>
     {% call m::crumb(project) %}
-    <h1>{{ note.title }}</h1>
+    <div class="editable" data-entity="note" data-id="{{ note.id }}" data-field="title">
+      <div class="editable-display">
+        <h1>{{ note.title }}</h1>
+      </div>
+      <div class="editable-edit">
+        <input type="text" name="title" value="{{ note.title }}" required>
+        <div class="editable-actions">
+          <button type="button" class="editable-save primary">Save</button>
+          <button type="button" class="editable-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
     {% if !view.source_url.is_empty() %}<p class="muted">captured from <a href="{{ view.source_url }}">{{ view.source_title }}</a></p>{% endif %}
     <p class="muted small">created by {{ created_by_name }}</p>
   </div>
@@ -18,23 +29,20 @@
   </div>
 </div>
 
-<details>
-  <summary>Edit note</summary>
-  <form method="post" action="/notes/{{ note.id }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <field>
-      <label for="n-title">Title</label>
-      <input id="n-title" name="title" value="{{ note.title }}" required>
-    </field>
-    <field>
-      <label for="n-body">Body (Markdown)</label>
-      <textarea id="n-body" name="body" rows="10">{{ note.body }}</textarea>
-    </field>
-    <button type="submit">Save note</button>
-  </form>
-</details>
-
-<div class="prose">{{ view.body_html|safe }}</div>
+<div class="section-panel">
+  <div class="editable" data-entity="note" data-id="{{ note.id }}" data-field="body">
+    <div class="editable-display">
+      <div class="prose">{% if view.body_html.is_empty() %}<span class="muted">Click to add content…</span>{% else %}{{ view.body_html|safe }}{% endif %}</div>
+    </div>
+    <div class="editable-edit">
+      <textarea name="body" rows="10">{{ note.body }}</textarea>
+      <div class="editable-actions">
+        <button type="button" class="editable-save primary">Save</button>
+        <button type="button" class="editable-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <h2>History</h2>
 {% if revisions.is_empty() %}

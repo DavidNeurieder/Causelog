@@ -482,7 +482,6 @@ struct DecisionTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
-    goal_options: Vec<GoalOptionView>,
     decision: Decision,
     view: DecisionView,
     created_by_name: String,
@@ -500,9 +499,6 @@ struct DecisionView {
     decided_at: String,
     review_at: String,
     goal_title: String,
-    opt1: EditOption,
-    opt2: EditOption,
-    opt3: EditOption,
 }
 
 struct OptionView {
@@ -515,36 +511,6 @@ struct OptionView {
 struct RevisionView {
     created_at: String,
     html: String,
-}
-
-/// Pre-filled values for one option slot in the edit form (askama can't call
-/// closures, so we pad the three slots in Rust).
-struct EditOption {
-    label: String,
-    pros: String,
-    cons: String,
-}
-
-/// One row of the "serves goal" select in the edit form.
-struct GoalOptionView {
-    id: String,
-    title: String,
-    selected: bool,
-}
-
-fn edit_option(options: &[DecisionOption], index: usize) -> EditOption {
-    match options.get(index) {
-        Some(o) => EditOption {
-            label: o.label.clone(),
-            pros: o.pros.clone(),
-            cons: o.cons.clone(),
-        },
-        None => EditOption {
-            label: String::new(),
-            pros: String::new(),
-            cons: String::new(),
-        },
-    }
 }
 
 /// Project row on the dashboard, with aggregate counts.
@@ -1062,6 +1028,7 @@ pub(crate) async fn static_file(Path(name): Path<String>) -> Result<Response, Pa
     let (body, content_type) = match name.as_str() {
         "app.css" => (include_str!("../static/app.css"), "text/css"),
         "kanban.js" => (include_str!("../static/kanban.js"), "application/javascript"),
+        "editable.js" => (include_str!("../static/editable.js"), "application/javascript"),
         "favicon.svg" => (include_str!("../static/favicon.svg"), "image/svg+xml"),
         _ => {
             return Err(PageError(ApiError(RepositoryError::NotFound(
@@ -1960,14 +1927,6 @@ pub(crate) async fn decision_page(
         .and_then(|gid| goals.iter().find(|g| g.id == gid))
         .map(|g| g.title.clone())
         .unwrap_or_default();
-    let goal_options = goals
-        .iter()
-        .map(|g| GoalOptionView {
-            id: g.id.to_string(),
-            title: g.title.clone(),
-            selected: decision.goal_id == Some(g.id),
-        })
-        .collect();
     let options = decision
         .options
         .iter()
@@ -1993,9 +1952,6 @@ pub(crate) async fn decision_page(
             .map(format_date_ms)
             .unwrap_or_default(),
         goal_title,
-        opt1: edit_option(&decision.options, 0),
-        opt2: edit_option(&decision.options, 1),
-        opt3: edit_option(&decision.options, 2),
     };
     let created_by_name = creator_name(&state.repo, decision.created_by).await;
     page(&DecisionTemplate {
@@ -2006,7 +1962,6 @@ pub(crate) async fn decision_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
-        goal_options,
         decision,
         view,
         created_by_name,
@@ -3406,6 +3361,349 @@ pub(crate) async fn api_status_change(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+// ---------------------------------------------------------------------------
+// JSON API — inline editing
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub(crate) struct GoalUpdate {
+    csrf_token: String,
+    title: Option<String>,
+    body: Option<String>,
+    status: Option<String>,
+    assigned_to: Option<String>,
+}
+
+pub(crate) async fn api_goal_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    axum::extract::Json(body): axum::extract::Json<GoalUpdate>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Err(ApiError::forbidden());
+    };
+    auth::verify_csrf_form(&headers, Some(&body.csrf_token), &auth_user.csrf_token)?;
+    let goal_id = Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid goal id"))?;
+    let goal = state
+        .repo
+        .find_goal(goal_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("goal"))?;
+    require_member_or_admin(&state, &auth_user.user, goal.project_id)
+        .await
+        .map_err(|_| ApiError::forbidden())?;
+
+    let title = body.title.as_deref().unwrap_or("").trim();
+    let body_md = body.body.as_deref().unwrap_or("").trim();
+    let status = body.status.as_deref().unwrap_or(&goal.status);
+    let status = if matches!(status, "open" | "ongoing" | "done" | "dropped") {
+        status
+    } else {
+        "open"
+    };
+    let assigned_to = body
+        .assigned_to
+        .as_ref()
+        .and_then(|v| {
+            if v.is_empty() {
+                None
+            } else {
+                Uuid::parse_str(v).ok()
+            }
+        })
+        .or(goal.assigned_to);
+
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+
+    state
+        .repo
+        .update_goal(goal_id, title, body_md, status, assigned_to)
+        .await?;
+
+    let assigned_to_name = creator_name(&state.repo, assigned_to).await;
+    let body_html = render_markdown(body_md);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "title": title,
+        "body_html": body_html,
+        "status": status,
+        "assigned_to_name": assigned_to_name,
+    })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct NoteUpdate {
+    csrf_token: String,
+    title: Option<String>,
+    body: Option<String>,
+}
+
+pub(crate) async fn api_note_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    axum::extract::Json(body): axum::extract::Json<NoteUpdate>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Err(ApiError::forbidden());
+    };
+    auth::verify_csrf_form(&headers, Some(&body.csrf_token), &auth_user.csrf_token)?;
+    let note_id = Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid note id"))?;
+    let note = state
+        .repo
+        .find_note(note_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("note"))?;
+    require_member_or_admin(&state, &auth_user.user, note.project_id)
+        .await
+        .map_err(|_| ApiError::forbidden())?;
+
+    let title = body.title.as_deref().unwrap_or("").trim();
+    let body_md = body.body.as_deref().unwrap_or("").trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+
+    state.repo.update_note(note_id, title, body_md).await?;
+    let body_html = render_markdown(body_md);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "title": title,
+        "body_html": body_html,
+    })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ExperimentUpdate {
+    csrf_token: String,
+    title: Option<String>,
+    hypothesis: Option<String>,
+    status: Option<String>,
+    result: Option<String>,
+    lesson: Option<String>,
+}
+
+pub(crate) async fn api_experiment_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    axum::extract::Json(body): axum::extract::Json<ExperimentUpdate>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Err(ApiError::forbidden());
+    };
+    auth::verify_csrf_form(&headers, Some(&body.csrf_token), &auth_user.csrf_token)?;
+    let experiment_id =
+        Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid experiment id"))?;
+    let experiment = state
+        .repo
+        .find_experiment(experiment_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("experiment"))?;
+    require_member_or_admin(&state, &auth_user.user, experiment.project_id)
+        .await
+        .map_err(|_| ApiError::forbidden())?;
+
+    let title = body.title.as_deref().unwrap_or("").trim();
+    let hypothesis = body.hypothesis.as_deref().unwrap_or("").trim();
+    let status = body.status.as_deref().unwrap_or(&experiment.status);
+    let status = if matches!(status, "planned" | "ongoing" | "done" | "abandoned") {
+        status
+    } else {
+        "planned"
+    };
+    let result = body.result.as_deref().unwrap_or("").trim();
+    let lesson = body.lesson.as_deref().unwrap_or("").trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+
+    state
+        .repo
+        .update_experiment(experiment_id, title, hypothesis, status, result, lesson)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "title": title,
+        "hypothesis_html": render_markdown(hypothesis),
+        "status": status,
+        "result_html": render_markdown(result),
+        "lesson_html": render_markdown(lesson),
+    })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ProjectUpdate {
+    csrf_token: String,
+    title: Option<String>,
+    summary: Option<String>,
+    status: Option<String>,
+}
+
+pub(crate) async fn api_project_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    axum::extract::Json(body): axum::extract::Json<ProjectUpdate>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Err(ApiError::forbidden());
+    };
+    auth::verify_csrf_form(&headers, Some(&body.csrf_token), &auth_user.csrf_token)?;
+    let project_id = Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid project id"))?;
+    require_member_or_admin(&state, &auth_user.user, project_id)
+        .await
+        .map_err(|_| ApiError::forbidden())?;
+
+    let title = body.title.as_deref().unwrap_or("").trim();
+    let summary = body.summary.as_deref().unwrap_or("").trim();
+    let status = body.status.as_deref().unwrap_or("active");
+    let status = if matches!(status, "active" | "paused" | "archived") {
+        status
+    } else {
+        "active"
+    };
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+
+    state
+        .repo
+        .update_project(project_id, title, summary, status)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "title": title,
+        "summary": summary,
+        "status": status,
+    })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct DecisionUpdate {
+    csrf_token: String,
+    title: Option<String>,
+    context: Option<String>,
+}
+
+pub(crate) async fn api_decision_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    axum::extract::Json(body): axum::extract::Json<DecisionUpdate>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Err(ApiError::forbidden());
+    };
+    auth::verify_csrf_form(&headers, Some(&body.csrf_token), &auth_user.csrf_token)?;
+    let decision_id =
+        Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid decision id"))?;
+    let decision = state
+        .repo
+        .find_decision(decision_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("decision"))?;
+    require_member_or_admin(&state, &auth_user.user, decision.project_id)
+        .await
+        .map_err(|_| ApiError::forbidden())?;
+
+    let title = body.title.as_deref().unwrap_or("").trim();
+    let context = body.context.as_deref().unwrap_or("").trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+
+    // Preserve existing options — only title and context are editable via this endpoint.
+    let options: Vec<DecisionOption> = decision
+        .options
+        .iter()
+        .map(|o| DecisionOption {
+            id: o.id.clone(),
+            label: o.label.clone(),
+            pros: o.pros.clone(),
+            cons: o.cons.clone(),
+        })
+        .collect();
+
+    state
+        .repo
+        .update_decision(decision_id, title, context, &options)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "title": title,
+        "context_html": render_markdown(context),
+    })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ResolveUpdate {
+    csrf_token: String,
+    status: String,
+    decided_option: Option<String>,
+    rationale: Option<String>,
+    review_at: Option<String>,
+}
+
+pub(crate) async fn api_decision_resolve(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    axum::extract::Json(body): axum::extract::Json<ResolveUpdate>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Err(ApiError::forbidden());
+    };
+    auth::verify_csrf_form(&headers, Some(&body.csrf_token), &auth_user.csrf_token)?;
+    let decision_id =
+        Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid decision id"))?;
+    let decision = state
+        .repo
+        .find_decision(decision_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("decision"))?;
+    require_member_or_admin(&state, &auth_user.user, decision.project_id)
+        .await
+        .map_err(|_| ApiError::forbidden())?;
+
+    let decided_option = if body.status == "decided" {
+        body.decided_option.clone().filter(|v| !v.is_empty())
+    } else {
+        None
+    };
+    let status = if decided_option.is_some() {
+        if matches!(body.status.as_str(), "decided" | "rejected") {
+            body.status.as_str()
+        } else {
+            "open"
+        }
+    } else {
+        "open"
+    };
+    let rationale = body.rationale.as_deref().unwrap_or("").trim();
+    let review_at_ms = body
+        .review_at
+        .as_deref()
+        .filter(|v| !v.is_empty())
+        .and_then(parse_date_ms);
+
+    state
+        .repo
+        .resolve_decision(decision_id, status, decided_option, rationale, review_at_ms)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "status": status,
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3652,20 +3950,4 @@ mod tests {
         );
     }
 
-    // -- edit_option -------------------------------------------------------
-
-    #[test]
-    fn edit_option_pads_missing_slots() {
-        let opt = edit_option(&[], 0);
-        assert_eq!(opt.label, "");
-        let with = DecisionOption {
-            id: "o1".into(),
-            label: "A".into(),
-            pros: "p".into(),
-            cons: "c".into(),
-        };
-        let opt = edit_option(&[with], 0);
-        assert_eq!(opt.label, "A");
-        assert_eq!(opt.pros, "p");
-    }
 }
