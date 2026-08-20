@@ -6,6 +6,7 @@ use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use causelog_server::app;
 use causelog_server::repository::{Repository, SqliteRepository};
+use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -67,6 +68,11 @@ async fn body_string(res: axum::response::Response) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
+async fn json_response(res: axum::response::Response) -> serde_json::Value {
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
 fn get(uri: &str) -> Request<Body> {
     Request::builder().uri(uri).body(Body::empty()).unwrap()
 }
@@ -125,6 +131,17 @@ fn post_form(uri: &str, fields: &[(&str, &str)]) -> Request<Body> {
         .uri(uri)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body))
+        .unwrap()
+}
+
+fn post_json_with_csrf(uri: &str, body: &serde_json::Value, csrf: &str) -> Request<Body> {
+    let mut payload = body.clone();
+    payload["csrf_token"] = json!(csrf);
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(serde_json::to_vec(&payload).unwrap()))
         .unwrap()
 }
 
@@ -697,8 +714,8 @@ async fn decision_lifecycle_with_history() {
     assert!(body.contains("Chose"), "got: {body}");
     assert!(body.contains("2026-12-31"), "got: {body}");
     // Two revisions: creation + resolution.
-    // Only the nav-dropdown <details> has a class; the edit section does not.
-    assert_eq!(body.matches("details class").count(), 1);
+    // Two nav-dropdowns (subnav + edit) have classes.
+    assert_eq!(body.matches("details class").count(), 2);
     let revisions: Vec<_> = body.match_indices("History").collect();
     assert!(!revisions.is_empty(), "got: {body}");
     // The resolution snapshot should be in history.
@@ -3064,4 +3081,430 @@ async fn admin_add_remove_user_to_project() {
     // Alice can no longer access the project.
     let page = send(&app, with_cookie(get(&project_url), &alice_cookie)).await;
     assert_eq!(page.status(), StatusCode::FORBIDDEN);
+}
+
+// ---------------------------------------------------------------------------
+// JSON API inline-edit tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn api_goal_update_fields() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    // Create an open goal.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Original title"),
+                    ("body", "Original body."),
+                    ("status", "open"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &cookie),
+    )
+    .await;
+    let goal_id = extract_goal_id(&body_string(page).await);
+
+    // Update via JSON API.
+    let res = send(
+        &app,
+        with_cookie(
+            post_json_with_csrf(
+                &format!("/api/goals/{goal_id}"),
+                &json!({"title": "Updated title", "body": "Updated body.", "status": "done"}),
+                &csrf,
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let data = json_response(res).await;
+    assert_eq!(data["ok"], true);
+    assert_eq!(data["title"], "Updated title");
+    assert!(data["body_html"].as_str().unwrap().contains("Updated body."));
+    assert_eq!(data["status"], "done");
+
+    // Verify on the rendered page.
+    let page = send(
+        &app,
+        with_cookie(get(&format!("/goals/{goal_id}")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(body.contains("Updated title"), "got: {body}");
+    assert!(body.contains("Updated body."), "got: {body}");
+    assert!(body.contains("status-done"), "got: {body}");
+}
+
+#[tokio::test]
+async fn api_goal_update_rejects_bad_csrf() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    let _res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/goals"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "A goal"),
+                    ("body", ""),
+                    ("status", "open"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/goals")), &cookie),
+    )
+    .await;
+    let goal_id = extract_goal_id(&body_string(page).await);
+
+    // Wrong CSRF token.
+    let res = send(
+        &app,
+        with_cookie(
+            post_json_with_csrf(
+                &format!("/api/goals/{goal_id}"),
+                &json!({"title": "Hacked title"}),
+                "wrong-token",
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn api_note_update_fields() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/notes"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Original note"),
+                    ("body", "First body."),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let note_url = redirect_to(&res);
+    assert!(note_url.starts_with("/notes/"));
+    let note_id = note_url.strip_prefix("/notes/").unwrap();
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_json_with_csrf(
+                &format!("/api/notes/{note_id}"),
+                &json!({"title": "Updated note", "body": "Second body."}),
+                &csrf,
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let data = json_response(res).await;
+    assert_eq!(data["ok"], true);
+    assert_eq!(data["title"], "Updated note");
+    assert!(data["body_html"].as_str().unwrap().contains("Second body."));
+
+    let page = send(&app, with_cookie(get(&note_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Updated note"), "got: {body}");
+    assert!(body.contains("Second body."), "got: {body}");
+}
+
+#[tokio::test]
+async fn api_experiment_update_fields() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/experiments"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Original experiment"),
+                    ("hypothesis", "Old hypothesis."),
+                    ("goal_id", ""),
+                    ("decision_id", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/experiments")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    let exp_url = extract_href(&body, "/experiments/");
+    let exp_id = exp_url.strip_prefix("/experiments/").unwrap();
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_json_with_csrf(
+                &format!("/api/experiments/{exp_id}"),
+                &json!({
+                    "title": "Updated experiment",
+                    "hypothesis": "New hypothesis.",
+                    "status": "ongoing",
+                    "result": "It worked.",
+                    "lesson": "Trust the process.",
+                }),
+                &csrf,
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let data = json_response(res).await;
+    assert_eq!(data["ok"], true);
+    assert_eq!(data["title"], "Updated experiment");
+    assert_eq!(data["status"], "ongoing");
+    assert!(data["hypothesis_html"].as_str().unwrap().contains("New hypothesis."));
+    assert!(data["result_html"].as_str().unwrap().contains("It worked."));
+    assert!(data["lesson_html"].as_str().unwrap().contains("Trust the process."));
+
+    let page = send(
+        &app,
+        with_cookie(get(&exp_url), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    assert!(body.contains("Updated experiment"), "got: {body}");
+    assert!(body.contains("status-ongoing"), "got: {body}");
+}
+
+#[tokio::test]
+async fn api_project_update_fields() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let csrf = csrf_from_page(&app, &cookie).await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                "/projects",
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Original project"),
+                    ("summary", "Old summary."),
+                    ("status", "active"),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    let project_url = redirect_to(&res);
+    let project_id = project_url.strip_prefix("/projects/").unwrap();
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_json_with_csrf(
+                &format!("/api/projects/{project_id}"),
+                &json!({
+                    "title": "Updated project",
+                    "summary": "New summary.",
+                    "status": "paused",
+                }),
+                &csrf,
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let data = json_response(res).await;
+    assert_eq!(data["ok"], true);
+    assert_eq!(data["title"], "Updated project");
+    assert_eq!(data["summary"], "New summary.");
+    assert_eq!(data["status"], "paused");
+
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Updated project"), "got: {body}");
+    assert!(body.contains("New summary."), "got: {body}");
+    assert!(body.contains("status-paused"), "got: {body}");
+}
+
+#[tokio::test]
+async fn api_decision_update_fields() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Original decision"),
+                    ("context", "Old context."),
+                    ("goal_id", ""),
+                    ("opt_1_label", "Option A"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", "Option B"),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/decisions")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    let decision_url = extract_href(&body, "/decisions/");
+    let decision_id = decision_url.strip_prefix("/decisions/").unwrap();
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_json_with_csrf(
+                &format!("/api/decisions/{decision_id}"),
+                &json!({
+                    "title": "Updated decision",
+                    "context": "New context.",
+                }),
+                &csrf,
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let data = json_response(res).await;
+    assert_eq!(data["ok"], true);
+    assert_eq!(data["title"], "Updated decision");
+    assert!(data["context_html"].as_str().unwrap().contains("New context."));
+
+    // Options should be preserved.
+    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Updated decision"), "got: {body}");
+    assert!(body.contains("Option A"), "options preserved: {body}");
+    assert!(body.contains("Option B"), "options preserved: {body}");
+}
+
+#[tokio::test]
+async fn api_decision_resolve_fields() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let (project_url, csrf, cookie) = setup_project(&app, &cookie).await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "To resolve"),
+                    ("context", ""),
+                    ("goal_id", ""),
+                    ("opt_1_label", "SQLite"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", "Postgres"),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let page = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/decisions")), &cookie),
+    )
+    .await;
+    let body = body_string(page).await;
+    let decision_url = extract_href(&body, "/decisions/");
+    let decision_id = decision_url.strip_prefix("/decisions/").unwrap();
+
+    // Resolve as "decided" via JSON API.
+    let res = send(
+        &app,
+        with_cookie(
+            post_json_with_csrf(
+                &format!("/api/decisions/{decision_id}/resolve"),
+                &json!({
+                    "status": "decided",
+                    "decided_option": "opt_1",
+                    "rationale": "Simpler stack.",
+                }),
+                &csrf,
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let data = json_response(res).await;
+    assert_eq!(data["ok"], true);
+    assert_eq!(data["status"], "decided");
+
+    // Verify on the rendered page.
+    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let body = body_string(page).await;
+    assert!(body.contains("Chose"), "got: {body}");
+    assert!(body.contains("Simpler stack."), "got: {body}");
 }

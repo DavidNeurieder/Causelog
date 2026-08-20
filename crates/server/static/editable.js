@@ -6,23 +6,64 @@
   if (!csrfMeta) return;
   var csrfToken = csrfMeta.getAttribute('content');
 
-  // ── Activate edit mode ───────────────────────────────────────────────
+  // ── Single-field activate on click ────────────────────────────────────
   document.addEventListener('click', function (e) {
     var display = e.target.closest('.editable-display');
     if (!display) return;
     var container = display.closest('.editable');
     if (!container || container.classList.contains('active')) return;
-
-    // Close any other active editables first
-    document.querySelectorAll('.editable.active').forEach(closeEditable);
+    // Don't single-activate if we're in all-edit mode
+    if (document.querySelector('.editable.active')) return;
 
     container.classList.add('active');
+    showDoneBar();
+    focusEditable(container);
+  });
+
+  // ── Edit all fields at once ───────────────────────────────────────────
+  function editAllEditable() {
+    var containers = document.querySelectorAll('.editable:not(.active)');
+    containers.forEach(function (c) {
+      c.classList.add('active');
+      // Store original for cancel
+      var input = c.querySelector('.editable-edit input, .editable-edit textarea, .editable-edit select');
+      if (input && !input.hasAttribute('data-original')) {
+        input.setAttribute('data-original', input.value);
+      }
+    });
+    showDoneBar();
+    // Focus the first editable field on the page
+    var first = document.querySelector('.editable.active');
+    if (first) focusEditable(first);
+  }
+
+  // ── Cancel all fields at once ─────────────────────────────────────────
+  function cancelAllEditable() {
+    document.querySelectorAll('.editable.active').forEach(closeEditable);
+    hideDoneBar();
+  }
+
+  // ── Done editing bar ──────────────────────────────────────────────────
+  function showDoneBar() {
+    var bar = document.getElementById('done-editing-bar');
+    if (bar) bar.classList.add('active');
+  }
+  function hideDoneBar() {
+    var bar = document.getElementById('done-editing-bar');
+    if (bar) bar.classList.remove('active');
+  }
+  function anyActive() {
+    return document.querySelectorAll('.editable.active').length > 0;
+  }
+
+  // ── Focus helper ──────────────────────────────────────────────────────
+  function focusEditable(container) {
     var input = container.querySelector('.editable-edit input, .editable-edit textarea, .editable-edit select');
     if (input) {
       input.focus();
       if (input.select) input.select();
     }
-  });
+  }
 
   // ── Save ─────────────────────────────────────────────────────────────
   function saveEditable(container) {
@@ -80,60 +121,63 @@
       })
       .then(function (data) {
         container.classList.remove('active', 'editable-saving');
-        // Update display
-        if (data.title !== undefined) {
+        // Update data-original to match saved value
+        var savedInput = container.querySelector('.editable-edit input, .editable-edit textarea, .editable-edit select');
+        if (savedInput) savedInput.setAttribute('data-original', savedInput.value);
+        // Update display — only update content relevant to the saved field
+        var field = container.getAttribute('data-field');
+        if (field === 'title' && data.title !== undefined) {
           var displayText = container.querySelector('.editable-display');
           if (displayText) {
-            // Handle h1 inside display
             var h1 = displayText.querySelector('h1');
             if (h1) h1.textContent = data.title;
             else displayText.textContent = data.title;
           }
         }
-        if (data.body_html !== undefined) {
+        if (field === 'body' && data.body_html !== undefined) {
           var proseDisplay = container.querySelector('.editable-display .prose');
           if (proseDisplay) proseDisplay.innerHTML = data.body_html;
         }
-        if (data.context_html !== undefined) {
+        if (field === 'context' && data.context_html !== undefined) {
           var ctxDisplay = container.querySelector('.editable-display .prose');
           if (ctxDisplay) ctxDisplay.innerHTML = data.context_html;
         }
-        if (data.hypothesis_html !== undefined) {
+        if (field === 'hypothesis' && data.hypothesis_html !== undefined) {
           var hypDisplay = container.querySelector('[data-display="hypothesis"] .prose');
           if (hypDisplay) hypDisplay.innerHTML = data.hypothesis_html;
         }
-        if (data.result_html !== undefined) {
+        if (field === 'result' && data.result_html !== undefined) {
           var resDisplay = container.querySelector('[data-display="result"] .prose');
           if (resDisplay) resDisplay.innerHTML = data.result_html;
         }
-        if (data.lesson_html !== undefined) {
+        if (field === 'lesson' && data.lesson_html !== undefined) {
           var lesDisplay = container.querySelector('[data-display="lesson"] .prose');
           if (lesDisplay) lesDisplay.innerHTML = data.lesson_html;
         }
-        if (data.status !== undefined) {
+        if (field === 'status' && data.status !== undefined) {
           var tag = container.querySelector('.editable-display .tag');
           if (tag) {
             tag.textContent = data.status;
             tag.className = 'tag status-' + data.status;
           }
-          // Also update the page header status tag if present
           var headerTag = document.querySelector('.meta-card .tag');
-          if (headerTag && container.getAttribute('data-field') === 'status') {
+          if (headerTag) {
             headerTag.textContent = data.status;
             headerTag.className = 'tag status-' + data.status;
           }
         }
-        if (data.assigned_to_name !== undefined) {
+        if (field === 'assigned_to' && data.assigned_to_name !== undefined) {
           var assignDisplay = container.querySelector('.editable-display');
           if (assignDisplay) {
             var nameSpan = assignDisplay.querySelector('.assigned-name');
             if (nameSpan) nameSpan.textContent = data.assigned_to_name;
           }
         }
-        if (data.summary !== undefined) {
+        if (field === 'summary' && data.summary !== undefined) {
           var sumDisplay = container.querySelector('.editable-display');
           if (sumDisplay) sumDisplay.textContent = data.summary;
         }
+        if (!anyActive()) hideDoneBar();
       })
       .catch(function (err) {
         container.classList.remove('editable-saving');
@@ -144,12 +188,11 @@
       });
   }
 
-  // ── Cancel ───────────────────────────────────────────────────────────
+  // ── Cancel single field ──────────────────────────────────────────────
   function closeEditable(container) {
     container.classList.remove('active', 'editable-saving');
     var errEl = container.querySelector('.editable-error');
     if (errEl) errEl.remove();
-    // Revert input to original value
     var input = container.querySelector('.editable-edit input, .editable-edit textarea, .editable-edit select');
     if (input && input.hasAttribute('data-original')) {
       input.value = input.getAttribute('data-original');
@@ -158,17 +201,35 @@
 
   // ── Event delegation ─────────────────────────────────────────────────
   document.addEventListener('click', function (e) {
+    // Edit all / Cancel all from dropdown
+    if (e.target.matches('[data-action="edit-all"]')) {
+      e.preventDefault();
+      // Close any open nav-dropdown
+      var dd = e.target.closest('.nav-dropdown');
+      if (dd) dd.removeAttribute('open');
+      editAllEditable();
+      return;
+    }
+    if (e.target.matches('[data-action="cancel-all"]')) {
+      e.preventDefault();
+      cancelAllEditable();
+      return;
+    }
+    // Individual field save / cancel
     if (e.target.classList.contains('editable-save')) {
       var container = e.target.closest('.editable');
       if (container) saveEditable(container);
     }
     if (e.target.classList.contains('editable-cancel')) {
       var container = e.target.closest('.editable');
-      if (container) closeEditable(container);
+      if (container) {
+        closeEditable(container);
+        if (!anyActive()) hideDoneBar();
+      }
     }
   });
 
-  // Enter to save (inputs), Escape to cancel
+  // ── Keyboard shortcuts ────────────────────────────────────────────────
   document.addEventListener('keydown', function (e) {
     var container = e.target.closest('.editable');
     if (!container || !container.classList.contains('active')) return;
@@ -176,9 +237,9 @@
     if (e.key === 'Escape') {
       e.preventDefault();
       closeEditable(container);
+      if (!anyActive()) hideDoneBar();
       return;
     }
-
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
       e.preventDefault();
       saveEditable(container);
@@ -195,7 +256,24 @@
     saveEditable(container);
   });
 
-  // ── Store original values for cancel ─────────────────────────────────
+  // ── Unsaved changes guard ────────────────────────────────────────────
+  function isDirty() {
+    var containers = document.querySelectorAll('.editable.active');
+    for (var i = 0; i < containers.length; i++) {
+      var input = containers[i].querySelector('.editable-edit input, .editable-edit textarea, .editable-edit select');
+      if (input && input.value !== input.getAttribute('data-original')) return true;
+    }
+    return false;
+  }
+
+  window.addEventListener('beforeunload', function (e) {
+    if (isDirty()) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
+  // ── Store original values on load ────────────────────────────────────
   document.querySelectorAll('.editable').forEach(function (container) {
     var input = container.querySelector('.editable-edit input, .editable-edit textarea, .editable-edit select');
     if (input) input.setAttribute('data-original', input.value);

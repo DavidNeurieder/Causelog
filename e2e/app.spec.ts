@@ -22,6 +22,7 @@ const EXPERIMENT = 'Try SQLite with WAL for six weeks';
 const LESSON = 'Dilithium crystals are out; SQLite with WAL is fine.';
 
 let projectUrl = '';
+let goalUrl = '';
 let decisionUrl = '';
 let experimentUrl = '';
 let noteUrl = '';
@@ -117,6 +118,7 @@ test.describe('full creator journey', () => {
 		await page.locator('#gnew-body').fill('Search must find decisions by what is at stake.');
 		await page.getByRole('button', { name: 'Add goal' }).click();
 		await expect(page.locator('section.list .row.item', { hasText: GOAL })).toBeVisible();
+		goalUrl = (await page.getByRole('link', { name: GOAL }).getAttribute('href'))!;
 
 		// Decision with two options, tied to the goal.
 		await page.goto(`${projectUrl}/decisions`);
@@ -149,6 +151,61 @@ test.describe('full creator journey', () => {
 		await page.context().close();
 	});
 
+	test('inline edit the goal title and body', async ({ browser }) => {
+		const page = await adminPage(browser);
+		await page.goto(goalUrl);
+
+		// The page starts in view mode — no editable should be active.
+		await expect(page.locator('.editable.active')).toHaveCount(0);
+
+		// Open the "View" dropdown and click "Edit in place".
+		await page.getByText('View', { exact: true }).click();
+		await page.locator('[data-action="edit-all"]').click();
+		await expect(page.locator('#done-editing-bar.active')).toBeVisible();
+
+		// Change the title.
+		const titleInput = page.locator('.editable[data-field="title"] input');
+		await titleInput.clear();
+		await titleInput.fill('Faster recall of past decisions');
+		await page.locator('.editable[data-field="title"] .editable-save').click();
+		await expect(page.locator('h1')).toHaveText('Faster recall of past decisions');
+
+		// Change the body.
+		const bodyTextarea = page.locator('.editable[data-field="body"] textarea');
+		await bodyTextarea.clear();
+		await bodyTextarea.fill('Decisions must be searchable by what is at stake.');
+		await page.locator('.editable[data-field="body"] .editable-save').click();
+		await expect(page.locator('.editable[data-field="body"] .editable-display .prose')).toHaveText('Decisions must be searchable by what is at stake.');
+
+		// Click "Done editing" to exit edit mode.
+		await page.locator('[data-action="cancel-all"]').click();
+		await expect(page.locator('#done-editing-bar.active')).toHaveCount(0);
+		await expect(page.locator('.editable.active')).toHaveCount(0);
+		await page.context().close();
+	});
+
+	test('inline edit the project summary', async ({ browser }) => {
+		const page = await adminPage(browser);
+		await page.goto(projectUrl);
+
+		// Open "View" → "Edit in place".
+		await page.getByText('View', { exact: true }).click();
+		await page.locator('[data-action="edit-all"]').click();
+		await expect(page.locator('#done-editing-bar.active')).toBeVisible();
+
+		// Change the summary.
+		const summaryInput = page.locator('.editable[data-field="summary"] input');
+		await summaryInput.clear();
+		await summaryInput.fill('Storage layer for the decision journal.');
+		await page.locator('.editable[data-field="summary"] .editable-save').click();
+		await expect(page.locator('.editable[data-field="summary"] .editable-display')).toHaveText('Storage layer for the decision journal.');
+
+		// Done editing exits cleanly.
+		await page.locator('[data-action="cancel-all"]').click();
+		await expect(page.locator('#done-editing-bar.active')).toHaveCount(0);
+		await page.context().close();
+	});
+
 	test('the decision can be resolved with a choice and rationale', async ({ browser }) => {
 		const page = await adminPage(browser);
 		await page.goto(decisionUrl);
@@ -173,13 +230,19 @@ test.describe('full creator journey', () => {
 		await expect(page.getByText('First week: WAL keeps writes under a millisecond.')).toBeVisible();
 
 		// Finish it: status done + result + lesson, then capture the lesson.
-		// (Chromium maps <summary> to the generic role, so target it by locator.)
-		await page.locator('summary', { hasText: 'Edit experiment' }).click();
-		await expect(page.locator('#x-status')).toBeVisible();
-		await page.locator('#x-status').selectOption('done');
-		await page.locator('#x-result').fill('WAL met the latency target throughout.');
-		await page.locator('#x-lesson').fill(LESSON);
-		await page.getByRole('button', { name: 'Save changes' }).click();
+		// Open the "View" dropdown and click "Edit in place" to activate all fields.
+		await page.getByText('View', { exact: true }).click();
+		await page.locator('[data-action="edit-all"]').click();
+		await expect(page.locator('#done-editing-bar.active')).toBeVisible();
+
+		await page.locator('.editable[data-field="status"] select').selectOption('done');
+		await page.locator('.editable[data-field="result"] textarea').fill('WAL met the latency target throughout.');
+		await page.locator('.editable[data-field="lesson"] textarea').fill(LESSON);
+
+		await page.locator('.editable[data-field="result"] .editable-save').click();
+		await page.locator('.editable[data-field="lesson"] .editable-save').click();
+		await page.locator('.editable[data-field="status"] .editable-save').click();
+
 		await expect(page.getByRole('heading', { name: 'Lesson' })).toBeVisible();
 		await expect(page.getByText(LESSON)).toBeVisible();
 

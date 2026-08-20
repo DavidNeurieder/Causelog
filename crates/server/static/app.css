@@ -838,6 +838,49 @@ details.create-project field { margin-bottom: var(--space-3); }
 }
 
 /* ---------------------------------------------------------------------------
+   Done editing bar
+   ------------------------------------------------------------------------- */
+
+#done-editing-bar {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+#done-editing-bar.active {
+  display: flex;
+}
+
+/* ---------------------------------------------------------------------------
+   Dropdown nav forms (delete button inside dropdown)
+   ------------------------------------------------------------------------- */
+
+.nav-dropdown nav form {
+  display: block;
+  width: 100%;
+}
+.nav-dropdown nav form button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  font-weight: 500;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+.nav-dropdown nav form button:hover { color: var(--fg); background: var(--panel-2); }
+.nav-dropdown nav form button.danger { color: var(--danger); }
+
+/* ---------------------------------------------------------------------------
    Responsive
    ------------------------------------------------------------------------- */
 

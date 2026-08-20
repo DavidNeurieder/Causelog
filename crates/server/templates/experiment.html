@@ -25,11 +25,22 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit">Capture lesson as note</button>
     </form>
-    <form method="post" action="/experiments/{{ experiment.id }}/delete" class="inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit" class="danger" onclick="return confirm('Delete this experiment and its observations?')">Delete</button>
-    </form>
+    <details class="nav-dropdown">
+      <summary>View</summary>
+      <nav>
+        <a href="#" data-action="edit-all">Edit in place</a>
+        <form method="post" action="/experiments/{{ experiment.id }}/delete" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="danger" onclick="return confirm('Delete this experiment and its observations?')">Delete</button>
+        </form>
+      </nav>
+    </details>
   </div>
+</div>
+
+<div id="done-editing-bar">
+  <span class="muted">Editing</span>
+  <button type="button" data-action="cancel-all" class="link">Done editing</button>
 </div>
 
 <div class="meta-card">

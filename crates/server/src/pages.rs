@@ -3395,7 +3395,9 @@ pub(crate) async fn api_goal_update(
         .map_err(|_| ApiError::forbidden())?;
 
     let title = body.title.as_deref().unwrap_or("").trim();
+    let title = if title.is_empty() { &goal.title } else { title };
     let body_md = body.body.as_deref().unwrap_or("").trim();
+    let body_md = if body_md.is_empty() { goal.body.as_str() } else { body_md };
     let status = body.status.as_deref().unwrap_or(&goal.status);
     let status = if matches!(status, "open" | "ongoing" | "done" | "dropped") {
         status
@@ -3413,10 +3415,6 @@ pub(crate) async fn api_goal_update(
             }
         })
         .or(goal.assigned_to);
-
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
 
     state
         .repo
@@ -3462,10 +3460,9 @@ pub(crate) async fn api_note_update(
         .map_err(|_| ApiError::forbidden())?;
 
     let title = body.title.as_deref().unwrap_or("").trim();
+    let title = if title.is_empty() { &note.title } else { title };
     let body_md = body.body.as_deref().unwrap_or("").trim();
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
+    let body_md = if body_md.is_empty() { note.body.as_str() } else { body_md };
 
     state.repo.update_note(note_id, title, body_md).await?;
     let body_html = render_markdown(body_md);
@@ -3508,7 +3505,13 @@ pub(crate) async fn api_experiment_update(
         .map_err(|_| ApiError::forbidden())?;
 
     let title = body.title.as_deref().unwrap_or("").trim();
+    let title = if title.is_empty() { &experiment.title } else { title };
     let hypothesis = body.hypothesis.as_deref().unwrap_or("").trim();
+    let hypothesis = if hypothesis.is_empty() {
+        experiment.hypothesis.as_str()
+    } else {
+        hypothesis
+    };
     let status = body.status.as_deref().unwrap_or(&experiment.status);
     let status = if matches!(status, "planned" | "ongoing" | "done" | "abandoned") {
         status
@@ -3516,10 +3519,17 @@ pub(crate) async fn api_experiment_update(
         "planned"
     };
     let result = body.result.as_deref().unwrap_or("").trim();
+    let result = if result.is_empty() {
+        experiment.result.as_str()
+    } else {
+        result
+    };
     let lesson = body.lesson.as_deref().unwrap_or("").trim();
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
+    let lesson = if lesson.is_empty() {
+        experiment.lesson.as_str()
+    } else {
+        lesson
+    };
 
     state
         .repo
@@ -3555,21 +3565,25 @@ pub(crate) async fn api_project_update(
     };
     auth::verify_csrf_form(&headers, Some(&body.csrf_token), &auth_user.csrf_token)?;
     let project_id = Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid project id"))?;
+    let project = state
+        .repo
+        .find_project(project_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("project"))?;
     require_member_or_admin(&state, &auth_user.user, project_id)
         .await
         .map_err(|_| ApiError::forbidden())?;
 
     let title = body.title.as_deref().unwrap_or("").trim();
+    let title = if title.is_empty() { &project.title } else { title };
     let summary = body.summary.as_deref().unwrap_or("").trim();
+    let summary = if summary.is_empty() { project.summary.as_str() } else { summary };
     let status = body.status.as_deref().unwrap_or("active");
     let status = if matches!(status, "active" | "paused" | "archived") {
         status
     } else {
         "active"
     };
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
 
     state
         .repo
@@ -3613,10 +3627,9 @@ pub(crate) async fn api_decision_update(
         .map_err(|_| ApiError::forbidden())?;
 
     let title = body.title.as_deref().unwrap_or("").trim();
+    let title = if title.is_empty() { &decision.title } else { title };
     let context = body.context.as_deref().unwrap_or("").trim();
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
+    let context = if context.is_empty() { decision.context.as_str() } else { context };
 
     // Preserve existing options — only title and context are editable via this endpoint.
     let options: Vec<DecisionOption> = decision

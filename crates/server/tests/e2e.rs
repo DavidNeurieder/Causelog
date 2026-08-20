@@ -5,6 +5,7 @@
 
 use reqwest::StatusCode;
 use reqwest::redirect::Policy;
+use serde_json::json;
 use std::net::TcpListener;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -105,6 +106,17 @@ async fn post(
         .map(|v| v.to_str().unwrap().to_string());
     let body = res.text().await.unwrap();
     (status, location, body)
+}
+
+async fn post_json(
+    client: &reqwest::Client,
+    url: &str,
+    body: &serde_json::Value,
+) -> (StatusCode, String) {
+    let res = client.post(url).json(body).send().await.unwrap();
+    let status = res.status();
+    let text = res.text().await.unwrap();
+    (status, text)
 }
 
 /// Fresh database file inside a temp dir (kept alive for the whole test).
@@ -527,4 +539,194 @@ async fn cli_exposes_subcommands_and_defaults() {
         serve_help.contains("--addr"),
         "must document --addr: {serve_help}"
     );
+}
+
+#[tokio::test]
+async fn inline_edit_via_json_api() {
+    let (_dir, db) = temp_db();
+    let server = spawn_server(&db).await;
+    let client = new_client().await;
+
+    // Setup.
+    let (status, _, _) = post(
+        &client,
+        &format!("{}/setup", server.base),
+        &[
+            ("username", "dev"),
+            ("display", "Dev"),
+            ("password", "longenough1"),
+            ("confirm", "longenough1"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    // Create a project.
+    let dash = client
+        .get(format!("{}/dashboard", server.base))
+        .send()
+        .await
+        .unwrap();
+    let body = dash.text().await.unwrap();
+    let csrf = extract_csrf(&body);
+    let (status, location, _) = post(
+        &client,
+        &format!("{}/projects", server.base),
+        &[
+            ("csrf_token", &csrf),
+            ("title", "Edit Test"),
+            ("summary", ""),
+            ("status", "active"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let project_url = location.unwrap().split('?').next().unwrap().to_string();
+
+    // ── Goal ────────────────────────────────────────────────────────────
+    let (status, _, _) = post(
+        &client,
+        &format!("{}{project_url}/goals", server.base),
+        &[
+            ("csrf_token", &csrf),
+            ("title", "Original goal"),
+            ("body", "Original body."),
+            ("status", "open"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let page = client
+        .get(format!("{}{project_url}/goals", server.base))
+        .send()
+        .await
+        .unwrap();
+    let body = page.text().await.unwrap();
+    let goal_id = extract_goal_id_e2e(&body);
+
+    // Update via JSON API.
+    let (status, body) = post_json(
+        &client,
+        &format!("{}/api/goals/{goal_id}", server.base),
+        &json!({"csrf_token": csrf, "title": "Updated goal", "body": "Updated body.", "status": "done"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["ok"], true);
+    assert_eq!(data["title"], "Updated goal");
+
+    // Verify on rendered page.
+    let page = client
+        .get(format!("{}/goals/{goal_id}", server.base))
+        .send()
+        .await
+        .unwrap();
+    let body = page.text().await.unwrap();
+    assert!(body.contains("Updated goal"), "goal title: {body}");
+    assert!(body.contains("Updated body."), "goal body: {body}");
+    assert!(body.contains("status-done"), "goal status: {body}");
+
+    // CSRF rejection.
+    let (status, _) = post_json(
+        &client,
+        &format!("{}/api/goals/{goal_id}", server.base),
+        &json!({"csrf_token": "wrong", "title": "Hacked"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // ── Note ────────────────────────────────────────────────────────────
+    let (status, location, _) = post(
+        &client,
+        &format!("{}{project_url}/notes", server.base),
+        &[
+            ("csrf_token", &csrf),
+            ("title", "Original note"),
+            ("body", "First draft."),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let note_url = location.unwrap().split('?').next().unwrap().to_string();
+    let note_id = note_url.strip_prefix("/notes/").unwrap();
+
+    let (status, body) = post_json(
+        &client,
+        &format!("{}/api/notes/{note_id}", server.base),
+        &json!({"csrf_token": csrf, "title": "Updated note", "body": "Second draft."}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["ok"], true);
+    assert_eq!(data["title"], "Updated note");
+
+    let page = client
+        .get(format!("{}{note_url}", server.base))
+        .send()
+        .await
+        .unwrap();
+    let body = page.text().await.unwrap();
+    assert!(body.contains("Updated note"), "note title: {body}");
+    assert!(body.contains("Second draft."), "note body: {body}");
+
+    // ── Experiment ──────────────────────────────────────────────────────
+    let (status, _, _) = post(
+        &client,
+        &format!("{}{project_url}/experiments", server.base),
+        &[
+            ("csrf_token", &csrf),
+            ("title", "Original experiment"),
+            ("hypothesis", "Old hypothesis."),
+            ("goal_id", ""),
+            ("decision_id", ""),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let page = client
+        .get(format!("{}{project_url}/experiments", server.base))
+        .send()
+        .await
+        .unwrap();
+    let body = page.text().await.unwrap();
+    let exp_url = extract_href(&body, "/experiments/");
+    let exp_id = exp_url.strip_prefix("/experiments/").unwrap();
+
+    let (status, body) = post_json(
+        &client,
+        &format!("{}/api/experiments/{exp_id}", server.base),
+        &json!({
+            "csrf_token": csrf,
+            "title": "Updated experiment",
+            "hypothesis": "New hypothesis.",
+            "status": "ongoing",
+            "result": "It worked.",
+            "lesson": "Trust the process.",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["ok"], true);
+    assert_eq!(data["title"], "Updated experiment");
+    assert_eq!(data["status"], "ongoing");
+
+    let page = client
+        .get(format!("{}{exp_url}", server.base))
+        .send()
+        .await
+        .unwrap();
+    let body = page.text().await.unwrap();
+    assert!(body.contains("Updated experiment"), "experiment title: {body}");
+    assert!(body.contains("status-ongoing"), "experiment status: {body}");
+}
+
+fn extract_goal_id_e2e(html: &str) -> String {
+    let marker = r#"href="/goals/"#;
+    let start = html.find(marker).expect("goal link") + marker.len();
+    let rest = &html[start..];
+    let end = rest.find('"').expect("closing quote");
+    rest[..end].to_string()
 }
