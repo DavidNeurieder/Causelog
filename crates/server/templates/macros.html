@@ -15,6 +15,30 @@
 </details>
 {% endmacro %}
 
+{% macro view_dropdown(project, section, current_view) %}
+<details class="nav-dropdown">
+  <summary>{% if current_view == "board" %}Board{% else %}List{% endif %}</summary>
+  <nav>
+    <a href="/projects/{{ project.id }}/{{ section }}?view=list" {% if current_view != "board" %}class="on"{% endif %}>List</a>
+    <a href="/projects/{{ project.id }}/{{ section }}?view=board" {% if current_view == "board" %}class="on"{% endif %}>Board</a>
+  </nav>
+</details>
+{% endmacro %}
+
+{% macro kanban_column(title, items) %}
+<div class="board-column">
+  <h3>{{ title }} <span class="board-count">{{ items.len() }}</span></h3>
+  <div class="board-column-body" data-status="{{ title|lower }}">
+    {% for item in items %}
+    <div class="board-card" data-id="{{ item.id }}" draggable="true">
+      <a href="{{ item.link }}">{{ item.title }}</a>
+      <span class="tag status-{{ item.status }}">{{ item.status }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endmacro %}
+
 {% macro crumb(project) %}
 <p class="crumb"><a href="/projects/{{ project.id }}">← {{ project.title }}</a></p>
 {% endmacro %}

@@ -720,48 +720,12 @@ details.create-project field { margin-bottom: var(--space-3); }
    Kanban board
    ------------------------------------------------------------------------- */
 
-.entity-section { margin-bottom: var(--space-5); }
-.entity-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-.entity-header h2 { margin: 0; }
-
-.view-toggle {
-  display: flex;
-  gap: 0;
-}
-.toggle-btn {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  padding: 4px 12px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-  transition: color 120ms ease, background 120ms ease;
-}
-.toggle-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-.toggle-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-left: none; }
-.toggle-btn:hover { color: var(--fg); background: var(--panel-2); }
-.toggle-btn.on { color: var(--accent-hi); background: var(--panel); border-color: var(--accent); }
-
-.list-view[hidden] { display: none; }
-
 .board {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-3);
   align-items: start;
 }
-.board-section { display: contents; }
-.board-section[hidden] { display: none; }
 
 .board-column {
   background: var(--bg-2);
@@ -799,7 +763,7 @@ details.create-project field { margin-bottom: var(--space-3); }
   padding: 0 5px;
 }
 
-.board-cards {
+.board-column-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);

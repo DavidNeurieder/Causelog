@@ -202,28 +202,6 @@ struct AdminSettingsTemplate {
     csrf_token: String,
 }
 
-#[derive(Template)]
-#[template(path = "board.html")]
-struct BoardTemplate {
-    authed: bool,
-    flash: String,
-    flash_kind: &'static str,
-    year: u32,
-    display_name: String,
-    csrf_token: String,
-    project: Project,
-    goals_open: Vec<GoalItemView>,
-    goals_ongoing: Vec<GoalItemView>,
-    goals_done: Vec<GoalItemView>,
-    goals_dropped: Vec<GoalItemView>,
-    decisions_open: Vec<DecisionItemView>,
-    decisions_decided: Vec<DecisionItemView>,
-    decisions_rejected: Vec<DecisionItemView>,
-    experiments_planned: Vec<ExperimentItemView>,
-    experiments_ongoing: Vec<ExperimentItemView>,
-    experiments_done: Vec<ExperimentItemView>,
-    experiments_abandoned: Vec<ExperimentItemView>,
-}
 
 #[derive(Template)]
 #[template(path = "project/members.html")]
@@ -281,7 +259,12 @@ struct ProjectGoalsTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
+    view: String,
     goals: Vec<GoalItemView>,
+    goals_open: Vec<GoalItemView>,
+    goals_ongoing: Vec<GoalItemView>,
+    goals_done: Vec<GoalItemView>,
+    goals_dropped: Vec<GoalItemView>,
 }
 
 #[derive(Template)]
@@ -314,7 +297,11 @@ struct ProjectDecisionsTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
+    view: String,
     decisions: Vec<DecisionItemView>,
+    decisions_open: Vec<DecisionItemView>,
+    decisions_decided: Vec<DecisionItemView>,
+    decisions_rejected: Vec<DecisionItemView>,
 }
 
 #[derive(Template)]
@@ -327,7 +314,12 @@ struct ProjectExperimentsTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
+    view: String,
     experiments: Vec<ExperimentItemView>,
+    experiments_planned: Vec<ExperimentItemView>,
+    experiments_ongoing: Vec<ExperimentItemView>,
+    experiments_done: Vec<ExperimentItemView>,
+    experiments_abandoned: Vec<ExperimentItemView>,
 }
 
 #[derive(Template)]
@@ -396,19 +388,23 @@ struct NoteNewTemplate {
 }
 
 /// Experiment row on a project page.
+#[derive(Clone)]
 struct ExperimentItemView {
     id: String,
     title: String,
     status: String,
+    link: String,
 }
 
 /// Goal row on a project page, with its details rendered as Markdown.
+#[derive(Clone)]
 struct GoalItemView {
     id: String,
     title: String,
     status: String,
     body_html: String,
     assigned_to_name: String,
+    link: String,
 }
 
 #[derive(Template)]
@@ -467,11 +463,13 @@ struct TimelineView {
 }
 
 /// Decision row on a project page.
+#[derive(Clone)]
 struct DecisionItemView {
     id: String,
     title: String,
     status: String,
     decided_label: String,
+    link: String,
 }
 
 #[derive(Template)]
@@ -644,6 +642,11 @@ struct SearchItemView {
 #[derive(Deserialize)]
 pub(crate) struct FlashQuery {
     pub flash: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ViewQuery {
+    pub view: Option<String>,
 }
 
 /// Seconds since the Unix epoch → civil date (Howard Hinnant's algorithm).
@@ -1187,6 +1190,7 @@ pub(crate) async fn project_page(
             status: g.status,
             body_html: render_markdown(&g.body),
             assigned_to_name,
+            link: format!("/goals/{}", g.id),
         });
     }
     let decisions = state.repo.list_decisions(project.id).await?;
@@ -1211,6 +1215,7 @@ pub(crate) async fn project_page(
                     title: d.title,
                     status: d.status,
                     decided_label,
+                    link: format!("/decisions/{}", d.id),
                 }
             })
             .collect(),
@@ -1221,6 +1226,7 @@ pub(crate) async fn project_page(
                 id: e.id.to_string(),
                 title: e.title,
                 status: e.status,
+                link: format!("/experiments/{}", e.id),
             })
             .collect(),
         notes: notes.into_iter().take(5).collect(),
@@ -1304,6 +1310,7 @@ pub(crate) async fn project_goals_page(
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(flash): Query<FlashQuery>,
+    Query(view_q): Query<ViewQuery>,
 ) -> Result<Response, PageError> {
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
@@ -1311,16 +1318,29 @@ pub(crate) async fn project_goals_page(
     let project = require_project_member(&state, &id, &auth_user.user).await?;
     let goals_raw = state.repo.list_goals(project.id).await?;
     let mut goals = Vec::with_capacity(goals_raw.len());
+    let mut goals_open = Vec::new();
+    let mut goals_ongoing = Vec::new();
+    let mut goals_done = Vec::new();
+    let mut goals_dropped = Vec::new();
     for g in goals_raw {
         let assigned_to_name = creator_name(&state.repo, g.assigned_to).await;
-        goals.push(GoalItemView {
+        let view = GoalItemView {
             id: g.id.to_string(),
             title: g.title,
-            status: g.status,
+            status: g.status.clone(),
             body_html: render_markdown(&g.body),
             assigned_to_name,
-        });
+            link: format!("/goals/{}", g.id),
+        };
+        match g.status.as_str() {
+            "ongoing" => goals_ongoing.push(view.clone()),
+            "done" => goals_done.push(view.clone()),
+            "dropped" => goals_dropped.push(view.clone()),
+            _ => goals_open.push(view.clone()),
+        }
+        goals.push(view);
     }
+    let view = view_q.view.unwrap_or_default();
     page(&ProjectGoalsTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1329,7 +1349,12 @@ pub(crate) async fn project_goals_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
+        view,
         goals,
+        goals_open,
+        goals_ongoing,
+        goals_done,
+        goals_dropped,
     })
 }
 
@@ -1338,12 +1363,34 @@ pub(crate) async fn project_decisions_page(
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(flash): Query<FlashQuery>,
+    Query(view_q): Query<ViewQuery>,
 ) -> Result<Response, PageError> {
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
     let project = require_project_member(&state, &id, &auth_user.user).await?;
-    let decisions = state.repo.list_decisions(project.id).await?;
+    let decisions_raw = state.repo.list_decisions(project.id).await?;
+    let mut decisions = Vec::with_capacity(decisions_raw.len());
+    let mut decisions_open = Vec::new();
+    let mut decisions_decided = Vec::new();
+    let mut decisions_rejected = Vec::new();
+    for d in decisions_raw {
+        let decided_label = decided_label(&d);
+        let view = DecisionItemView {
+            id: d.id.to_string(),
+            title: d.title,
+            status: d.status.clone(),
+            decided_label,
+            link: format!("/decisions/{}", d.id),
+        };
+        match d.status.as_str() {
+            "decided" => decisions_decided.push(view.clone()),
+            "rejected" => decisions_rejected.push(view.clone()),
+            _ => decisions_open.push(view.clone()),
+        }
+        decisions.push(view);
+    }
+    let view = view_q.view.unwrap_or_default();
     page(&ProjectDecisionsTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1352,18 +1399,11 @@ pub(crate) async fn project_decisions_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
-        decisions: decisions
-            .into_iter()
-            .map(|d| {
-                let decided_label = decided_label(&d);
-                DecisionItemView {
-                    id: d.id.to_string(),
-                    title: d.title,
-                    status: d.status,
-                    decided_label,
-                }
-            })
-            .collect(),
+        view,
+        decisions,
+        decisions_open,
+        decisions_decided,
+        decisions_rejected,
     })
 }
 
@@ -1372,12 +1412,34 @@ pub(crate) async fn project_experiments_page(
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(flash): Query<FlashQuery>,
+    Query(view_q): Query<ViewQuery>,
 ) -> Result<Response, PageError> {
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
     let project = require_project_member(&state, &id, &auth_user.user).await?;
-    let experiments = state.repo.list_experiments(project.id).await?;
+    let experiments_raw = state.repo.list_experiments(project.id).await?;
+    let mut experiments = Vec::with_capacity(experiments_raw.len());
+    let mut experiments_planned = Vec::new();
+    let mut experiments_ongoing = Vec::new();
+    let mut experiments_done = Vec::new();
+    let mut experiments_abandoned = Vec::new();
+    for e in experiments_raw {
+        let view = ExperimentItemView {
+            id: e.id.to_string(),
+            title: e.title,
+            status: e.status.clone(),
+            link: format!("/experiments/{}", e.id),
+        };
+        match e.status.as_str() {
+            "ongoing" => experiments_ongoing.push(view.clone()),
+            "done" => experiments_done.push(view.clone()),
+            "abandoned" => experiments_abandoned.push(view.clone()),
+            _ => experiments_planned.push(view.clone()),
+        }
+        experiments.push(view);
+    }
+    let view = view_q.view.unwrap_or_default();
     page(&ProjectExperimentsTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1386,14 +1448,12 @@ pub(crate) async fn project_experiments_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
-        experiments: experiments
-            .into_iter()
-            .map(|e| ExperimentItemView {
-                id: e.id.to_string(),
-                title: e.title,
-                status: e.status,
-            })
-            .collect(),
+        view,
+        experiments,
+        experiments_planned,
+        experiments_ongoing,
+        experiments_done,
+        experiments_abandoned,
     })
 }
 
@@ -1456,6 +1516,7 @@ pub(crate) async fn goal_page(
                 title: d.title,
                 status: d.status,
                 decided_label,
+                link: format!("/decisions/{}", d.id),
             }
         })
         .collect();
@@ -1469,6 +1530,7 @@ pub(crate) async fn goal_page(
             id: e.id.to_string(),
             title: e.title,
             status: e.status,
+            link: format!("/experiments/{}", e.id),
         })
         .collect();
     let body_html = render_markdown(&goal.body);
@@ -1575,6 +1637,7 @@ pub(crate) async fn experiment_new_page(
                 title: d.title,
                 status: d.status,
                 decided_label,
+                link: format!("/decisions/{}", d.id),
             }
         })
         .collect();
@@ -3261,104 +3324,6 @@ pub(crate) async fn project_member_remove(
         project_id
     ))
     .into_response())
-}
-
-// ---------------------------------------------------------------------------
-// Kanban board
-// ---------------------------------------------------------------------------
-
-pub(crate) async fn board_page(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(flash): Query<FlashQuery>,
-) -> Result<Response, PageError> {
-    let Some(auth_user) = auth::session_user(&state, &headers).await else {
-        return Ok(login_redirect());
-    };
-    let project = require_project_member(&state, &id, &auth_user.user).await?;
-
-    let goals_raw = state.repo.list_goals(project.id).await?;
-    let decisions_raw = state.repo.list_decisions(project.id).await?;
-    let experiments_raw = state.repo.list_experiments(project.id).await?;
-
-    let mut goals_open = Vec::new();
-    let mut goals_ongoing = Vec::new();
-    let mut goals_done = Vec::new();
-    let mut goals_dropped = Vec::new();
-    for g in goals_raw {
-        let assigned_to_name = creator_name(&state.repo, g.assigned_to).await;
-        let view = GoalItemView {
-            id: g.id.to_string(),
-            title: g.title,
-            status: g.status.clone(),
-            body_html: render_markdown(&g.body),
-            assigned_to_name,
-        };
-        match g.status.as_str() {
-            "ongoing" => goals_ongoing.push(view),
-            "done" => goals_done.push(view),
-            "dropped" => goals_dropped.push(view),
-            _ => goals_open.push(view),
-        }
-    }
-
-    let mut decisions_open = Vec::new();
-    let mut decisions_decided = Vec::new();
-    let mut decisions_rejected = Vec::new();
-    for d in decisions_raw {
-        let decided_label = decided_label(&d);
-        let view = DecisionItemView {
-            id: d.id.to_string(),
-            title: d.title,
-            status: d.status.clone(),
-            decided_label,
-        };
-        match d.status.as_str() {
-            "decided" => decisions_decided.push(view),
-            "rejected" => decisions_rejected.push(view),
-            _ => decisions_open.push(view),
-        }
-    }
-
-    let mut experiments_planned = Vec::new();
-    let mut experiments_ongoing = Vec::new();
-    let mut experiments_done = Vec::new();
-    let mut experiments_abandoned = Vec::new();
-    for e in experiments_raw {
-        let view = ExperimentItemView {
-            id: e.id.to_string(),
-            title: e.title,
-            status: e.status.clone(),
-        };
-        match e.status.as_str() {
-            "ongoing" => experiments_ongoing.push(view),
-            "done" => experiments_done.push(view),
-            "abandoned" => experiments_abandoned.push(view),
-            _ => experiments_planned.push(view),
-        }
-    }
-
-    page(&BoardTemplate {
-        authed: true,
-        flash: flash_view(flash.flash.as_deref()).0,
-        flash_kind: flash_view(flash.flash.as_deref()).1,
-        year: current_year(),
-        display_name: auth_user.user.display_name,
-        csrf_token: auth_user.csrf_token,
-        project,
-        goals_open,
-        goals_ongoing,
-        goals_done,
-        goals_dropped,
-        decisions_open,
-        decisions_decided,
-        decisions_rejected,
-        experiments_planned,
-        experiments_ongoing,
-        experiments_done,
-        experiments_abandoned,
-    })
 }
 
 #[derive(serde::Deserialize)]

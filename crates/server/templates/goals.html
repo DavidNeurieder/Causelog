@@ -6,22 +6,28 @@
 <div class="row space-between">
   <div>
     <h1>Goals</h1>
-    <p class="muted">Goals say what “done” looks like for this project.</p>
+    <p class="muted">A goal is an outcome you want to achieve; the system tracks its status and related decisions and experiments.</p>
   </div>
   <div class="row" style="gap: var(--space-2);">
     {% call m::subnav(project, "goals", "Goals") %}
-    <div class="view-toggle">
-      <span class="toggle-btn on">List</span>
-      <a class="toggle-btn" href="/projects/{{ project.id }}/board">Board</a>
-    </div>
+    {% call m::view_dropdown(project, "goals", view) %}
     <a class="btn" href="/projects/{{ project.id }}/goals/new">New goal</a>
   </div>
 </div>
 
+{% if view == "board" %}
+<div class="board">
+  {% call m::kanban_column("Open", goals_open) %}
+  {% call m::kanban_column("Ongoing", goals_ongoing) %}
+  {% call m::kanban_column("Done", goals_done) %}
+  {% call m::kanban_column("Dropped", goals_dropped) %}
+</div>
+{% else %}
 <h2>All goals</h2>
 {% if goals.is_empty() %}
 {% call m::section_empty("No goals yet.") %}
 {% else %}
 {% call m::goal_list(goals) %}
+{% endif %}
 {% endif %}
 {% endblock %}

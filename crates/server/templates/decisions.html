@@ -10,18 +10,23 @@
   </div>
   <div class="row" style="gap: var(--space-2);">
     {% call m::subnav(project, "decisions", "Decisions") %}
-    <div class="view-toggle">
-      <span class="toggle-btn on">List</span>
-      <a class="toggle-btn" href="/projects/{{ project.id }}/board">Board</a>
-    </div>
+    {% call m::view_dropdown(project, "decisions", view) %}
     <a class="btn" href="/projects/{{ project.id }}/decisions/new">New decision</a>
   </div>
 </div>
 
+{% if view == "board" %}
+<div class="board">
+  {% call m::kanban_column("Open", decisions_open) %}
+  {% call m::kanban_column("Decided", decisions_decided) %}
+  {% call m::kanban_column("Rejected", decisions_rejected) %}
+</div>
+{% else %}
 <h2>All decisions</h2>
 {% if decisions.is_empty() %}
 {% call m::section_empty("No decisions yet.") %}
 {% else %}
 {% call m::decision_list(decisions) %}
+{% endif %}
 {% endif %}
 {% endblock %}

@@ -1,45 +1,22 @@
-// Causelog board — view toggles + drag-and-drop status changes.
+// Causelog board — drag-and-drop status changes.
 (function () {
   'use strict';
 
-  // ── View toggles (Board / List per entity section) ────────────────────
-  document.querySelectorAll('.view-toggle').forEach(function (group) {
-    var entity = group.getAttribute('data-entity');
-    var boardView = document.querySelector('.board-view[data-entity="' + entity + '"]');
-    var listView = document.querySelector('.list-view[data-entity="' + entity + '"]');
-    if (!boardView || !listView) return;
-
-    // Restore saved preference
-    var saved = localStorage.getItem('board-view-' + entity);
-    if (saved === 'list') {
-      boardView.hidden = true;
-      listView.hidden = false;
-      group.querySelector('[data-view="list"]').classList.add('on');
-      group.querySelector('[data-view="board"]').classList.remove('on');
-    }
-
-    group.querySelectorAll('.toggle-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var view = btn.getAttribute('data-view');
-        group.querySelectorAll('.toggle-btn').forEach(function (b) { b.classList.remove('on'); });
-        btn.classList.add('on');
-        if (view === 'list') {
-          boardView.hidden = true;
-          listView.hidden = false;
-        } else {
-          listView.hidden = true;
-          boardView.hidden = false;
-        }
-        localStorage.setItem('board-view-' + entity, view);
-      });
-    });
-  });
-
-  // ── Drag and drop ─────────────────────────────────────────────────────
   var csrfToken = document.querySelector('meta[name="csrf-token"]');
   if (!csrfToken) return;
   var token = csrfToken.getAttribute('content');
 
+  // Add entity attribute to each card based on its link href.
+  document.querySelectorAll('.board-card').forEach(function (card) {
+    var link = card.querySelector('a');
+    if (!link) return;
+    var href = link.getAttribute('href') || '';
+    if (href.startsWith('/goals/')) card.setAttribute('data-entity', 'goal');
+    else if (href.startsWith('/decisions/')) card.setAttribute('data-entity', 'decision');
+    else if (href.startsWith('/experiments/')) card.setAttribute('data-entity', 'experiment');
+  });
+
+  // Drag start/end
   document.querySelectorAll('.board-card').forEach(function (card) {
     card.addEventListener('dragstart', function (e) {
       card.classList.add('dragging');
@@ -54,7 +31,8 @@
     });
   });
 
-  document.querySelectorAll('.board-column').forEach(function (col) {
+  // Drop targets
+  document.querySelectorAll('.board-column-body').forEach(function (col) {
     col.addEventListener('dragover', function (e) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
@@ -69,7 +47,6 @@
       var data;
       try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (_) { return; }
       var newStatus = col.getAttribute('data-status');
-      var cards = col.querySelector('.board-cards');
 
       var card = document.querySelector(
         '.board-card[data-entity="' + data.entity + '"][data-id="' + data.id + '"]'
@@ -77,7 +54,7 @@
       if (!card) return;
 
       // Optimistic move
-      cards.appendChild(card);
+      col.appendChild(card);
 
       // Update counts
       updateCounts(card.getAttribute('data-entity'));
@@ -101,14 +78,10 @@
   });
 
   function updateCounts(entity) {
-    var entityMap = {
-      goal: 'goals',
-      decision: 'decisions',
-      experiment: 'experiments'
-    };
-    var tabName = entityMap[entity] || entity;
-    document.querySelectorAll('.board-view[data-entity="' + tabName + '"] .board-column').forEach(function (col) {
-      var count = col.querySelectorAll('.board-card').length;
+    document.querySelectorAll('.board-column').forEach(function (col) {
+      var body = col.querySelector('.board-column-body');
+      if (!body) return;
+      var count = body.querySelectorAll('.board-card').length;
       var badge = col.querySelector('.board-count');
       if (badge) badge.textContent = count;
     });
