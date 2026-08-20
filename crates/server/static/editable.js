@@ -17,6 +17,7 @@
 
     container.classList.add('active');
     showDoneBar();
+    setEditMode(true);
     focusEditable(container);
   });
 
@@ -32,6 +33,7 @@
       }
     });
     showDoneBar();
+    setEditMode(true);
     // Focus the first editable field on the page
     var first = document.querySelector('.editable.active');
     if (first) focusEditable(first);
@@ -40,6 +42,7 @@
   // ── Cancel all fields at once ─────────────────────────────────────────
   function cancelAllEditable() {
     document.querySelectorAll('.editable.active').forEach(closeEditable);
+    setEditMode(false);
     hideDoneBar();
   }
 
@@ -54,6 +57,17 @@
   }
   function anyActive() {
     return document.querySelectorAll('.editable.active').length > 0;
+  }
+
+  // ── Dropdown toggle between View / Edit ───────────────────────────────
+  function setEditMode(editing) {
+    var dd = document.getElementById('action-dropdown');
+    if (!dd) return;
+    dd.querySelector('summary').textContent = editing ? 'Edit' : 'View';
+    var editLink = dd.querySelector('[data-action="edit-all"]');
+    var viewLink = dd.querySelector('[data-action="cancel-all"]');
+    if (editLink) editLink.classList.toggle('hidden', editing);
+    if (viewLink) viewLink.classList.toggle('hidden', !editing);
   }
 
   // ── Focus helper ──────────────────────────────────────────────────────
@@ -177,7 +191,7 @@
           var sumDisplay = container.querySelector('.editable-display');
           if (sumDisplay) sumDisplay.textContent = data.summary;
         }
-        if (!anyActive()) hideDoneBar();
+        if (!anyActive()) { setEditMode(false); hideDoneBar(); }
       })
       .catch(function (err) {
         container.classList.remove('editable-saving');
@@ -212,6 +226,8 @@
     }
     if (e.target.matches('[data-action="cancel-all"]')) {
       e.preventDefault();
+      var dd = e.target.closest('.nav-dropdown');
+      if (dd) dd.removeAttribute('open');
       cancelAllEditable();
       return;
     }
@@ -224,7 +240,7 @@
       var container = e.target.closest('.editable');
       if (container) {
         closeEditable(container);
-        if (!anyActive()) hideDoneBar();
+        if (!anyActive()) { setEditMode(false); hideDoneBar(); }
       }
     }
   });
@@ -237,7 +253,7 @@
     if (e.key === 'Escape') {
       e.preventDefault();
       closeEditable(container);
-      if (!anyActive()) hideDoneBar();
+      if (!anyActive()) { setEditMode(false); hideDoneBar(); }
       return;
     }
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {

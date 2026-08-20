@@ -241,6 +241,7 @@ button.link.danger { color: var(--danger); }
 button.link.danger:hover { color: var(--danger); background: var(--panel); }
 
 form.inline { display: inline; }
+.hidden { display: none !important; }
 
 /* ---------------------------------------------------------------------------
    Forms

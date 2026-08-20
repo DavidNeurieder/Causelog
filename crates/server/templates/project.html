@@ -19,13 +19,14 @@
   </div>
   <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "overview", "Overview") %}
-    <details class="nav-dropdown">
+    <details class="nav-dropdown" id="action-dropdown">
       <summary>View</summary>
       <nav>
         <a href="#" data-action="edit-all">Edit in place</a>
+        <a href="#" data-action="cancel-all" class="hidden">View</a>
         <form method="post" action="/projects/{{ project.id }}/delete" class="inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button type="submit" class="danger" onclick="return confirm('Delete this project and everything in it?')">Delete</button>
+          <button type="submit" class="danger" onclick="return confirm('Delete this project and all its data?')">Delete</button>
         </form>
       </nav>
     </details>

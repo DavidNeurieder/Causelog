@@ -1,16 +1,81 @@
 import { expect, test, type Browser } from '@playwright/test';
 
-// The full creator journey through the real UI against the real `causelog`
-// server: setup -> project -> goal -> decision (resolved) -> experiment
-// (observations + lesson note) -> timeline + graph -> search -> logout/login.
+// ── Causelog Playwright E2E Suite ───────────────────────────────────────────
 //
-// Runs serially because later steps depend on earlier ones mutating shared
-// state, and shares the owner session (saved to .auth.json after setup) since
-// Playwright gives each test a fresh browser context.
+// True browser tests against the real `causelog` server. They click buttons,
+// fill forms, run page JS (password toggles, <details> disclosure, inline
+// editing via editable.js), and verify rendered HTML — things the reqwest-
+// driven tests in tests/api.rs cannot exercise.
 //
-// These are true browser tests: they click the actual buttons and run the
-// page's JS (the password toggles, the <details> disclosure, form validation),
-// which the reqwest-driven tests in tests/api.rs cannot exercise.
+// Architecture
+// ────────────
+// playwright.config.ts starts a real `causelog serve` on an ephemeral port
+// (via start-backend.mjs) with a throwaway SQLite database in /tmp. The
+// webServer config waits for /health before running tests.
+//
+// start-backend.mjs runs `cargo run --bin causelog -- serve --database-url
+// sqlite:///tmp/.../e2e.db --addr 127.0.0.1:<port>`. Set CAUSELOG_BIN to a
+// prebuilt binary path to skip recompilation.
+//
+// Port allocation: config picks a free port via net.createServer, writes it
+// to /tmp/causelog-e2e-port.json (stale after 10 min), and all workers
+// reuse it so the baseURL matches the running server.
+//
+// Session sharing: test 1 saves storageState to .auth.json. Tests 2-10
+// create fresh browser contexts loaded from .auth.json via adminPage().
+// Each test closes its context at the end.
+//
+// Serial execution: tests run in order (test.describe.configure({ mode:
+// 'serial' })) because later tests depend on shared state created by
+// earlier ones (project URL, goal URL, etc.).
+//
+// Test flow (10 tests)
+// ─────────────────────
+//  1. first-run setup        — creates owner account via /setup, tests
+//                              password mismatch error and toggle, saves
+//                              session to .auth.json
+//  2. create project         — opens <details> disclosure, fills title +
+//                              summary, verifies redirect to /projects/{id}
+//  3. create goal + decision + experiment — creates all three entities
+//                              with proper links (goal→decision→experiment),
+//                              captures URLs for later tests
+//  4. inline edit goal       — enters edit mode via View→Edit in place
+//                              dropdown, edits title + body via JSON API,
+//                              verifies dropdown toggles View↔Edit, exits
+//                              via dropdown View link
+//  5. inline edit project    — edits summary via inline editing, verifies
+//                              dropdown toggle and exit
+//  6. resolve decision       — fills resolve form (status, option,
+//                              rationale), verifies resolution text
+//  7. experiment observations — logs observation, enters edit mode to set
+//                              status/done/result/lesson, saves each field
+//                              via JSON API, captures lesson as note
+//  8. timeline + graph       — verifies observation text on timeline,
+//                              decision + experiment nodes on graph
+//  9. search                 — searches for "dilithium", verifies
+//                              decision appears with highlighted match
+// 10. logout + login         — tests logout flash, wrong password error
+//                              keeps username, correct login lands on
+//                              dashboard
+//
+// Key selectors
+// ──────────────
+//  #action-dropdown          — View/Edit toggle dropdown on detail pages
+//  #action-dropdown summary  — label text: "View" or "Edit"
+//  [data-action="edit-all"]  — "Edit in place" link (enters edit mode)
+//  [data-action="cancel-all"] — "View" link or "Done editing" button
+//  #done-editing-bar         — floating bar shown during edit mode
+//  .editable[data-field=X]   — inline-editable container for field X
+//  .editable-display         — read-only display (hidden during edit)
+//  .editable-edit            — edit form (shown during edit)
+//  .editable-save            — per-field save button (triggers JSON API)
+//  .editable-cancel          — per-field cancel button
+//
+// Running
+// ───────
+//   cd e2e && npm run test:e2e
+//   # or with prebuilt binary:
+//   CAUSELOG_BIN=../target/debug/causelog npm run test:e2e
 
 const AUTH_FILE = '.auth.json';
 const USERNAME = 'dev';
@@ -159,9 +224,12 @@ test.describe('full creator journey', () => {
 		await expect(page.locator('.editable.active')).toHaveCount(0);
 
 		// Open the "View" dropdown and click "Edit in place".
-		await page.getByText('View', { exact: true }).click();
+		await page.locator('#action-dropdown summary').click();
 		await page.locator('[data-action="edit-all"]').click();
 		await expect(page.locator('#done-editing-bar.active')).toBeVisible();
+
+		// Dropdown now says "Edit".
+		await expect(page.locator('#action-dropdown summary')).toHaveText('Edit');
 
 		// Change the title.
 		const titleInput = page.locator('.editable[data-field="title"] input');
@@ -177,10 +245,14 @@ test.describe('full creator journey', () => {
 		await page.locator('.editable[data-field="body"] .editable-save').click();
 		await expect(page.locator('.editable[data-field="body"] .editable-display .prose')).toHaveText('Decisions must be searchable by what is at stake.');
 
-		// Click "Done editing" to exit edit mode.
-		await page.locator('[data-action="cancel-all"]').click();
+		// Exit edit mode via the "View" link inside the "Edit" dropdown.
+		await page.locator('#action-dropdown summary').click();
+		await page.locator('#action-dropdown [data-action="cancel-all"]').click();
 		await expect(page.locator('#done-editing-bar.active')).toHaveCount(0);
 		await expect(page.locator('.editable.active')).toHaveCount(0);
+
+		// Dropdown reverts to "View".
+		await expect(page.locator('#action-dropdown summary')).toHaveText('View');
 		await page.context().close();
 	});
 
@@ -189,9 +261,10 @@ test.describe('full creator journey', () => {
 		await page.goto(projectUrl);
 
 		// Open "View" → "Edit in place".
-		await page.getByText('View', { exact: true }).click();
+		await page.locator('#action-dropdown summary').click();
 		await page.locator('[data-action="edit-all"]').click();
 		await expect(page.locator('#done-editing-bar.active')).toBeVisible();
+		await expect(page.locator('#action-dropdown summary')).toHaveText('Edit');
 
 		// Change the summary.
 		const summaryInput = page.locator('.editable[data-field="summary"] input');
@@ -200,9 +273,11 @@ test.describe('full creator journey', () => {
 		await page.locator('.editable[data-field="summary"] .editable-save').click();
 		await expect(page.locator('.editable[data-field="summary"] .editable-display')).toHaveText('Storage layer for the decision journal.');
 
-		// Done editing exits cleanly.
-		await page.locator('[data-action="cancel-all"]').click();
+		// Exit via the "View" link in the "Edit" dropdown.
+		await page.locator('#action-dropdown summary').click();
+		await page.locator('#action-dropdown [data-action="cancel-all"]').click();
 		await expect(page.locator('#done-editing-bar.active')).toHaveCount(0);
+		await expect(page.locator('#action-dropdown summary')).toHaveText('View');
 		await page.context().close();
 	});
 
@@ -231,9 +306,10 @@ test.describe('full creator journey', () => {
 
 		// Finish it: status done + result + lesson, then capture the lesson.
 		// Open the "View" dropdown and click "Edit in place" to activate all fields.
-		await page.getByText('View', { exact: true }).click();
+		await page.locator('#action-dropdown summary').click();
 		await page.locator('[data-action="edit-all"]').click();
 		await expect(page.locator('#done-editing-bar.active')).toBeVisible();
+		await expect(page.locator('#action-dropdown summary')).toHaveText('Edit');
 
 		await page.locator('.editable[data-field="status"] select').selectOption('done');
 		await page.locator('.editable[data-field="result"] textarea').fill('WAL met the latency target throughout.');
