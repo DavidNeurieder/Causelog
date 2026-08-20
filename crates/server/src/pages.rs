@@ -668,6 +668,9 @@ fn flash_message(key: Option<&str>) -> String {
         Some("goal_updated") => "Goal updated.".into(),
         Some("goal_deleted") => "Goal removed.".into(),
         Some("invalid_title") => "A title is required.".into(),
+        Some("title_too_long") => "Title is too long (max 500 characters).".into(),
+        Some("body_too_long") => "Content is too long (max 50,000 characters).".into(),
+        Some("summary_too_long") => "Summary is too long (max 2,000 characters).".into(),
         Some("decision_created") => "Decision created.".into(),
         Some("decision_updated") => "Decision updated.".into(),
         Some("decision_resolved") => "Decision recorded.".into(),
@@ -689,7 +692,12 @@ fn flash_message(key: Option<&str>) -> String {
 fn flash_view(key: Option<&str>) -> (String, &'static str) {
     let kind = match key {
         None => "notice--info",
-        Some(k) if k.contains("invalid") || k.starts_with("no_") || k.starts_with("cannot_") => {
+        Some(k)
+            if k.contains("invalid")
+                || k.starts_with("no_")
+                || k.starts_with("cannot_")
+                || k.contains("too_long") =>
+        {
             "notice--error"
         }
         Some("logged_out") | Some("not_authorized") => "notice--info",
@@ -704,6 +712,15 @@ fn not_found(msg: impl Into<String>) -> ApiError {
 
 fn parse_uuid(s: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(s).map_err(|_| ApiError::bad_request("invalid id"))
+}
+
+/// Returns `Some(redirect)` if `value` exceeds `max` bytes, `None` otherwise.
+fn check_max_len(value: &str, max: usize, flash_key: &str, redirect_url: &str) -> Option<Response> {
+    if value.len() > max {
+        Some(Redirect::to(&format!("{redirect_url}?flash={flash_key}")).into_response())
+    } else {
+        None
+    }
 }
 
 fn login_redirect() -> Response {
@@ -815,11 +832,20 @@ fn validate_setup(body: &SetupForm) -> String {
     if username.len() < 3 {
         return "Username must be at least 3 characters.".into();
     }
+    if username.len() > 50 {
+        return "Username must be at most 50 characters.".into();
+    }
     if body.display.trim().is_empty() {
         return "Enter a display name.".into();
     }
+    if body.display.trim().len() > 100 {
+        return "Display name must be at most 100 characters.".into();
+    }
     if body.password.len() < 8 {
         return "Password must be at least 8 characters.".into();
+    }
+    if body.password.len() > 200 {
+        return "Password must be at most 200 characters.".into();
     }
     if body.password != body.confirm {
         return "Passwords do not match.".into();
@@ -915,11 +941,20 @@ fn validate_register(body: &RegisterForm) -> String {
     if username.len() < 3 {
         return "Username must be at least 3 characters.".into();
     }
+    if username.len() > 50 {
+        return "Username must be at most 50 characters.".into();
+    }
     if body.display.trim().is_empty() {
         return "Enter a display name.".into();
     }
+    if body.display.trim().len() > 100 {
+        return "Display name must be at most 100 characters.".into();
+    }
     if body.password.len() < 8 {
         return "Password must be at least 8 characters.".into();
+    }
+    if body.password.len() > 200 {
+        return "Password must be at most 200 characters.".into();
     }
     if body.password != body.confirm {
         return "Passwords do not match.".into();
@@ -962,8 +997,20 @@ pub(crate) async fn login_page(
 
 pub(crate) async fn login_form(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Form(body): Form<LoginForm>,
 ) -> Result<Response, PageError> {
+    let client_ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|v| v.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    if state.login_limiter.is_rate_limited(&client_ip) {
+        return Err(ApiError(RepositoryError::RateLimited).into());
+    }
+
     let username = body.username.trim();
     let error = match state.repo.find_user_by_username(username).await? {
         Some(user) if auth::verify_password(&user.password_hash, &body.password) => {
@@ -1129,6 +1176,12 @@ pub(crate) async fn project_create(
     auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
     if body.title.trim().is_empty() {
         return Ok(Redirect::to("/dashboard?flash=invalid_title").into_response());
+    }
+    if let Some(r) = check_max_len(body.title.trim(), 500, "title_too_long", "/dashboard") {
+        return Ok(r);
+    }
+    if let Some(r) = check_max_len(body.summary.trim(), 2000, "summary_too_long", "/dashboard") {
+        return Ok(r);
     }
     let project = state
         .repo
@@ -1725,6 +1778,22 @@ pub(crate) async fn goal_create(
                 .into_response(),
         );
     }
+    if let Some(r) = check_max_len(
+        body.title.trim(),
+        500,
+        "title_too_long",
+        &format!("/projects/{project_id}/goals"),
+    ) {
+        return Ok(r);
+    }
+    if let Some(r) = check_max_len(
+        body.body.trim(),
+        50000,
+        "body_too_long",
+        &format!("/projects/{project_id}/goals"),
+    ) {
+        return Ok(r);
+    }
     state
         .repo
         .create_goal(
@@ -1885,6 +1954,22 @@ pub(crate) async fn decision_create(
             "/projects/{project_id}/decisions?flash=invalid_decision"
         ))
         .into_response());
+    }
+    if let Some(r) = check_max_len(
+        body.title.trim(),
+        500,
+        "title_too_long",
+        &format!("/projects/{project_id}/decisions"),
+    ) {
+        return Ok(r);
+    }
+    if let Some(r) = check_max_len(
+        body.context.trim(),
+        50000,
+        "body_too_long",
+        &format!("/projects/{project_id}/decisions"),
+    ) {
+        return Ok(r);
     }
     state
         .repo
@@ -2141,6 +2226,22 @@ pub(crate) async fn experiment_create(
             "/projects/{project_id}/experiments?flash=invalid_title"
         ))
         .into_response());
+    }
+    if let Some(r) = check_max_len(
+        body.title.trim(),
+        500,
+        "title_too_long",
+        &format!("/projects/{project_id}/experiments"),
+    ) {
+        return Ok(r);
+    }
+    if let Some(r) = check_max_len(
+        body.hypothesis.trim(),
+        50000,
+        "body_too_long",
+        &format!("/projects/{project_id}/experiments"),
+    ) {
+        return Ok(r);
     }
     let goal_id = parse_goal_id(&body.goal_id);
     let decision_id = parse_goal_id(&body.decision_id);
@@ -2474,6 +2575,22 @@ pub(crate) async fn note_create(
             Redirect::to(&format!("/projects/{project_id}/notes?flash=invalid_title"))
                 .into_response(),
         );
+    }
+    if let Some(r) = check_max_len(
+        body.title.trim(),
+        500,
+        "title_too_long",
+        &format!("/projects/{project_id}/notes"),
+    ) {
+        return Ok(r);
+    }
+    if let Some(r) = check_max_len(
+        body.body.trim(),
+        50000,
+        "body_too_long",
+        &format!("/projects/{project_id}/notes"),
+    ) {
+        return Ok(r);
     }
     let note = state
         .repo

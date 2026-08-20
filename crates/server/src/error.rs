@@ -38,8 +38,12 @@ impl ApiError {
             RepositoryError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate limited".into()),
             RepositoryError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "io error".into()),
             RepositoryError::Uuid(_) => (StatusCode::BAD_REQUEST, "invalid id".into()),
-            RepositoryError::Database(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            RepositoryError::Migration(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+            RepositoryError::Database(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
+            }
+            RepositoryError::Migration(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "migration error".into())
+            }
         }
     }
 }

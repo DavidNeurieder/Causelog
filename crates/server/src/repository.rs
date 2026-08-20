@@ -1800,9 +1800,18 @@ impl Repository for SqliteRepository {
         if query.is_empty() {
             return Ok(Vec::new());
         }
-        // Phrase-match the whole query so malformed FTS5 syntax can't cause a
-        // 500; embedded quotes are escaped by doubling.
-        let phrase = format!("\"{}\"", query.replace('"', "\"\""));
+        // Strip everything except word characters and spaces to prevent FTS5
+        // syntax errors and operator injection. Then phrase-match the whole
+        // query so it's treated as a literal search.
+        let sanitized: String = query
+            .chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            .collect();
+        let sanitized = sanitized.trim().to_string();
+        if sanitized.is_empty() {
+            return Ok(Vec::new());
+        }
+        let phrase = format!("\"{}\"", sanitized.replace('"', "\"\""));
 
         // Build project filter: admins (None) see everything; regular users
         // only see entities from projects they are members of.

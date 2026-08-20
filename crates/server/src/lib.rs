@@ -6,12 +6,44 @@ pub mod pages;
 pub mod repository;
 pub mod routes;
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::Router;
 use axum::routing::{get, post};
 
 use crate::repository::Repository;
+
+/// Tracks failed login attempts per key (IP address).
+pub(crate) struct RateLimiter {
+    attempts: std::sync::Mutex<HashMap<String, (u32, Instant)>>,
+    max_attempts: u32,
+    window: Duration,
+}
+
+impl RateLimiter {
+    pub fn new(max_attempts: u32, window: Duration) -> Self {
+        Self {
+            attempts: std::sync::Mutex::new(HashMap::new()),
+            max_attempts,
+            window,
+        }
+    }
+
+    /// Returns `true` if the key has exceeded the allowed attempts.
+    pub fn is_rate_limited(&self, key: &str) -> bool {
+        let mut attempts = self.attempts.lock().unwrap();
+        let now = Instant::now();
+        let entry = attempts.entry(key.to_string()).or_insert((0, now));
+        if now.duration_since(entry.1) > self.window {
+            *entry = (1, now);
+            return false;
+        }
+        entry.0 += 1;
+        entry.0 > self.max_attempts
+    }
+}
 
 /// Shared application state handed to every handler.
 #[derive(Clone)]
@@ -19,6 +51,7 @@ pub struct AppState {
     pub repo: Arc<dyn Repository>,
     /// Set once TLS is active so session cookies get the `Secure` flag.
     pub secure_cookies: bool,
+    pub(crate) login_limiter: Arc<RateLimiter>,
 }
 
 fn router(state: AppState) -> Router {
@@ -150,6 +183,7 @@ pub fn app(repo: Arc<dyn Repository>) -> Router {
     router(AppState {
         repo,
         secure_cookies: false,
+        login_limiter: Arc::new(RateLimiter::new(5, Duration::from_secs(900))),
     })
 }
 
@@ -159,5 +193,6 @@ pub fn app_secure(repo: Arc<dyn Repository>) -> Router {
     router(AppState {
         repo,
         secure_cookies: true,
+        login_limiter: Arc::new(RateLimiter::new(5, Duration::from_secs(900))),
     })
 }
