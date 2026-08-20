@@ -7,7 +7,8 @@
     {% call m::crumb(project) %}
     <h1>{{ decision.title }}</h1>
   </div>
-  <div class="actions">
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    {% call m::subnav(project, "decisions", "Decisions") %}
     <form method="post" action="/decisions/{{ decision.id }}/delete" class="inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="danger" onclick="return confirm('Delete this decision and its history?')">Delete</button>
@@ -22,8 +23,6 @@
     <span class="muted small">created by {{ created_by_name }}</span>
   </div>
 </div>
-
-{% call m::subnav(project, "decisions") %}
 
 {% if !view.context_html.is_empty() %}
 <div class="section-panel">

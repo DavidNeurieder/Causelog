@@ -3,8 +3,10 @@
 {% block title %}New goal · {{ project.title }} · Causelog{% endblock %}
 {% block content %}
 {% call m::crumb(project) %}
-<h1>New goal</h1>
-{% call m::subnav(project, "goals") %}
+<div class="row space-between">
+  <h1>New goal</h1>
+  {% call m::subnav(project, "goals", "Goals") %}
+</div>
 {% call m::create_goal(project, csrf_token, members) %}
 <p class="muted small"><a href="/projects/{{ project.id }}/goals">← Back to goals</a></p>
 {% endblock %}

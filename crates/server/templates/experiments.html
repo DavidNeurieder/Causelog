@@ -8,9 +8,15 @@
     <h1>Experiments</h1>
     <p class="muted">An experiment tests a falsifiable hypothesis. Its lifecycle and observations make up this project's <a href="/projects/{{ project.id }}/timeline">timeline</a>.</p>
   </div>
-  <a class="btn" href="/projects/{{ project.id }}/experiments/new">New experiment</a>
+  <div class="row" style="gap: var(--space-2);">
+    {% call m::subnav(project, "experiments", "Experiments") %}
+    <div class="view-toggle">
+      <span class="toggle-btn on">List</span>
+      <a class="toggle-btn" href="/projects/{{ project.id }}/board">Board</a>
+    </div>
+    <a class="btn" href="/projects/{{ project.id }}/experiments/new">New experiment</a>
+  </div>
 </div>
-{% call m::subnav(project, "experiments") %}
 
 <h2>All experiments</h2>
 {% if experiments.is_empty() %}

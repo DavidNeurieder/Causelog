@@ -449,19 +449,48 @@ a.row-link .chev { color: var(--muted); font-size: 13px; }
 .edge-rejects { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
 
 /* ---------------------------------------------------------------------------
-   Project sub-navigation
+   Project sub-navigation (dropdown)
    ------------------------------------------------------------------------- */
 
-.subnav {
-  display: flex;
-  gap: var(--space-1);
-  overflow-x: auto;
-  padding-bottom: var(--space-2);
-  margin: var(--space-3) 0 var(--space-5);
-  border-bottom: 1px solid var(--border);
-  scrollbar-width: thin;
+.nav-dropdown {
+  position: relative;
 }
-.subnav a {
+.nav-dropdown summary {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  user-select: none;
+}
+.nav-dropdown summary::-webkit-details-marker { display: none; }
+.nav-dropdown summary::after { content: '\25BE'; font-size: 11px; }
+.nav-dropdown summary:hover { color: var(--fg); background: var(--panel-2); }
+.nav-dropdown[open] summary { color: var(--accent-hi); border-color: var(--accent); }
+.nav-dropdown nav {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: var(--shadow-md);
+  min-width: 160px;
+}
+.nav-dropdown nav a {
   color: var(--muted);
   text-decoration: none;
   font-size: 14px;
@@ -470,8 +499,8 @@ a.row-link .chev { color: var(--muted); font-size: 13px; }
   white-space: nowrap;
   font-weight: 500;
 }
-.subnav a:hover { color: var(--fg); background: var(--panel); }
-.subnav a.on { color: var(--accent-hi); background: var(--panel); }
+.nav-dropdown nav a:hover { color: var(--fg); background: var(--panel-2); }
+.nav-dropdown nav a.on { color: var(--accent-hi); background: var(--panel); }
 
 /* ---------------------------------------------------------------------------
    Markdown prose
@@ -691,25 +720,39 @@ details.create-project field { margin-bottom: var(--space-3); }
    Kanban board
    ------------------------------------------------------------------------- */
 
-.board-tabs {
+.entity-section { margin-bottom: var(--space-5); }
+.entity-header {
   display: flex;
-  gap: var(--space-1);
-  margin-bottom: var(--space-4);
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
 }
-.board-tab {
+.entity-header h2 { margin: 0; }
+
+.view-toggle {
+  display: flex;
+  gap: 0;
+}
+.toggle-btn {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 6px 14px;
+  padding: 4px 12px;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--muted);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
   transition: color 120ms ease, background 120ms ease;
 }
-.board-tab:hover { color: var(--fg); background: var(--panel-2); }
-.board-tab.on { color: var(--accent-hi); background: var(--panel); border-color: var(--accent); }
+.toggle-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.toggle-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-left: none; }
+.toggle-btn:hover { color: var(--fg); background: var(--panel-2); }
+.toggle-btn.on { color: var(--accent-hi); background: var(--panel); border-color: var(--accent); }
+
+.list-view[hidden] { display: none; }
 
 .board {
   display: grid;
@@ -797,7 +840,7 @@ details.create-project field { margin-bottom: var(--space-3); }
   .row { flex-wrap: wrap; }
   .row > details { flex-basis: 100%; }
   .auth-main { margin: var(--space-4) auto; }
-  .subnav { margin-bottom: var(--space-4); }
+  .nav-dropdown nav { right: auto; left: 0; }
   ol.timeline li { padding-left: var(--space-3); }
 }
 

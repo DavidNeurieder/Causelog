@@ -8,9 +8,11 @@
     <h1>Notes</h1>
     <p class="muted">Notes capture durable knowledge. See how everything fits together on the <a href="/projects/{{ project.id }}/graph">graph</a>.</p>
   </div>
-  <a class="btn" href="/projects/{{ project.id }}/notes/new">New note</a>
+  <div class="row" style="gap: var(--space-2);">
+    {% call m::subnav(project, "notes", "Notes") %}
+    <a class="btn" href="/projects/{{ project.id }}/notes/new">New note</a>
+  </div>
 </div>
-{% call m::subnav(project, "notes") %}
 
 <h2>All notes</h2>
 {% if notes.is_empty() %}

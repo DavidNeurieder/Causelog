@@ -1,16 +1,18 @@
-{% macro subnav(project, active) %}
-<nav class="subnav" aria-label="Project sections">
-  <a href="/projects/{{ project.id }}" {% if active == "overview" %}class="on"{% endif %}>Overview</a>
-  <a href="/projects/{{ project.id }}/board" {% if active == "board" %}class="on"{% endif %}>Board</a>
-  <a href="/projects/{{ project.id }}/goals" {% if active == "goals" %}class="on"{% endif %}>Goals</a>
-  <a href="/projects/{{ project.id }}/decisions" {% if active == "decisions" %}class="on"{% endif %}>Decisions</a>
-  <a href="/projects/{{ project.id }}/experiments" {% if active == "experiments" %}class="on"{% endif %}>Experiments</a>
-  <a href="/projects/{{ project.id }}/notes" {% if active == "notes" %}class="on"{% endif %}>Notes</a>
-  <a href="/projects/{{ project.id }}/timeline" {% if active == "timeline" %}class="on"{% endif %}>Timeline</a>
-  <a href="/projects/{{ project.id }}/graph" {% if active == "graph" %}class="on"{% endif %}>Graph</a>
-  <a href="/projects/{{ project.id }}/stats" {% if active == "stats" %}class="on"{% endif %}>Statistics</a>
-  <a href="/projects/{{ project.id }}/members" {% if active == "members" %}class="on"{% endif %}>Members</a>
-</nav>
+{% macro subnav(project, active, section_name) %}
+<details class="nav-dropdown">
+  <summary>{{ section_name }}</summary>
+  <nav>
+    <a href="/projects/{{ project.id }}" {% if active == "overview" %}class="on"{% endif %}>Overview</a>
+    <a href="/projects/{{ project.id }}/goals" {% if active == "goals" %}class="on"{% endif %}>Goals</a>
+    <a href="/projects/{{ project.id }}/decisions" {% if active == "decisions" %}class="on"{% endif %}>Decisions</a>
+    <a href="/projects/{{ project.id }}/experiments" {% if active == "experiments" %}class="on"{% endif %}>Experiments</a>
+    <a href="/projects/{{ project.id }}/notes" {% if active == "notes" %}class="on"{% endif %}>Notes</a>
+    <a href="/projects/{{ project.id }}/timeline" {% if active == "timeline" %}class="on"{% endif %}>Timeline</a>
+    <a href="/projects/{{ project.id }}/graph" {% if active == "graph" %}class="on"{% endif %}>Graph</a>
+    <a href="/projects/{{ project.id }}/stats" {% if active == "stats" %}class="on"{% endif %}>Statistics</a>
+    <a href="/projects/{{ project.id }}/members" {% if active == "members" %}class="on"{% endif %}>Members</a>
+  </nav>
+</details>
 {% endmacro %}
 
 {% macro crumb(project) %}

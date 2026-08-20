@@ -3,8 +3,10 @@
 {% block title %}New note · {{ project.title }} · Causelog{% endblock %}
 {% block content %}
 {% call m::crumb(project) %}
-<h1>New note</h1>
-{% call m::subnav(project, "notes") %}
+<div class="row space-between">
+  <h1>New note</h1>
+  {% call m::subnav(project, "notes", "Notes") %}
+</div>
 {% call m::create_note(project, csrf_token) %}
 <p class="muted small"><a href="/projects/{{ project.id }}/notes">← Back to notes</a></p>
 {% endblock %}

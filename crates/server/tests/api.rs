@@ -697,7 +697,8 @@ async fn decision_lifecycle_with_history() {
     assert!(body.contains("Chose"), "got: {body}");
     assert!(body.contains("2026-12-31"), "got: {body}");
     // Two revisions: creation + resolution.
-    assert_eq!(body.matches("details class").count(), 0);
+    // Only the nav-dropdown <details> has a class; the edit section does not.
+    assert_eq!(body.matches("details class").count(), 1);
     let revisions: Vec<_> = body.match_indices("History").collect();
     assert!(!revisions.is_empty(), "got: {body}");
     // The resolution snapshot should be in history.

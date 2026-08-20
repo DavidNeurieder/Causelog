@@ -9,13 +9,14 @@
     {% if !view.source_url.is_empty() %}<p class="muted">captured from <a href="{{ view.source_url }}">{{ view.source_title }}</a></p>{% endif %}
     <p class="muted small">created by {{ created_by_name }}</p>
   </div>
-  <form method="post" action="/notes/{{ note.id }}/delete" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" class="danger" onclick="return confirm('Delete this note?')">Delete note</button>
-  </form>
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    {% call m::subnav(project, "notes", "Notes") %}
+    <form method="post" action="/notes/{{ note.id }}/delete" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="danger" onclick="return confirm('Delete this note?')">Delete note</button>
+    </form>
+  </div>
 </div>
-
-{% call m::subnav(project, "notes") %}
 
 <details>
   <summary>Edit note</summary>

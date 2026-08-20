@@ -7,10 +7,11 @@
     <h1>Timeline</h1>
     <p class="muted"><a href="/projects/{{ project.id }}">{{ project.title }}</a></p>
   </div>
-  <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
+  <div class="row" style="gap: var(--space-2);">
+    {% call m::subnav(project, "timeline", "Timeline") %}
+    <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
+  </div>
 </div>
-
-{% call m::subnav(project, "timeline") %}
 
 {% if entries.is_empty() %}
 <p class="muted">Nothing here yet. Start an experiment and log observations to build the story of this project.</p>

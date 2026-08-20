@@ -7,7 +7,8 @@
     {% call m::crumb(project) %}
     <h1>{{ experiment.title }}</h1>
   </div>
-  <div class="actions">
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    {% call m::subnav(project, "experiments", "Experiments") %}
     <a class="btn" href="/projects/{{ project.id }}/timeline">Timeline</a>
     <form method="post" action="/experiments/{{ experiment.id }}/extract" class="inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -34,8 +35,6 @@
   </div>
   {% endif %}
 </div>
-
-{% call m::subnav(project, "experiments") %}
 
 <div class="section-panel">
   <h2>Add observation</h2>

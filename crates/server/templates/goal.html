@@ -7,7 +7,8 @@
     {% call m::crumb(project) %}
     <h1>{{ goal.title }}</h1>
   </div>
-  <div class="actions">
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    {% call m::subnav(project, "goals", "Goals") %}
     <form method="post" action="/projects/{{ project.id }}/goals/{{ goal.id }}/delete" class="inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="danger" onclick="return confirm('Delete this goal?')">Delete</button>
@@ -22,8 +23,6 @@
     {% if assigned_to_name != "Unknown" %}<span class="muted small">· assigned to {{ assigned_to_name }}</span>{% endif %}
   </div>
 </div>
-
-{% call m::subnav(project, "goals") %}
 
 {% if !body_html.is_empty() %}
 <div class="section-panel">

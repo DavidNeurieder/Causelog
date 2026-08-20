@@ -7,12 +7,11 @@
     <h1>Graph</h1>
     <p class="muted"><a href="/projects/{{ project.id }}">{{ project.title }}</a></p>
   </div>
-  <div class="row">
+  <div class="row" style="gap: var(--space-2);">
+    {% call m::subnav(project, "graph", "Graph") %}
     <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
   </div>
 </div>
-
-{% call m::subnav(project, "graph") %}
 
 <h2>Nodes</h2>
 {% if nodes.is_empty() %}

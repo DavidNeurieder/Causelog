@@ -8,9 +8,15 @@
     <h1>Goals</h1>
     <p class="muted">Goals say what “done” looks like for this project.</p>
   </div>
-  <a class="btn" href="/projects/{{ project.id }}/goals/new">New goal</a>
+  <div class="row" style="gap: var(--space-2);">
+    {% call m::subnav(project, "goals", "Goals") %}
+    <div class="view-toggle">
+      <span class="toggle-btn on">List</span>
+      <a class="toggle-btn" href="/projects/{{ project.id }}/board">Board</a>
+    </div>
+    <a class="btn" href="/projects/{{ project.id }}/goals/new">New goal</a>
+  </div>
 </div>
-{% call m::subnav(project, "goals") %}
 
 <h2>All goals</h2>
 {% if goals.is_empty() %}

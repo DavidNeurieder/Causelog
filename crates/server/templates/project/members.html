@@ -1,20 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as m %}
 {% block title %}Members · {{ project.title }} · Causelog{% endblock %}
 {% block content %}
 <p class="crumb"><a href="/projects/{{ project.id }}">{{ project.title }}</a></p>
-<h1>Project Members</h1>
-
-<nav class="subnav" aria-label="Project sections">
-  <a href="/projects/{{ project.id }}">Overview</a>
-  <a href="/projects/{{ project.id }}/goals">Goals</a>
-  <a href="/projects/{{ project.id }}/decisions">Decisions</a>
-  <a href="/projects/{{ project.id }}/experiments">Experiments</a>
-  <a href="/projects/{{ project.id }}/notes">Notes</a>
-  <a href="/projects/{{ project.id }}/timeline">Timeline</a>
-  <a href="/projects/{{ project.id }}/graph">Graph</a>
-  <a href="/projects/{{ project.id }}/stats">Statistics</a>
-  <a href="/projects/{{ project.id }}/members" class="on">Members</a>
-</nav>
+<div class="row space-between">
+  <h1>Project Members</h1>
+  {% call m::subnav(project, "members", "Members") %}
+</div>
 
 <section>
   <h2>Current Members</h2>
