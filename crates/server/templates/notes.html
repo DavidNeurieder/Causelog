@@ -2,17 +2,17 @@
 {% import "macros.html" as m %}
 {% block title %}{{ project.title }} · Notes · Causelog{% endblock %}
 {% block content %}
-{% call m::crumb(project) %}
 <div class="row space-between">
   <div>
+    {% call m::crumb(project) %}
     <h1>Notes</h1>
-    <p class="muted">Notes capture durable knowledge. See how everything fits together on the <a href="/projects/{{ project.id }}/graph">graph</a>.</p>
   </div>
-  <div class="row" style="gap: var(--space-2);">
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "notes", "Notes") %}
     <a class="btn" href="/projects/{{ project.id }}/notes/new">New note</a>
   </div>
 </div>
+<p class="muted">Notes capture durable knowledge. See how everything fits together on the <a href="/projects/{{ project.id }}/graph">graph</a>.</p>
 
 <h2>All notes</h2>
 {% if notes.is_empty() %}

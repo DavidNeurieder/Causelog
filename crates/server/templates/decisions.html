@@ -2,18 +2,18 @@
 {% import "macros.html" as m %}
 {% block title %}{{ project.title }} · Decisions · Causelog{% endblock %}
 {% block content %}
-{% call m::crumb(project) %}
 <div class="row space-between">
   <div>
+    {% call m::crumb(project) %}
     <h1>Decisions</h1>
-    <p class="muted">A decision is a trade-off you recorded: the options you weighed and, once resolved, the choice and the rationale.</p>
   </div>
-  <div class="row" style="gap: var(--space-2);">
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "decisions", "Decisions") %}
     {% call m::view_dropdown(project, "decisions", view) %}
     <a class="btn" href="/projects/{{ project.id }}/decisions/new">New decision</a>
   </div>
 </div>
+<p class="muted">A decision is a trade-off you recorded: the options you weighed and, once resolved, the choice and the rationale.</p>
 
 {% if view == "board" %}
 <div class="board">

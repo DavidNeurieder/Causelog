@@ -2,18 +2,18 @@
 {% import "macros.html" as m %}
 {% block title %}{{ project.title }} · Goals · Causelog{% endblock %}
 {% block content %}
-{% call m::crumb(project) %}
 <div class="row space-between">
   <div>
+    {% call m::crumb(project) %}
     <h1>Goals</h1>
-    <p class="muted">A goal is an outcome you want to achieve; the system tracks its status and related decisions and experiments.</p>
   </div>
-  <div class="row" style="gap: var(--space-2);">
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "goals", "Goals") %}
     {% call m::view_dropdown(project, "goals", view) %}
     <a class="btn" href="/projects/{{ project.id }}/goals/new">New goal</a>
   </div>
 </div>
+<p class="muted">A goal is an outcome you want to achieve; the system tracks its status and related decisions and experiments.</p>
 
 {% if view == "board" %}
 <div class="board">

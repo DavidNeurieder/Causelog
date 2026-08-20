@@ -4,10 +4,10 @@
 {% block content %}
 <div class="row space-between">
   <div>
+    {% call m::crumb(project) %}
     <h1>Graph</h1>
-    <p class="muted"><a href="/projects/{{ project.id }}">{{ project.title }}</a></p>
   </div>
-  <div class="row" style="gap: var(--space-2);">
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "graph", "Graph") %}
     <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
   </div>

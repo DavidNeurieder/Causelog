@@ -2,16 +2,16 @@
 {% import "macros.html" as m %}
 {% block title %}{{ project.title }} · Statistics · Causelog{% endblock %}
 {% block content %}
-{% call m::crumb(project) %}
 <div class="row space-between">
   <div>
+    {% call m::crumb(project) %}
     <h1>Statistics</h1>
-    <p class="muted">How this project is tracking, at a glance.</p>
   </div>
-  <div class="row" style="gap: var(--space-2);">
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "stats", "Statistics") %}
   </div>
 </div>
+<p class="muted">How this project is tracking, at a glance.</p>
 
 <div class="completion">
   <div class="progress-block">

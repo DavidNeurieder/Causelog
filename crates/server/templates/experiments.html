@@ -2,18 +2,18 @@
 {% import "macros.html" as m %}
 {% block title %}{{ project.title }} · Experiments · Causelog{% endblock %}
 {% block content %}
-{% call m::crumb(project) %}
 <div class="row space-between">
   <div>
+    {% call m::crumb(project) %}
     <h1>Experiments</h1>
-    <p class="muted">An experiment tests a falsifiable hypothesis. Its lifecycle and observations make up this project's <a href="/projects/{{ project.id }}/timeline">timeline</a>.</p>
   </div>
-  <div class="row" style="gap: var(--space-2);">
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "experiments", "Experiments") %}
     {% call m::view_dropdown(project, "experiments", view) %}
     <a class="btn" href="/projects/{{ project.id }}/experiments/new">New experiment</a>
   </div>
 </div>
+<p class="muted">An experiment tests a falsifiable hypothesis. Its lifecycle and observations make up this project's <a href="/projects/{{ project.id }}/timeline">timeline</a>.</p>
 
 {% if view == "board" %}
 <div class="board">

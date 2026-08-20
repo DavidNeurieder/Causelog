@@ -2,10 +2,14 @@
 {% import "macros.html" as m %}
 {% block title %}Members · {{ project.title }} · Causelog{% endblock %}
 {% block content %}
-<p class="crumb"><a href="/projects/{{ project.id }}">{{ project.title }}</a></p>
 <div class="row space-between">
-  <h1>Project Members</h1>
-  {% call m::subnav(project, "members", "Members") %}
+  <div>
+    {% call m::crumb(project) %}
+    <h1>Project Members</h1>
+  </div>
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    {% call m::subnav(project, "members", "Members") %}
+  </div>
 </div>
 
 <section>
