@@ -48,8 +48,8 @@ enum Command {
         #[arg(long, env = "DATABASE_URL", default_value = "sqlite://causelog.db")]
         database_url: String,
     },
-    /// Export a project (JSON, Markdown, or a static HTML site) from a local
-    /// database.
+    /// Export a project (JSON, Markdown, HTML, Archive, or ODP slides) from a
+    /// local database.
     Export(export_cli::ExportArgs),
 }
 

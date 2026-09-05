@@ -25,6 +25,11 @@ The golden path is: **goal → decision → experiment → lesson → timeline &
   tests, where a note came from, plus explicit typed links
   (`supports`/`rejects`/`follows`/`related`).
 - **Search** — full-text over every entity, kept in sync automatically.
+- **Export** — a canonical, versioned snapshot of any project, derived on
+  demand and downloaded from the project's Export page or the CLI. Formats:
+  JSON (the reference/backup format), a Git-friendly Markdown tree, an
+  offline static HTML site, a single Archive bundle of all three, and an
+  Impress/LibreOffice-compatible ODP slideshow built from the project story.
 
 ## Quickstart (local)
 
@@ -55,6 +60,18 @@ Usage: causelog [COMMAND]
 Commands:
   serve       Start the Causelog server (default)
   seed-demo   Create a first user and a three-project demo, then exit
+  export      Export a project from a local database
+```
+
+`export` writes a snapshot of any project by id or title to JSON, a Markdown
+tree, an offline HTML site, an Archive bundle, or ODP slides:
+
+```sh
+causelog export "The Coffee Machine Uprising" --format json           # → stdout
+causelog export <project-id> --format markdown --output ./out         # → Markdown tree
+causelog export <project-id> --format html                            # → static site dir
+causelog export <project-id> --format archive --output story.zip      # → bundle
+causelog export <project-id> --format odp --output slides.odp         # → slideshow
 ```
 
 `serve` flags (all also settable via env):
@@ -133,20 +150,22 @@ docker compose -f deploy/docker-compose.yml start
 
 ## Testing
 
-Three layers, run with a single `cargo test --workspace`:
+Three layers plus a browser suite, run with a single `cargo test --workspace`
+(130 Rust tests and 10 Playwright browser tests):
 
 - **Unit** — pure functions in the `content` crate (markdown sanitising,
   date parsing) and server helpers (options/link parsing, snippet
   highlighting, password hashing, cookie/CSRF behaviour, registration
-  validation).
+  validation), plus the export crate's pure renderers (JSON, Markdown, HTML,
+  Archive, and ODP — including zip/`mimetype` shape).
 - **Integration** (`crates/server/tests/api.rs`) — the full HTTP surface
   against an in-memory SQLite database, from setup to search, including
   multi-user flows (registration, admin approval, project membership,
-  role-based access control).
+  role-based access control) and the export page/download endpoints.
 - **E2E** (`crates/server/tests/e2e.rs`) — boots the real `causelog` binary on
   a free port with a temporary database, drives the golden path over HTTP
   with a cookie jar, then restarts the process to prove data survives, plus
-  `seed-demo` and CLI smoke tests.
+  `seed-demo` and CLI smoke tests (including `causelog export` round-trips).
 - **Browser E2E** (`e2e/`) — the same journey through a real Chromium via
   Playwright: it clicks the actual buttons, runs the page's JavaScript (the
   password toggles, the `<details>` forms), and shares one owner session.

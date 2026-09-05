@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Export
+
+- **Canonical export format.** `causelog export <project>` produces a
+  versioned snapshot (`causelog-export` v1) of any project — project, goals,
+  decisions with resolved status, experiments with raw events, notes, an
+  immutable revision history, and typed links.
+- **Five output formats** derived on demand from the snapshot, with the export
+  page at `/projects/{id}/export` (and `/projects/{id}/export.{format}`):
+  - **JSON** — the reference format for backups and future import.
+  - **Markdown** — a Git-friendly directory tree, one file per entity.
+  - **HTML** — an offline-ready static site.
+  - **Archive** — JSON + Markdown + HTML in one deterministic ZIP with a
+    manifest.
+  - **ODP** — an Impress/LibreOffice- (and PowerPoint-) compatible slideshow
+    built from the project story: title, goal, and one slide per decision,
+    experiment, and lesson, plus a timeline.
+- Downloads are member-only and streamed as attachments; everything is
+  regenerated per request, so it is always current.
+- New `crates/export` crate holds the format model and pure renderers, keeping
+  the export format stable as the database evolves.
+
 ## 0.1.0 — 2026-08-20
 
 First public release of Causelog: self-hosted engineering decision memory.
@@ -36,5 +59,5 @@ First public release of Causelog: self-hosted engineering decision memory.
 
 ### Testing
 
-- 103 Rust tests (unit, API integration, e2e)
+- 130 Rust tests (unit, API integration, e2e, export renderers)
 - 10 Playwright browser E2E tests (Chromium)

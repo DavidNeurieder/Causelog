@@ -1,4 +1,4 @@
-//! `causelog export project <ref> --format json|markdown|html|archive` —
+//! `causelog export project <ref> --format json|markdown|html|archive|odp` —
 //! export one project from a local database. No sessions here: this is the
 //! self-hosted, single-admin CLI, so any resolvable project can be exported.
 
@@ -30,7 +30,7 @@ pub struct ExportArgs {
     #[arg(long, value_enum)]
     pub format: Option<ExportFormat>,
 
-    /// Output path. JSON/Archive: a single file (stdout when omitted, for
+    /// Output path. JSON/Archive/ODP: a single file (stdout when omitted, for
     /// JSON only). Markdown/HTML: the directory to write into (defaults to
     /// `./<project>-export`).
     #[arg(long)]
