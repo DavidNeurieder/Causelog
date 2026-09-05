@@ -53,7 +53,7 @@ async fn seed(db_url: &str) -> Fixture {
         .unwrap();
     repo.resolve_decision(
         decision.id,
-        "decided".into(),
+        "decided",
         Some("sqlite".into()),
         "We like boring.",
         None,
@@ -76,7 +76,7 @@ async fn seed(db_url: &str) -> Fixture {
         experiment.id,
         "Volume probe",
         "Does it survive a billion rows?",
-        "done".into(),
+        "done",
         "Survived.",
         "Lesson: measure first.",
     )
@@ -84,7 +84,7 @@ async fn seed(db_url: &str) -> Fixture {
     .unwrap();
     repo.create_event(
         experiment.id,
-        "measurement".into(),
+        "measurement",
         1_700_000_000_000,
         "1B rows in 42s.",
     )
@@ -103,11 +103,11 @@ async fn seed(db_url: &str) -> Fixture {
     .unwrap();
     repo.create_link(
         project.id,
-        "experiment".into(),
+        "experiment",
         experiment.id,
-        "decision".into(),
+        "decision",
         decision.id,
-        "supports".into(),
+        "supports",
     )
     .await
     .unwrap();

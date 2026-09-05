@@ -175,7 +175,7 @@ fn markdown_tree_has_frontmatter_and_files() {
         .expect("decision page exists");
     let decision_md = &files
         .iter()
-        .find(|f| &f.path == *decision_path)
+        .find(|f| f.path == *decision_path)
         .unwrap()
         .content;
     assert!(decision_md.starts_with("---\ntype: decision\nid: 33333333"));
@@ -262,4 +262,5 @@ fn export_format_value_enum_maps() {
     assert_eq!(ExportFormat::Json.as_str(), "json");
     assert_eq!(ExportFormat::Markdown.as_str(), "markdown");
     assert_eq!(ExportFormat::Html.as_str(), "html");
+    assert_eq!(ExportFormat::Archive.as_str(), "archive");
 }

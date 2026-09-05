@@ -153,6 +153,11 @@ fn router(state: AppState) -> Router {
         )
         .route("/projects/{id}/graph", get(pages::graph_page))
         .route("/projects/{id}/stats", get(pages::project_stats_page))
+        .route("/projects/{id}/export", get(pages::project_export_page))
+        .route(
+            "/projects/{id}/export.{format}",
+            get(pages::project_export_download),
+        )
         .route(
             "/projects/{id}/members",
             get(pages::project_members_page).post(pages::project_member_add),

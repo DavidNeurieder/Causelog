@@ -8,8 +8,9 @@
 
 use askama::Template;
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::{Form, Path, Query, State};
-use axum::http::{HeaderMap, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use causelog_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
 use causelog_model::{Decision, DecisionOption, Experiment, Goal, Note, Project, User};
@@ -215,6 +216,20 @@ struct ProjectMembersTemplate {
     members: Vec<(User, String)>,
     all_users: Vec<User>,
     is_owner: bool,
+}
+
+/// The project's Export/Share menu: lists the downloadable formats, all
+/// derived on demand from the repository every time the page is opened.
+#[derive(Template)]
+#[template(path = "export.html")]
+struct ProjectExportTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
 }
 
 #[derive(Template)]
@@ -1587,6 +1602,103 @@ async fn require_project(state: &AppState, id: &str) -> Result<Project, PageErro
         .await?
         .ok_or_else(|| not_found("project"))?;
     Ok(project)
+}
+
+/// The project's Export menu page: every format is derived on demand, nothing
+/// is stored.
+pub(crate) async fn project_export_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+    page(&ProjectExportTemplate {
+        authed: true,
+        flash: String::new(),
+        flash_kind: "",
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+    })
+}
+
+/// Download one export format for a project: `json`, `md` (Markdown tree as a
+/// ZIP), `html` (static site as a ZIP), `zip` (the full archive bundle) or
+/// `odp` (an Impress-compatible slideshow).
+/// Everything is derived from the repository on every request.
+pub(crate) async fn project_export_download(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, format)): Path<(String, String)>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+    let repo = &*state.repo;
+    let export = causelog_export::collect(&repo, project.id)
+        .await
+        .map_err(|e| ApiError::internal(format!("exporting this project failed: {e:#}")))?;
+
+    let slug = causelog_export::slugify(&export.project.title);
+    let now = now_ms() / 1000;
+    let (bytes, content_type, filename) = match format.as_str() {
+        "json" => (
+            causelog_export::json::render_json(&export)
+                .map_err(|e| ApiError::internal(e.to_string()))?
+                .into_bytes(),
+            "application/json".to_string(),
+            format!("{slug}.json"),
+        ),
+        "md" => (
+            causelog_export::archive::zip_files(&causelog_export::markdown::render_markdown(
+                &export,
+            )),
+            "application/zip".to_string(),
+            format!("{slug}-{now}-markdown.zip"),
+        ),
+        "html" => (
+            causelog_export::archive::zip_files(&causelog_export::html::render_html(&export)),
+            "application/zip".to_string(),
+            format!("{slug}-{now}-html.zip"),
+        ),
+        "zip" => (
+            causelog_export::archive::archive(
+                &export,
+                &causelog_export::markdown::render_markdown(&export),
+                &causelog_export::html::render_html(&export),
+            ),
+            "application/zip".to_string(),
+            format!("{slug}-{now}.zip"),
+        ),
+        "odp" => {
+            let story = causelog_export::build_story(&export);
+            let presentation = causelog_export::build_presentation(&story);
+            (
+                causelog_export::render_odp(&presentation, &export.causelog_version),
+                "application/vnd.oasis.opendocument.presentation".to_string(),
+                format!("{slug}-{now}.odp"),
+            )
+        }
+        _ => return Err(ApiError::not_found("unknown export format").into()),
+    };
+
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, content_type),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        Bytes::from(bytes),
+    )
+        .into_response())
 }
 
 /// Check that the user is an admin or a member of the project.

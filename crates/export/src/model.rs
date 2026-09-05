@@ -20,6 +20,10 @@ pub enum ExportFormat {
     Markdown,
     /// Self-contained offline static HTML site (directory).
     Html,
+    /// Single deterministic ZIP: JSON + Markdown tree + manifest.
+    Archive,
+    /// LibreOffice-openable ODP slideshow (ZIP of ODF XML).
+    Odp,
 }
 
 impl ExportFormat {
@@ -28,6 +32,8 @@ impl ExportFormat {
             ExportFormat::Json => "json",
             ExportFormat::Markdown => "markdown",
             ExportFormat::Html => "html",
+            ExportFormat::Archive => "archive",
+            ExportFormat::Odp => "odp",
         }
     }
 }

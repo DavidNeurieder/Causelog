@@ -3540,3 +3540,149 @@ async fn api_decision_resolve_fields() {
     assert!(body.contains("Chose"), "got: {body}");
     assert!(body.contains("Simpler stack."), "got: {body}");
 }
+
+// ---------------------------------------------------------------------------
+// Export UI
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn export_page_lists_download_options() {
+    use causelog_server::auth::hash_password;
+
+    let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
+    repo.migrate().await.unwrap();
+    let hash = hash_password("longenough1").unwrap();
+    let user = repo.create_first_user("dev", "Dev", &hash).await.unwrap();
+    let session = repo.create_session(user.id).await.unwrap();
+    let project = repo
+        .create_project("Export Me", "A test project.", "active", None)
+        .await
+        .unwrap();
+    let app = app(repo_box(repo));
+    let cookie = format!("causelog_session={}", session.token);
+
+    let url = format!("/projects/{}/export", project.id);
+
+    let res = send(&app, with_cookie(get(&url), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_string(res).await;
+    for label in [
+        "JSON snapshot",
+        "Markdown tree",
+        "Static HTML site",
+        "Archive",
+        "Slides",
+    ] {
+        assert!(body.contains(label), "{label} missing: {body}");
+    }
+}
+
+#[tokio::test]
+async fn export_downloads_stream_each_format() {
+    use causelog_server::auth::hash_password;
+
+    let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
+    repo.migrate().await.unwrap();
+    let hash = hash_password("longenough1").unwrap();
+    let user = repo.create_first_user("dev", "Dev", &hash).await.unwrap();
+    let session = repo.create_session(user.id).await.unwrap();
+    let project = repo
+        .create_project("Export Me", "A test project.", "active", None)
+        .await
+        .unwrap();
+    let app = app(repo_box(repo));
+    let cookie = format!("causelog_session={}", session.token);
+
+    let pid = project.id.to_string();
+
+    let (json, ctype, disp) =
+        download_and_split(&app, &cookie, &format!("/projects/{pid}/export.json")).await;
+    assert_eq!(ctype, "application/json");
+    assert!(disp.contains("attachment"));
+    let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
+    assert_eq!(parsed["format"], "causelog-export");
+    assert_eq!(parsed["project"]["title"], "Export Me");
+
+    for fmt in ["md", "html", "zip"] {
+        let (bytes, ctype, disp) =
+            download_and_split(&app, &cookie, &format!("/projects/{pid}/export.{fmt}")).await;
+        assert_eq!(ctype, "application/zip", "format {fmt}");
+        assert!(disp.contains("attachment"), "format {fmt}");
+        assert!(!bytes.is_empty(), "format {fmt} produced no body");
+        // Each is a real zip: starts with the local-file-header magic.
+        assert_eq!(&bytes[..2], b"PK", "format {fmt} is not a zip");
+    }
+
+    // Slides: an ODP bundle (ZIP with the ODF mimetype set) and a non-zip
+    // content type, unlike the other downloadable zips.
+    let (bytes, ctype, disp) =
+        download_and_split(&app, &cookie, &format!("/projects/{pid}/export.odp")).await;
+    assert_eq!(ctype, "application/vnd.oasis.opendocument.presentation");
+    assert!(disp.contains("attachment"));
+    assert_eq!(&bytes[..2], b"PK");
+    // ODP package: first entry is the stored mimetype sentinel.
+    let mut arch = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let first = arch.by_index(0).unwrap();
+    assert_eq!(first.name(), "mimetype");
+}
+
+#[tokio::test]
+async fn export_download_requires_membership() {
+    use causelog_server::auth::hash_password;
+
+    let repo = SqliteRepository::connect("sqlite::memory:").await.unwrap();
+    repo.migrate().await.unwrap();
+    let hash = hash_password("longenough1").unwrap();
+    let owner = repo
+        .create_first_user("owner", "Owner", &hash)
+        .await
+        .unwrap();
+    let other = repo.create_user("other", "Other", &hash).await.unwrap();
+    repo.approve_user(other.id).await.unwrap();
+    let project = repo
+        .create_project("Private", "s", "active", Some(owner.id))
+        .await
+        .unwrap();
+
+    let session = repo.create_session(other.id).await.unwrap();
+    let app = app(repo_box(repo));
+    let cookie = format!("causelog_session={}", session.token);
+
+    // Not a member -> 403 (same as every other project page).
+    let res = send(
+        &app,
+        with_cookie(get(&format!("/projects/{}/export", project.id)), &cookie),
+    )
+    .await;
+    assert_eq!(
+        res.status(),
+        StatusCode::FORBIDDEN,
+        "non-member must be forbidden"
+    );
+}
+
+/// GET a download endpoint, returning (body bytes, content-type, content-disposition).
+async fn download_and_split(
+    router: &axum::Router,
+    cookie: &str,
+    url: &str,
+) -> (Vec<u8>, String, String) {
+    let res = send(router, with_cookie(get(url), cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK, "download {url}");
+    let ctype = res
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let disp = res
+        .headers()
+        .get(header::CONTENT_DISPOSITION)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let bytes = res.into_body().collect().await.unwrap().to_bytes().to_vec();
+    (bytes, ctype, disp)
+}

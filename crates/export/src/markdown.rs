@@ -467,27 +467,29 @@ fn references_for(
 ) -> String {
     let mut related: Vec<(String, String, String, uuid::Uuid)> = Vec::new();
     for l in &project.links {
-        if l.from_type == self_type && l.from_id == self_id {
-            if let Some((title, dir, to_id)) = entity_label(project, &l.to_type, l.to_id) {
-                related.push((format!("→ {} ({})", l.to_type, l.kind), title, dir, to_id));
-            }
+        if l.from_type == self_type
+            && l.from_id == self_id
+            && let Some((title, dir, to_id)) = entity_label(project, &l.to_type, l.to_id)
+        {
+            related.push((format!("→ {} ({})", l.to_type, l.kind), title, dir, to_id));
         }
-        if l.to_type == self_type && l.to_id == self_id {
-            if let Some((title, dir, from_id)) = entity_label(project, &l.from_type, l.from_id) {
-                related.push((
-                    format!("← {} ({})", l.from_type, l.kind),
-                    title,
-                    dir,
-                    from_id,
-                ));
-            }
+        if l.to_type == self_type
+            && l.to_id == self_id
+            && let Some((title, dir, from_id)) = entity_label(project, &l.from_type, l.from_id)
+        {
+            related.push((
+                format!("← {} ({})", l.from_type, l.kind),
+                title,
+                dir,
+                from_id,
+            ));
         }
     }
     related.sort_by(|a, b| a.1.cmp(&b.1));
     if related.is_empty() {
         return String::new();
     }
-    let mut out = format!("\n## Linked entities\n\n");
+    let mut out = "\n## Linked entities\n\n".to_string();
     for (label, title, dir, id) in related {
         let link = path_in(self_dir, &dir, &file_stem(&title, id));
         out.push_str(&format!("- {label}: [{}]({link})\n", title));
@@ -544,7 +546,7 @@ fn timeline_md(project: &ExportProject) -> String {
             ));
         }
         // Best-effort link to the entity if the title matches something.
-        out.push_str("\n");
+        out.push('\n');
     }
     out
 }

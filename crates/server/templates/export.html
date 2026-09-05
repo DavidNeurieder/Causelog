@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Export · {{ project.title }} · Causelog{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    {% call m::crumb(project) %}
+    <h1>Export</h1>
+  </div>
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    {% call m::subnav(project, "export", "Export") %}
+  </div>
+</div>
+
+<p class="muted">A full snapshot of <strong>{{ project.title }}</strong>, derived on demand and downloaded as a single file. Everything is regenerated each time, so it is always current.</p>
+
+<section class="list">
+  <div class="row item">
+    <div>
+      <a class="strong" href="/projects/{{ project.id }}/export.json">JSON snapshot</a>
+      <div class="muted small">The canonical, versioned export — the reference format for backups and future imports.</div>
+    </div>
+    <a class="btn" href="/projects/{{ project.id }}/export.json" download>Download</a>
+  </div>
+
+  <div class="row item">
+    <div>
+      <a class="strong" href="/projects/{{ project.id }}/export.md">Markdown tree</a>
+      <div class="muted small">A Git-friendly directory of Markdown files, one per entity, with frontmatter.</div>
+    </div>
+    <a class="btn" href="/projects/{{ project.id }}/export.md" download>Download .zip</a>
+  </div>
+
+  <div class="row item">
+    <div>
+      <a class="strong" href="/projects/{{ project.id }}/export.html">Static HTML site</a>
+      <div class="muted small">An offline-ready website for this project — host it anywhere.</div>
+    </div>
+    <a class="btn" href="/projects/{{ project.id }}/export.html" download>Download .zip</a>
+  </div>
+
+  <div class="row item">
+    <div>
+      <a class="strong" href="/projects/{{ project.id }}/export.zip">Archive</a>
+      <div class="muted small">Everything above in one bundle: JSON + Markdown + HTML with a manifest.</div>
+    </div>
+    <a class="btn" href="/projects/{{ project.id }}/export.zip" download>Download .zip</a>
+  </div>
+
+  <div class="row item">
+    <div>
+      <a class="strong" href="/projects/{{ project.id }}/export.odp">Slides</a>
+      <div class="muted small">A LibreOffice / PowerPoint-compatible slideshow built from the project story — one slide per decision, experiment and lesson. Opens in Impress, PowerPoint-compatible tools, and Google Slides.</div>
+    </div>
+    <a class="btn" href="/projects/{{ project.id }}/export.odp" download>Download .odp</a>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Coming later</h3>
+  <p class="muted small">A one-page prose narrative is planned on top of the curated project story. Import is a separate milestone.</p>
+</section>
+{% endblock %}

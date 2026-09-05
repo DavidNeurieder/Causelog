@@ -584,20 +584,22 @@ fn relationships_body(project: &ExportProject) -> String {
 fn list_related(project: &ExportProject, self_type: &str, self_id: uuid::Uuid) -> String {
     let mut related: Vec<(String, String, uuid::Uuid, String)> = Vec::new();
     for l in &project.links {
-        if l.from_type == self_type && l.from_id == self_id {
-            if let Some((title, dir, to_id)) = label(project, &l.to_type, l.to_id) {
-                related.push((dir, title, to_id, format!("to {} ({})", l.to_type, l.kind)));
-            }
+        if l.from_type == self_type
+            && l.from_id == self_id
+            && let Some((title, dir, to_id)) = label(project, &l.to_type, l.to_id)
+        {
+            related.push((dir, title, to_id, format!("to {} ({})", l.to_type, l.kind)));
         }
-        if l.to_type == self_type && l.to_id == self_id {
-            if let Some((title, dir, from_id)) = label(project, &l.from_type, l.from_id) {
-                related.push((
-                    dir,
-                    title,
-                    from_id,
-                    format!("from {} ({})", l.from_type, l.kind),
-                ));
-            }
+        if l.to_type == self_type
+            && l.to_id == self_id
+            && let Some((title, dir, from_id)) = label(project, &l.from_type, l.from_id)
+        {
+            related.push((
+                dir,
+                title,
+                from_id,
+                format!("from {} ({})", l.from_type, l.kind),
+            ));
         }
     }
     if related.is_empty() {

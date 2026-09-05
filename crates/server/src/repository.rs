@@ -31,6 +31,8 @@ pub enum RepositoryError {
     Conflict(String),
     #[error("rate limited")]
     RateLimited,
+    #[error("{0}")]
+    Internal(String),
     #[error("io error")]
     Io(#[from] std::io::Error),
     #[error("invalid id")]

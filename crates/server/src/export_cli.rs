@@ -1,18 +1,22 @@
-//! `causelog export project <ref> --format json|markdown|html` — export one
-//! project from a local database. No sessions here: this is the self-hosted,
-//! single-admin CLI, so any resolvable project can be exported.
+//! `causelog export project <ref> --format json|markdown|html|archive` —
+//! export one project from a local database. No sessions here: this is the
+//! self-hosted, single-admin CLI, so any resolvable project can be exported.
 
 use std::fs;
 use std::path::PathBuf;
 
 use causelog_content::now_ms;
 use causelog_export::ExportFormat;
+use causelog_export::archive::archive;
+use causelog_export::build_presentation;
 use causelog_export::collect;
 use causelog_export::html::render_html;
 use causelog_export::json::render_json;
 use causelog_export::markdown::render_markdown;
 use causelog_export::model::file_stem;
+use causelog_export::odp::render_odp;
 use causelog_export::resolve_project;
+use causelog_export::story::build_story;
 use causelog_server::repository::SqliteRepository;
 use clap::Args;
 
@@ -26,8 +30,9 @@ pub struct ExportArgs {
     #[arg(long, value_enum)]
     pub format: Option<ExportFormat>,
 
-    /// Output path. JSON: a file (stdout when omitted). Markdown/HTML: the
-    /// directory to write into (defaults to `./<project>-export`).
+    /// Output path. JSON/Archive: a single file (stdout when omitted, for
+    /// JSON only). Markdown/HTML: the directory to write into (defaults to
+    /// `./<project>-export`).
     #[arg(long)]
     pub output: Option<PathBuf>,
 
@@ -55,6 +60,26 @@ pub async fn run(args: &ExportArgs) -> anyhow::Result<()> {
             let dir = args.output.clone().unwrap_or_else(|| default_dir(&export));
             write_tree(&dir, &render_html(&export)).await?;
             tracing::info!(dir = %dir.display(), "html export written");
+        }
+        ExportFormat::Archive => {
+            let path = args
+                .output
+                .clone()
+                .unwrap_or_else(|| default_dir(&export).with_extension("zip"));
+            let bytes = archive(&export, &render_markdown(&export), &render_html(&export));
+            fs::write(&path, bytes)?;
+            tracing::info!(path = %path.display(), "archive export written");
+        }
+        ExportFormat::Odp => {
+            let path = args
+                .output
+                .clone()
+                .unwrap_or_else(|| default_dir(&export).with_extension("odp"));
+            let story = build_story(&export);
+            let presentation = build_presentation(&story);
+            let bytes = render_odp(&presentation, &export.causelog_version);
+            fs::write(&path, bytes)?;
+            tracing::info!(path = %path.display(), "odp export written");
         }
     }
     Ok(())

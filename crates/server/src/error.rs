@@ -28,6 +28,9 @@ impl ApiError {
     pub fn conflict(msg: impl Into<String>) -> Self {
         Self(RepositoryError::Conflict(msg.into()))
     }
+    pub fn internal(msg: impl Into<String>) -> Self {
+        Self(RepositoryError::Internal(msg.into()))
+    }
     pub fn status_and_message(&self) -> (StatusCode, String) {
         match &self.0 {
             RepositoryError::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
@@ -36,6 +39,7 @@ impl ApiError {
             RepositoryError::InvalidInput(m) => (StatusCode::BAD_REQUEST, m.clone()),
             RepositoryError::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
             RepositoryError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate limited".into()),
+            RepositoryError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
             RepositoryError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "io error".into()),
             RepositoryError::Uuid(_) => (StatusCode::BAD_REQUEST, "invalid id".into()),
             RepositoryError::Database(_) => {
