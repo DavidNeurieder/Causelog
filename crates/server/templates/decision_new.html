@@ -11,6 +11,6 @@
     {% call m::subnav(project, "decisions", "Decisions") %}
   </div>
 </div>
-{% call m::create_decision(project, goals, csrf_token) %}
+{% call m::create_decision(project, goals, csrf_token, draft_title) %}
 <p class="muted small"><a href="/projects/{{ project.id }}/decisions">← Back to decisions</a></p>
 {% endblock %}

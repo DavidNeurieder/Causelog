@@ -7,6 +7,7 @@
     {% call m::crumb(project) %}
     <div class="editable" data-entity="decision" data-id="{{ decision.id }}" data-field="title">
       <div class="editable-display">
+        <p class="kicker">DECISION</p>
         <h1>{{ decision.title }}</h1>
       </div>
       <div class="editable-edit">
@@ -20,6 +21,7 @@
   </div>
   <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "decisions", "Decisions") %}
+    <a class="muted small" href="/projects/{{ project.id }}/graph?focus={{ decision.id }}">Focus on this →</a>
     <details class="nav-dropdown" id="action-dropdown">
       <summary>View</summary>
       <nav>
@@ -42,16 +44,29 @@
 <div class="meta-card">
   <div class="meta-card-row">
     <span class="tag status-{{ view.status }}">{{ view.status }}</span>
+    {% if !view.state.is_empty() %}<span class="tag state-{{ view.state }}" title="{{ view.state }}">{{ view.state }}</span>{% endif %}
     {% if !view.goal_title.is_empty() %}<span class="muted small">serves: {{ view.goal_title }}</span>{% endif %}
     <span class="muted small">created by {{ created_by_name }}</span>
   </div>
 </div>
 
+{% if flash == "decision_created" %}
+<div class="section-panel panel-highlight">
+  <h2>Captured. Make it useful?</h2>
+  <p class="muted small">A decision without evidence is an opinion. Grow this one into something the project can learn from.</p>
+  <div class="row quick-add">
+    <a class="btn" href="/projects/{{ project.id }}/experiments/new">+ Start an experiment to test it</a>
+    <a class="btn" href="/projects/{{ project.id }}/decisions/new">+ Track a related decision</a>
+    <a class="btn" href="/projects/{{ project.id }}/graph">+ Link it on the graph</a>
+  </div>
+</div>
+{% endif %}
+
 <div class="section-panel">
-  <h2>Context</h2>
+  <h2>Why</h2>
   <div class="editable" data-entity="decision" data-id="{{ decision.id }}" data-field="context">
     <div class="editable-display">
-      <div class="prose">{% if view.context_html.is_empty() %}<span class="muted">Click to add context…</span>{% else %}{{ view.context_html|safe }}{% endif %}</div>
+      <div class="prose">{% if view.context_html.is_empty() %}<span class="muted">Click to add the situation that forced this choice…</span>{% else %}{{ view.context_html|safe }}{% endif %}</div>
     </div>
     <div class="editable-edit">
       <textarea name="context" rows="4">{{ decision.context }}</textarea>
@@ -63,15 +78,39 @@
   </div>
 </div>
 
+{% if view.status == "decided" %}
 <div class="section-panel">
-  <h2>Options</h2>
+  <div class="row space-between section-head">
+    <h2>Choice</h2>
+    <span class="muted small">decided {{ view.decided_at }}</span>
+  </div>
+  <p class="muted">We chose <strong class="chosen-label">{{ view.decided_label }}</strong>.</p>
+  <div class="prose">{{ view.rationale_html|safe }}</div>
+  {% if !view.review_at.is_empty() %}<p class="muted">Review on or after <strong>{{ view.review_at }}</strong></p>{% endif %}
+</div>
+{% elif view.status == "rejected" %}
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>Choice</h2>
+    <span class="muted small">rejected {{ view.decided_at }}</span>
+  </div>
+  <p class="muted">The options were all rejected.</p>
+  <div class="prose">{{ view.rationale_html|safe }}</div>
+</div>
+{% endif %}
+
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>Alternatives</h2>
+    <span class="muted small">options weighed</span>
+  </div>
   {% if view.options.is_empty() %}
-  <p class="muted">No options recorded.</p>
+  <p class="muted">No alternatives recorded yet.</p>
   {% else %}
   <section class="options">
     {% for o in view.options %}
-    <div class="card">
-      <h3>{{ o.label }}</h3>
+    <div class="card{% if o.chosen %} card-chosen{% endif %}">
+      <h3>{% if o.chosen %}<span class="chosen-mark">✓</span> {% endif %}{{ o.label }}{% if o.chosen %} <span class="tag status-decided">chosen</span>{% endif %}</h3>
       <p class="muted small">Pros</p>
       <div class="prose">{{ o.pros_html|safe }}</div>
       <p class="muted small">Cons</p>
@@ -82,20 +121,47 @@
   {% endif %}
 </div>
 
-{% if view.status == "decided" %}
 <div class="section-panel">
-  <h2>Decision</h2>
-  <p class="muted">Chose <strong>{{ view.decided_label }}</strong> on {{ view.decided_at }}</p>
-  <div class="prose">{{ view.rationale_html|safe }}</div>
-  {% if !view.review_at.is_empty() %}<p class="muted">Review on or after <strong>{{ view.review_at }}</strong></p>{% endif %}
+  <div class="row space-between section-head">
+    <h2>Evidence</h2>
+    <span class="muted small">experiments that test it</span>
+  </div>
+  {% if evidence.is_empty() %}
+  <p class="muted">No experiments yet — validate this decision.</p>
+  <a class="btn" href="/projects/{{ project.id }}/experiments/new">Start experiment</a>
+  {% else %}
+  <section class="list">
+    {% for ev in evidence %}
+    <div class="row item">
+      <div>
+        <a class="strong" href="{{ ev.link }}">{{ ev.title }}</a>
+        <span class="tag status-{{ ev.status }}">{{ ev.status }}</span>
+        {% if !ev.summary.is_empty() %}<div class="muted small">{{ ev.summary }}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
 </div>
-{% elif view.status == "rejected" %}
+
 <div class="section-panel">
-  <h2>Outcome</h2>
-  <p class="muted">Rejected on {{ view.decided_at }}</p>
-  <div class="prose">{{ view.rationale_html|safe }}</div>
+  <div class="row space-between section-head">
+    <h2>What happened</h2>
+    <span class="muted small">notes &amp; lessons as evidence came in</span>
+  </div>
+  {% if evidence_notes.is_empty() %}
+  <p class="muted">Nothing captured yet.</p>
+  <a class="btn" href="/capture">Quick capture</a>
+  {% else %}
+  <section class="list">
+    {% for n in evidence_notes %}
+    <div class="row item">
+      <a class="strong" href="/notes/{{ n.id }}">{{ n.title }}</a>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
 </div>
-{% endif %}
 
 {% if view.status == "open" %}
 <div class="section-panel">
@@ -135,15 +201,20 @@
 {% endif %}
 
 <div class="section-panel">
-  <h2>History</h2>
+  <h2>How our thinking changed</h2>
   {% if revisions.is_empty() %}
   <p class="muted">No history yet.</p>
   {% else %}
   <section class="list">
     {% for rv in revisions %}
-    <details>
-      <summary>{{ rv.created_at }}</summary>
+    <details class="revision">
+      <summary>
+        <span class="muted small">{{ rv.created_at }}</span>
+        <span>{{ rv.narrative }}</span>
+      </summary>
+      <div class="revision-screen">
       <div class="prose">{{ rv.html|safe }}</div>
+      </div>
     </details>
     {% endfor %}
   </section>

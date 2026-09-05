@@ -11,6 +11,6 @@
     {% call m::subnav(project, "experiments", "Experiments") %}
   </div>
 </div>
-{% call m::create_experiment(project, goals, decisions, csrf_token) %}
+{% call m::create_experiment(project, goals, decisions, csrf_token, draft_title) %}
 <p class="muted small"><a href="/projects/{{ project.id }}/experiments">← Back to experiments</a></p>
 {% endblock %}

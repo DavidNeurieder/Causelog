@@ -2,11 +2,12 @@
 <details class="nav-dropdown">
   <summary>{{ section_name }}</summary>
   <nav>
-    <a href="/projects/{{ project.id }}" {% if active == "overview" %}class="on"{% endif %}>Overview</a>
-    <a href="/projects/{{ project.id }}/goals" {% if active == "goals" %}class="on"{% endif %}>Goals</a>
+    <a href="/projects/{{ project.id }}" {% if active == "overview" %}class="on"{% endif %}>Overview · Story</a>
     <a href="/projects/{{ project.id }}/decisions" {% if active == "decisions" %}class="on"{% endif %}>Decisions</a>
     <a href="/projects/{{ project.id }}/experiments" {% if active == "experiments" %}class="on"{% endif %}>Experiments</a>
-    <a href="/projects/{{ project.id }}/notes" {% if active == "notes" %}class="on"{% endif %}>Notes</a>
+    <a href="/projects/{{ project.id }}/notes" {% if active == "notes" %}class="on"{% endif %}>Knowledge</a>
+    <span class="nav-sep"></span>
+    <a href="/projects/{{ project.id }}/goals" {% if active == "goals" %}class="on"{% endif %}>Goals</a>
     <a href="/projects/{{ project.id }}/timeline" {% if active == "timeline" %}class="on"{% endif %}>Timeline</a>
     <a href="/projects/{{ project.id }}/graph" {% if active == "graph" %}class="on"{% endif %}>Graph</a>
     <a href="/projects/{{ project.id }}/stats" {% if active == "stats" %}class="on"{% endif %}>Statistics</a>
@@ -33,6 +34,21 @@
     <div class="board-card" data-id="{{ item.id }}" draggable="true">
       <a href="{{ item.link }}">{{ item.title }}</a>
       <span class="tag status-{{ item.status }}">{{ item.status }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endmacro %}
+
+{% macro decision_kanban_column(title, items) %}
+<div class="board-column">
+  <h3>{{ title }} <span class="board-count">{{ items.len() }}</span></h3>
+  <div class="board-column-body" data-status="{{ title|lower }}">
+    {% for item in items %}
+    <div class="board-card" data-id="{{ item.id }}" draggable="true">
+      <a href="{{ item.link }}">{{ item.title }}</a>
+      <span class="tag status-{{ item.status }}">{{ item.status }}</span>
+      {% if !item.state.is_empty() %}<span class="tag state-{{ item.state }}" title="{{ item.state }}">{{ item.state }}</span>{% endif %}
     </div>
     {% endfor %}
   </div>
@@ -81,6 +97,7 @@
   <div>
     <a class="strong" href="/decisions/{{ dv.id }}">{{ dv.title }}</a>
     <span class="tag status-{{ dv.status }}">{{ dv.status }}</span>
+    {% if !dv.state.is_empty() %}<span class="tag state-{{ dv.state }}" title="{{ dv.state }}">{{ dv.state }}</span>{% endif %}
     {% if !dv.decided_label.is_empty() %}<span class="muted small">→ {{ dv.decided_label }}</span>{% endif %}
   </div>
 </div>
@@ -146,15 +163,15 @@
 </form>
 {% endmacro %}
 
-{% macro create_decision(project, goals, csrf) %}
+{% macro create_decision(project, goals, csrf, draft_title) %}
 <form method="post" action="/projects/{{ project.id }}/decisions" class="panel-form">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <field>
-    <label for="dnew-title">What needs deciding?</label>
-    <input id="dnew-title" name="title" placeholder="e.g. Which datastore should Causelog use?" required>
+    <label for="dnew-title">What did you decide?</label>
+    <input id="dnew-title" name="title" placeholder="e.g. We're using SQLite with WAL" value="{{ draft_title }}" required>
   </field>
   <field>
-    <label for="dnew-context">Context (Markdown, optional)</label>
+    <label for="dnew-context">Why? (Markdown, optional)</label>
     <textarea id="dnew-context" name="context" rows="4" placeholder="What situation forced the choice, and what's at stake?"></textarea>
   </field>
   <field>
@@ -167,8 +184,8 @@
     </select>
   </field>
 
-  <h4>Option 1</h4>
-  <field><label for="dnew-o1">Label</label><input id="dnew-o1" name="opt_1_label" placeholder="e.g. SQLite" required></field>
+  <h4>Alternatives considered (optional)</h4>
+  <field><label for="dnew-o1">Option 1 label</label><input id="dnew-o1" name="opt_1_label" placeholder="e.g. SQLite"></field>
   <field><label for="dnew-o1p">Pros (Markdown)</label><textarea id="dnew-o1p" name="opt_1_pros" rows="2"></textarea></field>
   <field><label for="dnew-o1c">Cons (Markdown)</label><textarea id="dnew-o1c" name="opt_1_cons" rows="2"></textarea></field>
 
@@ -186,12 +203,12 @@
 </form>
 {% endmacro %}
 
-{% macro create_experiment(project, goals, decisions, csrf) %}
+{% macro create_experiment(project, goals, decisions, csrf, draft_title) %}
 <form method="post" action="/projects/{{ project.id }}/experiments" class="panel-form">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <field>
     <label for="enew-title">Title</label>
-    <input id="enew-title" name="title" placeholder="e.g. Try SQLite with WAL for six weeks" required>
+    <input id="enew-title" name="title" placeholder="e.g. Try SQLite with WAL for six weeks" value="{{ draft_title }}" required>
   </field>
   <field>
     <label for="enew-hypothesis">Hypothesis (Markdown, optional)</label>
@@ -234,8 +251,10 @@
 </form>
 {% endmacro %}
 
-{% macro section_empty(message) %}
+{% macro empty_state(title, body, cta_url, cta_label) %}
 <div class="empty">
-  <p>{{ message }}</p>
+  <p class="strong">{{ title }}</p>
+  <p class="muted small">{{ body }}</p>
+  <a class="btn" href="{{ cta_url }}">{{ cta_label }}</a>
 </div>
 {% endmacro %}

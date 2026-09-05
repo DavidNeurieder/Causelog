@@ -25,7 +25,7 @@
 {% else %}
 <h2>All goals</h2>
 {% if goals.is_empty() %}
-{% call m::section_empty("No goals yet.") %}
+{% call m::empty_state("No goals yet.", "Goals give the project direction — what 'done' looks like. Start with one and link decisions and experiments to it.", "/projects/" ~ project.id ~ "/goals/new", "Add a goal") %}
 {% else %}
 {% call m::goal_list(goals) %}
 {% endif %}

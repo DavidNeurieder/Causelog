@@ -21,8 +21,9 @@
       <a href="/admin/users">Admin</a>
       <a href="/statistics">Statistics</a>
       <form method="get" action="/search" class="inline">
-        <input class="search" type="search" name="q" placeholder="Search…" aria-label="Search">
+        <input class="search" type="search" name="q" id="search-input" placeholder="What are you trying to remember?" aria-label="Search">
       </form>
+      <a class="btn" href="/capture">+ Quick capture</a>
       <span class="who">{{ display_name }}</span>
       <form method="post" action="/logout" class="inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -44,8 +45,11 @@
 <footer class="site">
   <div class="container">
     <span>© {{ year }} Causelog</span>
+    <span class="muted small">Press <kbd>/</kbd> to search · <kbd>n</kbd> to capture</span>
   </div>
 </footer>
+{% block fab %}{% if authed %}<a class="fab" href="/capture" aria-label="Quick capture">+</a>{% endif %}{% endblock %}
 <script src="/static/editable.js"></script>
+<script src="/static/shortcuts.js"></script>
 </body>
 </html>

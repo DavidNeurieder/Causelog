@@ -65,6 +65,11 @@ fn router(state: AppState) -> Router {
         .route("/login", get(pages::login_page).post(pages::login_form))
         .route("/logout", post(pages::logout_form))
         .route("/dashboard", get(pages::dashboard_page))
+        .route(
+            "/capture",
+            get(pages::capture_page).post(pages::capture_form),
+        )
+        .route("/capture/{note_id}", get(pages::capture_classify_page))
         .route("/statistics", get(pages::statistics_page))
         .route(
             "/projects",

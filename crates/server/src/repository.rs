@@ -1,6 +1,7 @@
 //! Repository layer: the `Repository` trait (swappable storage) and the
 //! SQLite implementation (solo mode, the only MVP distribution).
 
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -211,6 +212,11 @@ pub trait Repository: Send + Sync {
     // -----------------------------------------------------------------------
 
     async fn list_experiments(&self, project_id: Uuid) -> Result<Vec<Experiment>, RepositoryError>;
+    /// Experiments designed to resolve a specific decision.
+    async fn experiments_for_decision(
+        &self,
+        decision_id: Uuid,
+    ) -> Result<Vec<Experiment>, RepositoryError>;
     async fn find_experiment(&self, id: Uuid) -> Result<Option<Experiment>, RepositoryError>;
     async fn create_experiment(
         &self,
@@ -253,6 +259,10 @@ pub trait Repository: Send + Sync {
     /// every recorded event, newest first.
     async fn timeline(&self, project_id: Uuid) -> Result<Vec<TimelineEntry>, RepositoryError>;
 
+    /// The project's narrative: ordered goals → decisions → experiments →
+    /// extracted notes, following the entity links.
+    async fn story(&self, project_id: Uuid) -> Result<Vec<StoryNode>, RepositoryError>;
+
     // -----------------------------------------------------------------------
     // Knowledge: notes, links, graph
     // -----------------------------------------------------------------------
@@ -290,6 +300,18 @@ pub trait Repository: Send + Sync {
     /// themselves; edges include both explicit links and the implicit
     /// references between them (goal/decision/experiment/note relationships).
     async fn graph(&self, project_id: Uuid) -> Result<GraphData, RepositoryError>;
+
+    /// Knowledge state of a decision, derived from its evidence (linked
+    /// experiments) and revisions: `validated` / `unvalidated` /
+    /// `invalidated` / `superseded`. `None` for decisions that have not been
+    /// made (no badge shown).
+    async fn decision_knowledge_state(&self, id: Uuid) -> Result<Option<String>, RepositoryError>;
+
+    /// Knowledge state for every decided decision in a project, in one query.
+    async fn decision_knowledge_states(
+        &self,
+        project_id: Uuid,
+    ) -> Result<HashMap<Uuid, String>, RepositoryError>;
 
     /// Full-text search over every entity, most relevant first.
     /// `None` for project_ids means admin (search everything);
@@ -348,6 +370,16 @@ pub struct TimelineEntry {
     pub note: String,
     pub experiment_id: Uuid,
     pub experiment_title: String,
+}
+
+/// One node in a project's story chain (goal → decision → experiment →
+/// note). `indent` dictates rendering depth (0 = top level).
+#[derive(Debug, Clone)]
+pub struct StoryNode {
+    pub kind: String,
+    pub title: String,
+    pub id: Uuid,
+    pub indent: u32,
 }
 
 /// Aggregate counters for the dashboard.
@@ -1328,6 +1360,21 @@ impl Repository for SqliteRepository {
         Ok(row.map(|r| row_to_experiment(&r)))
     }
 
+    async fn experiments_for_decision(
+        &self,
+        decision_id: Uuid,
+    ) -> Result<Vec<Experiment>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, goal_id, decision_id, title, hypothesis, status,
+                    started_at_ms, ended_at_ms, result, lesson, created_by, created_at_ms, updated_at_ms
+             FROM experiments WHERE decision_id = ? ORDER BY updated_at_ms DESC",
+        )
+        .bind(decision_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(row_to_experiment).collect())
+    }
+
     async fn create_experiment(
         &self,
         project_id: Uuid,
@@ -1557,6 +1604,127 @@ impl Repository for SqliteRepository {
         }
         entries.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
         Ok(entries)
+    }
+
+    async fn story(&self, project_id: Uuid) -> Result<Vec<StoryNode>, RepositoryError> {
+        let goals = self.list_goals(project_id).await?;
+        let decisions = self.list_decisions(project_id).await?;
+        let experiments = self.list_experiments(project_id).await?;
+        let notes = self.list_notes(project_id).await?;
+        let mut used_decisions = std::collections::HashSet::new();
+        let mut used_experiments = std::collections::HashSet::new();
+        let mut nodes: Vec<StoryNode> = Vec::new();
+
+        let attach_notes = |note_indent: u32, parent: Uuid| -> Vec<StoryNode> {
+            let mut out = Vec::new();
+            for n in notes.iter().filter(|n| {
+                n.source_id == Some(parent)
+                    && matches!(
+                        n.source_type.as_deref(),
+                        Some("experiment") | Some("decision")
+                    )
+            }) {
+                out.push(StoryNode {
+                    kind: "note".into(),
+                    title: n.title.clone(),
+                    id: n.id,
+                    indent: note_indent,
+                });
+            }
+            out
+        };
+
+        for goal in &goals {
+            nodes.push(StoryNode {
+                kind: "goal".into(),
+                title: goal.title.clone(),
+                id: goal.id,
+                indent: 0,
+            });
+            for d in decisions.iter().filter(|d| d.goal_id == Some(goal.id)) {
+                nodes.push(StoryNode {
+                    kind: "decision".into(),
+                    title: d.title.clone(),
+                    id: d.id,
+                    indent: 1,
+                });
+                used_decisions.insert(d.id);
+                nodes.extend(attach_notes(2, d.id));
+                for e in experiments.iter().filter(|e| e.decision_id == Some(d.id)) {
+                    nodes.push(StoryNode {
+                        kind: "experiment".into(),
+                        title: e.title.clone(),
+                        id: e.id,
+                        indent: 2,
+                    });
+                    used_experiments.insert(e.id);
+                    nodes.extend(attach_notes(3, e.id));
+                }
+            }
+            let goal_experiments: Vec<_> = experiments
+                .iter()
+                .filter(|e| e.goal_id == Some(goal.id))
+                .collect();
+            for e in goal_experiments {
+                if used_experiments.contains(&e.id) {
+                    continue;
+                }
+                nodes.push(StoryNode {
+                    kind: "experiment".into(),
+                    title: e.title.clone(),
+                    id: e.id,
+                    indent: 1,
+                });
+                used_experiments.insert(e.id);
+                nodes.extend(attach_notes(2, e.id));
+            }
+        }
+
+        // Unlinked decisions (no goal) and their experiments.
+        for d in decisions.iter().filter(|d| d.goal_id.is_none()) {
+            nodes.push(StoryNode {
+                kind: "decision".into(),
+                title: d.title.clone(),
+                id: d.id,
+                indent: 0,
+            });
+            used_decisions.insert(d.id);
+            nodes.extend(attach_notes(1, d.id));
+            for e in experiments.iter().filter(|e| e.decision_id == Some(d.id)) {
+                nodes.push(StoryNode {
+                    kind: "experiment".into(),
+                    title: e.title.clone(),
+                    id: e.id,
+                    indent: 1,
+                });
+                used_experiments.insert(e.id);
+                nodes.extend(attach_notes(2, e.id));
+            }
+        }
+        // Fully unlinked experiments and notes.
+        let orphans: Vec<_> = experiments.iter().filter(|e| e.goal_id.is_none()).collect();
+        for e in orphans {
+            if used_experiments.contains(&e.id) {
+                continue;
+            }
+            nodes.push(StoryNode {
+                kind: "experiment".into(),
+                title: e.title.clone(),
+                id: e.id,
+                indent: 0,
+            });
+            nodes.extend(attach_notes(1, e.id));
+        }
+        for n in notes.iter().filter(|n| n.source_id.is_none()) {
+            nodes.push(StoryNode {
+                kind: "note".into(),
+                title: n.title.clone(),
+                id: n.id,
+                indent: 0,
+            });
+        }
+        nodes = nodes.into_iter().take(60).collect();
+        Ok(nodes)
     }
 
     // -----------------------------------------------------------------------
@@ -1789,6 +1957,61 @@ impl Repository for SqliteRepository {
             });
         }
         Ok(data)
+    }
+
+    async fn decision_knowledge_state(&self, id: Uuid) -> Result<Option<String>, RepositoryError> {
+        let Some(decision) = self.find_decision(id).await? else {
+            return Ok(None);
+        };
+        if decision.status != "decided" {
+            return Ok(None);
+        }
+        Ok(self
+            .decision_knowledge_states(decision.project_id)
+            .await?
+            .get(&id)
+            .cloned())
+    }
+
+    async fn decision_knowledge_states(
+        &self,
+        project_id: Uuid,
+    ) -> Result<HashMap<Uuid, String>, RepositoryError> {
+        let mut states = HashMap::new();
+        let rows = sqlx::query(
+            "SELECT d.id,
+                    (SELECT COUNT(*) FROM links l
+                      WHERE l.to_type = 'decision' AND l.to_id = d.id
+                        AND l.from_type = 'decision' AND l.kind = 'follows') AS followed_by,
+                    (SELECT COUNT(*) FROM experiments e
+                      WHERE e.decision_id = d.id AND e.status = 'abandoned') AS abandoned_cnt,
+                    (SELECT MAX(CASE WHEN length(trim(e.lesson)) > 0 THEN 1 ELSE 0 END)
+                       FROM experiments e WHERE e.decision_id = d.id AND e.status = 'done') AS has_lesson
+             FROM decisions d
+             WHERE d.project_id = ? AND d.status = 'decided'",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        for row in rows {
+            let id: String = row.get("id");
+            let followed_by: i64 = row.get("followed_by");
+            let abandoned_cnt: i64 = row.get("abandoned_cnt");
+            let has_lesson: Option<i64> = row.get("has_lesson");
+            let state = if followed_by > 0 {
+                "superseded"
+            } else if abandoned_cnt > 0 {
+                "invalidated"
+            } else if has_lesson.unwrap_or(0) > 0 {
+                "validated"
+            } else {
+                "unvalidated"
+            };
+            if let Ok(uuid) = Uuid::parse_str(&id) {
+                states.insert(uuid, state.to_string());
+            }
+        }
+        Ok(states)
     }
 
     async fn search(

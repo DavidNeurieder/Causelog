@@ -3,7 +3,7 @@
 {% block content %}
 <h1>Search</h1>
 <form method="get" action="/search" class="row">
-  <input type="search" name="q" value="{{ query }}" placeholder="Search decisions, experiments, notes…" autofocus required>
+  <input type="search" name="q" value="{{ query }}" placeholder="What are you trying to remember?" autofocus required>
   <button type="submit">Search</button>
 </form>
 
@@ -21,7 +21,9 @@
       <div>
         <a class="strong" href="{{ r.url }}">{{ r.title }}</a>
         <span class="tag node-{{ r.entity_type }}">{{ r.entity_type }}</span>
+        {% if !r.state.is_empty() %}<span class="tag state-{{ r.state }}">{{ r.state }}</span>{% endif %}
         {% if !r.project_title.is_empty() %}<span class="muted small">in {{ r.project_title }}</span>{% endif %}
+        {% if !r.evidence.is_empty() %}<p class="muted small">{{ r.evidence }}</p>{% endif %}
         {% if !r.snippet_html.is_empty() %}
         <p class="muted small">{{ r.snippet_html|safe }}</p>
         {% endif %}

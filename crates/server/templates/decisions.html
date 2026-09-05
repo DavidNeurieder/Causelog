@@ -15,16 +15,27 @@
 </div>
 <p class="muted">A decision is a trade-off you recorded: the options you weighed and, once resolved, the choice and the rationale.</p>
 
+{% if !suggested.is_empty() %}
+<section class="panel panel-suggested">
+  <h3>What's next</h3>
+  <ul class="list plain" style="margin-top: var(--space-1);">
+    {% for s in suggested %}
+    <li><a class="strong" href="{{ s.link }}">{{ s.title }}</a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 {% if view == "board" %}
 <div class="board">
-  {% call m::kanban_column("Open", decisions_open) %}
-  {% call m::kanban_column("Decided", decisions_decided) %}
-  {% call m::kanban_column("Rejected", decisions_rejected) %}
+  {% call m::decision_kanban_column("Open", decisions_open) %}
+  {% call m::decision_kanban_column("Decided", decisions_decided) %}
+  {% call m::decision_kanban_column("Rejected", decisions_rejected) %}
 </div>
 {% else %}
 <h2>All decisions</h2>
 {% if decisions.is_empty() %}
-{% call m::section_empty("No decisions yet.") %}
+{% call m::empty_state("No decisions yet.", "Decisions record what you chose and why — the trade-offs you weighed before the reasoning fades.", "/projects/" ~ project.id ~ "/decisions/new", "New decision") %}
 {% else %}
 {% call m::decision_list(decisions) %}
 {% endif %}

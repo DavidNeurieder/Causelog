@@ -23,7 +23,7 @@ use crate::AppState;
 use crate::auth;
 use crate::error::ApiError;
 use crate::repository::{
-    DashboardCounts, GraphData, ProjectCounts, Repository, RepositoryError, SearchRow,
+    DashboardCounts, GraphData, GraphEdge, ProjectCounts, Repository, RepositoryError, SearchRow,
     TimelineEntry,
 };
 
@@ -231,6 +231,89 @@ struct ProjectTemplate {
     decisions: Vec<DecisionItemView>,
     experiments: Vec<ExperimentItemView>,
     notes: Vec<Note>,
+    story: Vec<StoryItemView>,
+    state_counts: Vec<(String, i64)>,
+    suggested_next: Vec<NextStepView>,
+    recent_activity: Vec<RecentActivityView>,
+}
+
+/// One node of the project story shown on the homepage.
+struct StoryItemView {
+    kind: String,
+    title: String,
+    indent: u32,
+    link: String,
+    state: String,
+}
+
+/// One suggested next step on the project homepage.
+struct NextStepView {
+    title: String,
+    link: String,
+}
+
+/// Heuristic "what should we do next" suggestions for a project, based on the
+/// knowledge state of its decisions and experiments. Shared by the project
+/// homepage and the decisions page.
+fn suggested_next(
+    project_id: Uuid,
+    decisions: &[Decision],
+    decision_states: &HashMap<Uuid, String>,
+    experiments: &[Experiment],
+    now: i64,
+) -> Vec<NextStepView> {
+    let mut next: Vec<NextStepView> = Vec::new();
+    for e in experiments {
+        if e.status == "done" && e.lesson.trim().is_empty() {
+            next.push(NextStepView {
+                title: format!("Capture the lesson from “{}”", e.title),
+                link: format!("/experiments/{}", e.id),
+            });
+        }
+    }
+    for d in decisions {
+        if d.status == "decided"
+            && decision_states.get(&d.id).map(String::as_str) == Some("unvalidated")
+        {
+            next.push(NextStepView {
+                title: format!(
+                    "“{}” is decided but not yet validated — link an experiment",
+                    d.title
+                ),
+                link: format!("/decisions/{}", d.id),
+            });
+        }
+    }
+    for d in decisions {
+        if let Some(review_at) = d.review_at_ms
+            && review_at < now
+            && d.status == "decided"
+        {
+            next.push(NextStepView {
+                title: format!("Revisit “{}” — its review date has passed", d.title),
+                link: format!("/decisions/{}", d.id),
+            });
+        }
+    }
+    let open_decisions = decisions.iter().filter(|d| d.status == "open").count();
+    if open_decisions > 0 {
+        next.push(NextStepView {
+            title: format!(
+                "{open_decisions} open decision{} waiting",
+                if open_decisions == 1 { "" } else { "s" }
+            ),
+            link: format!("/projects/{project_id}/decisions"),
+        });
+    }
+    next.truncate(5);
+    next
+}
+
+/// One recent-activity entry on the project homepage.
+struct RecentActivityView {
+    at: String,
+    label: String,
+    link: String,
 }
 
 #[derive(Template)]
@@ -297,6 +380,7 @@ struct ProjectDecisionsTemplate {
     csrf_token: String,
     project: Project,
     view: String,
+    suggested: Vec<NextStepView>,
     decisions: Vec<DecisionItemView>,
     decisions_open: Vec<DecisionItemView>,
     decisions_decided: Vec<DecisionItemView>,
@@ -358,6 +442,7 @@ struct DecisionNewTemplate {
     csrf_token: String,
     project: Project,
     goals: Vec<Goal>,
+    draft_title: String,
 }
 
 #[derive(Template)]
@@ -372,6 +457,7 @@ struct ExperimentNewTemplate {
     project: Project,
     goals: Vec<Goal>,
     decisions: Vec<DecisionItemView>,
+    draft_title: String,
 }
 
 #[derive(Template)]
@@ -384,6 +470,26 @@ struct NoteNewTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
+}
+
+#[derive(Template)]
+#[template(path = "capture.html")]
+struct CaptureTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    /// Step 2 (classify) when a capture was just saved.
+    classify: bool,
+    note_id: String,
+    project_id: String,
+    note_title: String,
+    note_body: String,
+    draft_url: String,
+    /// Projects the user belongs to, for the optional capture target picker.
+    projects: Vec<Project>,
 }
 
 /// Experiment row on a project page.
@@ -467,6 +573,7 @@ struct DecisionItemView {
     id: String,
     title: String,
     status: String,
+    state: String,
     decided_label: String,
     link: String,
 }
@@ -485,12 +592,15 @@ struct DecisionTemplate {
     view: DecisionView,
     created_by_name: String,
     revisions: Vec<RevisionView>,
+    evidence: Vec<EvidenceView>,
+    evidence_notes: Vec<Note>,
 }
 
 /// Rendered (HTML-safe) display of a decision, separate from the raw Markdown
 /// used to pre-fill edit forms.
 struct DecisionView {
     status: String,
+    state: String,
     context_html: String,
     options: Vec<OptionView>,
     decided_label: String,
@@ -505,11 +615,21 @@ struct OptionView {
     label: String,
     pros_html: String,
     cons_html: String,
+    chosen: bool,
+}
+
+/// One experiment shown as evidence on a decision page.
+struct EvidenceView {
+    title: String,
+    status: String,
+    summary: String,
+    link: String,
 }
 
 struct RevisionView {
     created_at: String,
     html: String,
+    narrative: String,
 }
 
 /// Project row on the dashboard, with aggregate counts.
@@ -566,21 +686,42 @@ struct GraphTemplate {
     csrf_token: String,
     project: Project,
     nodes: Vec<GraphNodeView>,
-    implicit: Vec<GraphEdgeView>,
+    edge_groups: Vec<EdgeGroupView>,
     links: Vec<LinkView>,
     link_entities: Vec<EntityChoiceView>,
+    focused: Option<FocusedGraphView>,
 }
 
 struct GraphNodeView {
     node_type: String,
     title: String,
     url: String,
+    focus_url: String,
 }
 
 struct GraphEdgeView {
     from_label: String,
     to_label: String,
     kind: String,
+    from_focus_url: Option<String>,
+    to_focus_url: Option<String>,
+}
+
+/// Structure edges grouped by the entity they originate from (the "why").
+struct EdgeGroupView {
+    from_label: String,
+    edges: Vec<GraphEdgeView>,
+}
+
+/// Focused 1-hop view of a single entity on the graph page.
+struct FocusedGraphView {
+    node_type: String,
+    title: String,
+    url: String,
+    /// Incoming edges: what influenced this entity.
+    why: Vec<GraphEdgeView>,
+    /// Outgoing edges: what this entity influenced afterwards.
+    after: Vec<GraphEdgeView>,
 }
 
 #[derive(Template)]
@@ -602,6 +743,10 @@ struct SearchItemView {
     entity_type: String,
     project_title: String,
     snippet_html: String,
+    /// Knowledge state tag for decision results (empty for other kinds).
+    state: String,
+    /// One-line evidence summary for decision results (`Evidence: …`).
+    evidence: String,
 }
 
 #[derive(Deserialize)]
@@ -612,6 +757,68 @@ pub(crate) struct FlashQuery {
 #[derive(Deserialize)]
 pub(crate) struct ViewQuery {
     pub view: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct DraftQuery {
+    pub draft: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct FocusQuery {
+    pub focus: Option<String>,
+}
+
+/// First line of a capture draft, trimmed to a sensible title length.
+fn draft_title(text: &str) -> String {
+    text.lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .take(100)
+        .collect()
+}
+
+/// Percent-encode a string for safe use as a query-parameter value.
+fn urlencode_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Human-readable one-line summary of a decision revision snapshot.
+fn revision_narrative(snapshot: &str) -> String {
+    let mut title = String::new();
+    let mut body = String::new();
+    for line in snapshot.lines() {
+        if let Some(rest) = line.strip_prefix("# ") {
+            if title.is_empty() {
+                title = format!("Updated: {}", rest.trim());
+            }
+            continue;
+        }
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("Status:") {
+            continue;
+        }
+        if body.is_empty() {
+            body = t.chars().take(140).collect();
+        }
+    }
+    if body.is_empty() {
+        title
+    } else {
+        format!("{title} — {body}")
+    }
 }
 
 /// Seconds since the Unix epoch → civil date (Howard Hinnant's algorithm).
@@ -671,11 +878,11 @@ fn flash_message(key: Option<&str>) -> String {
         Some("title_too_long") => "Title is too long (max 500 characters).".into(),
         Some("body_too_long") => "Content is too long (max 50,000 characters).".into(),
         Some("summary_too_long") => "Summary is too long (max 2,000 characters).".into(),
-        Some("decision_created") => "Decision created.".into(),
+        Some("decision_created") => "Decision captured.".into(),
         Some("decision_updated") => "Decision updated.".into(),
         Some("decision_resolved") => "Decision recorded.".into(),
         Some("decision_deleted") => "Decision deleted.".into(),
-        Some("invalid_decision") => "Give the decision a title and at least one option.".into(),
+        Some("invalid_decision") => "Give the decision a title.".into(),
         Some("approved") => "User approved.".into(),
         Some("role_updated") => "User role updated.".into(),
         Some("cannot_delete_self") => "You cannot delete your own account from here.".into(),
@@ -1081,6 +1288,10 @@ pub(crate) async fn static_file(Path(name): Path<String>) -> Result<Response, Pa
             include_str!("../static/editable.js"),
             "application/javascript",
         ),
+        "shortcuts.js" => (
+            include_str!("../static/shortcuts.js"),
+            "application/javascript",
+        ),
         "favicon.svg" => (include_str!("../static/favicon.svg"), "image/svg+xml"),
         _ => {
             return Err(PageError(ApiError(RepositoryError::NotFound(
@@ -1221,6 +1432,83 @@ pub(crate) async fn project_page(
     let decisions = state.repo.list_decisions(project.id).await?;
     let experiments = state.repo.list_experiments(project.id).await?;
     let notes = state.repo.list_notes(project.id).await?;
+    let decision_states = state.repo.decision_knowledge_states(project.id).await?;
+
+    // Story: goal → decision → experiment → note chain.
+    let story: Vec<StoryItemView> = state
+        .repo
+        .story(project.id)
+        .await?
+        .into_iter()
+        .map(|s| {
+            let link = match s.kind.as_str() {
+                "goal" => format!("/goals/{}", s.id),
+                "decision" => format!("/decisions/{}", s.id),
+                "experiment" => format!("/experiments/{}", s.id),
+                _ => format!("/notes/{}", s.id),
+            };
+            let state = decision_states.get(&s.id).cloned().unwrap_or_default();
+            StoryItemView {
+                kind: s.kind,
+                title: s.title,
+                indent: s.indent,
+                link,
+                state,
+            }
+        })
+        .collect();
+
+    // Current state: knowledge-state chips for the project's decisions.
+    let mut tally: Vec<(String, i64)> = Vec::new();
+    for key in ["validated", "unvalidated", "invalidated", "superseded"] {
+        let n = decision_states
+            .values()
+            .filter(|s| s.as_str() == key)
+            .count() as i64;
+        if n > 0 {
+            tally.push((key.to_string(), n));
+        }
+    }
+
+    // Suggested next steps (reusable heuristic; also shown on the decisions page).
+    let next = suggested_next(
+        project.id,
+        &decisions,
+        &decision_states,
+        &experiments,
+        now_ms(),
+    );
+
+    // Recent activity: experiments timeline + recent decisions/notes.
+    let mut activity: Vec<(i64, String, String)> = Vec::new();
+    for t in state.repo.timeline(project.id).await? {
+        activity.push((t.at_ms, t.note, format!("/experiments/{}", t.experiment_id)));
+    }
+    for d in &decisions {
+        activity.push((
+            d.updated_at_ms,
+            format!("Updated decision “{}”", d.title),
+            format!("/decisions/{}", d.id),
+        ));
+    }
+    for n in &notes {
+        activity.push((
+            n.updated_at_ms,
+            format!("Noted “{}”", n.title),
+            format!("/notes/{}", n.id),
+        ));
+    }
+    activity.sort_by(|a, b| b.0.cmp(&a.0));
+    activity.truncate(5);
+    let recent_activity: Vec<RecentActivityView> = activity
+        .into_iter()
+        .map(|(at, label, link)| RecentActivityView {
+            at: format_date_ms(at),
+            label,
+            link,
+        })
+        .collect();
+
     page(&ProjectTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -1239,6 +1527,7 @@ pub(crate) async fn project_page(
                     id: d.id.to_string(),
                     title: d.title,
                     status: d.status,
+                    state: decision_states.get(&d.id).cloned().unwrap_or_default(),
                     decided_label,
                     link: format!("/decisions/{}", d.id),
                 }
@@ -1255,6 +1544,10 @@ pub(crate) async fn project_page(
             })
             .collect(),
         notes: notes.into_iter().take(5).collect(),
+        story,
+        state_counts: tally,
+        suggested_next: next,
+        recent_activity,
     })
 }
 
@@ -1395,6 +1688,15 @@ pub(crate) async fn project_decisions_page(
     };
     let project = require_project_member(&state, &id, &auth_user.user).await?;
     let decisions_raw = state.repo.list_decisions(project.id).await?;
+    let decision_states = state.repo.decision_knowledge_states(project.id).await?;
+    let experiments = state.repo.list_experiments(project.id).await?;
+    let suggested = suggested_next(
+        project.id,
+        &decisions_raw,
+        &decision_states,
+        &experiments,
+        now_ms(),
+    );
     let mut decisions = Vec::with_capacity(decisions_raw.len());
     let mut decisions_open = Vec::new();
     let mut decisions_decided = Vec::new();
@@ -1405,6 +1707,7 @@ pub(crate) async fn project_decisions_page(
             id: d.id.to_string(),
             title: d.title,
             status: d.status.clone(),
+            state: decision_states.get(&d.id).cloned().unwrap_or_default(),
             decided_label,
             link: format!("/decisions/{}", d.id),
         };
@@ -1425,6 +1728,7 @@ pub(crate) async fn project_decisions_page(
         csrf_token: auth_user.csrf_token,
         project,
         view,
+        suggested,
         decisions,
         decisions_open,
         decisions_decided,
@@ -1540,6 +1844,7 @@ pub(crate) async fn goal_page(
                 id: d.id.to_string(),
                 title: d.title,
                 status: d.status,
+                state: "".into(),
                 decided_label,
                 link: format!("/decisions/{}", d.id),
             }
@@ -1621,6 +1926,7 @@ pub(crate) async fn decision_new_page(
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(flash): Query<FlashQuery>,
+    Query(draft): Query<DraftQuery>,
 ) -> Result<Response, PageError> {
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
@@ -1636,6 +1942,7 @@ pub(crate) async fn decision_new_page(
         csrf_token: auth_user.csrf_token,
         project,
         goals,
+        draft_title: draft.draft.as_deref().map(draft_title).unwrap_or_default(),
     })
 }
 
@@ -1644,12 +1951,14 @@ pub(crate) async fn experiment_new_page(
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(flash): Query<FlashQuery>,
+    Query(draft): Query<DraftQuery>,
 ) -> Result<Response, PageError> {
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
     };
     let project = require_project_member(&state, &id, &auth_user.user).await?;
     let goals = state.repo.list_goals(project.id).await?;
+    let decision_states = state.repo.decision_knowledge_states(project.id).await?;
     let decisions = state
         .repo
         .list_decisions(project.id)
@@ -1661,6 +1970,7 @@ pub(crate) async fn experiment_new_page(
                 id: d.id.to_string(),
                 title: d.title,
                 status: d.status,
+                state: decision_states.get(&d.id).cloned().unwrap_or_default(),
                 decided_label,
                 link: format!("/decisions/{}", d.id),
             }
@@ -1676,6 +1986,7 @@ pub(crate) async fn experiment_new_page(
         project,
         goals,
         decisions,
+        draft_title: draft.draft.as_deref().map(draft_title).unwrap_or_default(),
     })
 }
 
@@ -1697,6 +2008,126 @@ pub(crate) async fn note_new_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Quick Capture
+// ---------------------------------------------------------------------------
+
+/// Step 1: "What happened?". Optionally lets the user pick the target project.
+pub(crate) async fn capture_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let projects = state.repo.list_projects_for_user(auth_user.user.id).await?;
+    page(&CaptureTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        classify: false,
+        note_id: String::new(),
+        project_id: String::new(),
+        note_title: String::new(),
+        note_body: String::new(),
+        draft_url: String::new(),
+        projects,
+    })
+}
+
+/// Step 1 submit: save the capture as a note, then ask how to classify it.
+pub(crate) async fn capture_form(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(body): Form<CaptureForm>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
+    let text = body.text.trim();
+    if text.is_empty() {
+        return Ok(Redirect::to("/capture?flash=empty_capture").into_response());
+    }
+    if let Some(r) = check_max_len(text, 50000, "body_too_long", "/capture") {
+        return Ok(r);
+    }
+
+    // Target project: explicit pick, else the most recently active member
+    // project. Requires being a member.
+    let project_id = match &body.project_id {
+        Some(pid) if !pid.is_empty() => {
+            let pid = parse_uuid(pid)?;
+            if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, pid).await {
+                return Ok(redirect);
+            }
+            pid
+        }
+        _ => {
+            let projects = state.repo.list_projects_for_user(auth_user.user.id).await?;
+            match projects.into_iter().map(|p| p.id).next() {
+                Some(pid) => pid,
+                None => {
+                    return Ok(Redirect::to("/projects/new?flash=no_projects").into_response());
+                }
+            }
+        }
+    };
+
+    let note = state
+        .repo
+        .create_note(
+            project_id,
+            &draft_title(text),
+            text,
+            None,
+            None,
+            Some(auth_user.user.id),
+        )
+        .await?;
+    Ok(Redirect::to(&format!("/capture/{}?flash=captured", note.id)).into_response())
+}
+
+/// Step 2: classify the just-captured note (decision / experiment / note).
+pub(crate) async fn capture_classify_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(note_id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let note_id = parse_uuid(&note_id)?;
+    let note = state
+        .repo
+        .find_note(note_id)
+        .await?
+        .ok_or_else(|| not_found("note"))?;
+    if let Err(redirect) = require_member_or_admin(&state, &auth_user.user, note.project_id).await {
+        return Ok(redirect);
+    }
+    page(&CaptureTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        classify: true,
+        note_id: note.id.to_string(),
+        project_id: note.project_id.to_string(),
+        note_title: draft_title(&note.body),
+        note_body: note.body.clone(),
+        draft_url: urlencode_component(&note.body),
+        projects: Vec::new(),
     })
 }
 
@@ -1949,7 +2380,7 @@ pub(crate) async fn decision_create(
         return Ok(redirect);
     }
     let options = body.options();
-    if body.title.trim().is_empty() || options.is_empty() {
+    if body.title.trim().is_empty() {
         return Ok(Redirect::to(&format!(
             "/projects/{project_id}/decisions?flash=invalid_decision"
         ))
@@ -1971,7 +2402,7 @@ pub(crate) async fn decision_create(
     ) {
         return Ok(r);
     }
-    state
+    let decision = state
         .repo
         .create_decision(
             project_id,
@@ -1983,7 +2414,8 @@ pub(crate) async fn decision_create(
         )
         .await?;
     Ok(Redirect::to(&format!(
-        "/projects/{project_id}/decisions?flash=decision_created"
+        "/decisions/{}?flash=decision_created",
+        decision.id
     ))
     .into_response())
 }
@@ -2028,10 +2460,17 @@ pub(crate) async fn decision_page(
             label: o.label.clone(),
             pros_html: render_markdown(&o.pros),
             cons_html: render_markdown(&o.cons),
+            chosen: decision.decided_option.as_deref() == Some(o.id.as_str()),
         })
         .collect();
+    let knowledge_state = state
+        .repo
+        .decision_knowledge_state(decision_id)
+        .await?
+        .unwrap_or_default();
     let view = DecisionView {
         status: decision.status.clone(),
+        state: knowledge_state,
         context_html: render_markdown(&decision.context),
         options,
         decided_label: decided_label(&decision),
@@ -2047,6 +2486,41 @@ pub(crate) async fn decision_page(
         goal_title,
     };
     let created_by_name = creator_name(&state.repo, decision.created_by).await;
+
+    // Evidence: experiments designed to resolve this decision, and the notes
+    // (lessons) they produced.
+    let evidence_experiments = state.repo.experiments_for_decision(decision_id).await?;
+    let evidence: Vec<EvidenceView> = evidence_experiments
+        .iter()
+        .map(|e| {
+            let summary = if !e.lesson.trim().is_empty() {
+                e.lesson.trim()
+            } else if !e.hypothesis.trim().is_empty() {
+                e.hypothesis.trim()
+            } else {
+                ""
+            };
+            EvidenceView {
+                title: e.title.clone(),
+                status: e.status.clone(),
+                summary: summary.chars().take(160).collect(),
+                link: format!("/experiments/{}", e.id),
+            }
+        })
+        .collect();
+    let evidence_ids: Vec<Uuid> = evidence_experiments.iter().map(|e| e.id).collect();
+    let evidence_notes: Vec<Note> = state
+        .repo
+        .list_notes(decision.project_id)
+        .await?
+        .into_iter()
+        .filter(|n| {
+            matches!(n.source_type.as_deref(), Some("decision")) && n.source_id == Some(decision_id)
+                || matches!(n.source_type.as_deref(), Some("experiment"))
+                    && n.source_id.is_some_and(|sid| evidence_ids.contains(&sid))
+        })
+        .collect();
+
     page(&DecisionTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -2063,8 +2537,11 @@ pub(crate) async fn decision_page(
             .map(|r| RevisionView {
                 created_at: format_date_ms(r.created_at_ms),
                 html: render_markdown(&r.snapshot),
+                narrative: revision_narrative(&r.snapshot),
             })
             .collect(),
+        evidence,
+        evidence_notes,
     })
 }
 
@@ -2090,7 +2567,7 @@ pub(crate) async fn decision_update(
         return Ok(redirect);
     }
     let options = body.options();
-    if body.title.trim().is_empty() || options.is_empty() {
+    if body.title.trim().is_empty() {
         return Ok(
             Redirect::to(&format!("/decisions/{decision_id}?flash=invalid_decision"))
                 .into_response(),
@@ -2556,6 +3033,13 @@ pub(crate) struct NoteForm {
     body: String,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct CaptureForm {
+    pub csrf_token: Option<String>,
+    text: String,
+    project_id: Option<String>,
+}
+
 pub(crate) async fn note_create(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2661,6 +3145,7 @@ pub(crate) async fn note_page(
         .map(|r| RevisionView {
             created_at: format_date_ms(r.created_at_ms),
             html: render_markdown(&r.snapshot),
+            narrative: revision_narrative(&r.snapshot),
         })
         .collect();
     let created_by_name = creator_name(&state.repo, note.created_by).await;
@@ -2869,6 +3354,7 @@ pub(crate) async fn graph_page(
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(flash): Query<FlashQuery>,
+    Query(focus_q): Query<FocusQuery>,
 ) -> Result<Response, PageError> {
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
@@ -2883,26 +3369,63 @@ pub(crate) async fn graph_page(
         nodes.push(GraphNodeView {
             node_type: n.node_type.clone(),
             title: n.title.clone(),
-            url: match n.node_type.as_str() {
-                "goal" => format!("/goals/{}", n.id),
-                "decision" => format!("/decisions/{}", n.id),
-                "experiment" => format!("/experiments/{}", n.id),
-                _ => format!("/notes/{}", n.id),
-            },
+            url: entity_url(&n.node_type, n.id),
+            focus_url: format!("/projects/{project_id}/graph?focus={}", n.id),
         });
     }
     let explicit_kinds = ["related", "supports", "rejects", "follows"];
-    let mut implicit = Vec::new();
+    let make_edge = |e: &GraphEdge| GraphEdgeView {
+        from_label: label_for(&titles, &e.from_type, e.from_id, &e.from_type),
+        to_label: label_for(&titles, &e.to_type, e.to_id, &e.to_type),
+        kind: e.kind.clone(),
+        from_focus_url: titles
+            .contains_key(&(e.from_type.clone(), e.from_id))
+            .then(|| format!("/projects/{project_id}/graph?focus={}", e.from_id)),
+        to_focus_url: titles
+            .contains_key(&(e.to_type.clone(), e.to_id))
+            .then(|| format!("/projects/{project_id}/graph?focus={}", e.to_id)),
+    };
+    let mut edge_groups: Vec<EdgeGroupView> = Vec::new();
+    let mut group_index: HashMap<String, usize> = HashMap::new();
     for e in &data.edges {
         if explicit_kinds.contains(&e.kind.as_str()) {
             continue;
         }
-        implicit.push(GraphEdgeView {
-            from_label: label_for(&titles, &e.from_type, e.from_id, &e.from_type),
-            to_label: label_for(&titles, &e.to_type, e.to_id, &e.to_type),
-            kind: e.kind.clone(),
+        let view = make_edge(e);
+        let from_label = view.from_label.clone();
+        let idx = *group_index.entry(from_label.clone()).or_insert_with(|| {
+            edge_groups.push(EdgeGroupView {
+                from_label: from_label.clone(),
+                edges: Vec::new(),
+            });
+            edge_groups.len() - 1
         });
+        edge_groups[idx].edges.push(view);
     }
+    let focused = focus_q
+        .focus
+        .as_deref()
+        .and_then(|f| Uuid::parse_str(f).ok())
+        .and_then(|fid| data.nodes.iter().find(|n| n.id == fid).map(|n| (fid, n)))
+        .map(|(fid, n)| {
+            let mut why = Vec::new();
+            let mut after = Vec::new();
+            for e in &data.edges {
+                let view = make_edge(e);
+                if e.from_id == fid {
+                    after.push(view);
+                } else if e.to_id == fid {
+                    why.push(view);
+                }
+            }
+            FocusedGraphView {
+                node_type: n.node_type.clone(),
+                title: n.title.clone(),
+                url: entity_url(&n.node_type, n.id),
+                why,
+                after,
+            }
+        });
     let links = state.repo.list_links(project_id).await?;
     let links_view = links
         .into_iter()
@@ -2931,10 +3454,21 @@ pub(crate) async fn graph_page(
         csrf_token: auth_user.csrf_token,
         project,
         nodes,
-        implicit,
+        edge_groups,
         links: links_view,
         link_entities,
+        focused,
     })
+}
+
+/// Canonical page URL for an entity by node type.
+fn entity_url(node_type: &str, id: Uuid) -> String {
+    match node_type {
+        "goal" => format!("/goals/{id}"),
+        "decision" => format!("/decisions/{id}"),
+        "experiment" => format!("/experiments/{id}"),
+        _ => format!("/notes/{id}"),
+    }
 }
 
 /// Human label for a graph edge endpoint, falling back to the raw type.
@@ -2976,26 +3510,33 @@ pub(crate) async fn search_page(
         Some(ids)
     };
     let results: Vec<SearchRow> = state.repo.search(&raw, project_ids.as_deref()).await?;
-    let results_view = results
-        .into_iter()
-        .map(|r| {
-            let url = match r.entity_type.as_str() {
-                "goal" => format!("/goals/{}", r.entity_id),
-                "decision" => format!("/decisions/{}", r.entity_id),
-                "experiment" => format!("/experiments/{}", r.entity_id),
-                "note" => format!("/notes/{}", r.entity_id),
-                "project" => format!("/projects/{}", r.entity_id),
-                _ => format!("/projects/{}", r.project_id),
-            };
-            SearchItemView {
-                url,
-                title: r.title,
-                entity_type: r.entity_type,
-                project_title: r.project_title,
-                snippet_html: highlight_snippet(&r.snippet),
-            }
-        })
-        .collect();
+    let mut results_view = Vec::with_capacity(results.len());
+    for r in results {
+        let url = match r.entity_type.as_str() {
+            "goal" => format!("/goals/{}", r.entity_id),
+            "decision" => format!("/decisions/{}", r.entity_id),
+            "experiment" => format!("/experiments/{}", r.entity_id),
+            "note" => format!("/notes/{}", r.entity_id),
+            "project" => format!("/projects/{}", r.entity_id),
+            _ => format!("/projects/{}", r.project_id),
+        };
+        let (state, evidence) = if r.entity_type == "decision" {
+            let kstate = state.repo.decision_knowledge_state(r.entity_id).await?;
+            let evidence = evidence_snippet(&state, r.entity_id).await?;
+            (kstate.unwrap_or_default(), evidence)
+        } else {
+            (String::new(), String::new())
+        };
+        results_view.push(SearchItemView {
+            url,
+            title: r.title,
+            entity_type: r.entity_type,
+            project_title: r.project_title,
+            snippet_html: highlight_snippet(&r.snippet),
+            state,
+            evidence,
+        });
+    }
     page(&SearchTemplate {
         authed: true,
         flash: String::new(),
@@ -3023,6 +3564,34 @@ fn highlight_snippet(raw: &str) -> String {
     escape_html(raw)
         .replace('\u{1}', "<mark>")
         .replace('\u{2}', "</mark>")
+}
+
+/// First non-empty line of the best evidence for a decision (lesson, result,
+/// then hypothesis), for the search "Evidence: …" hint.
+async fn evidence_snippet(state: &AppState, decision_id: Uuid) -> Result<String, RepositoryError> {
+    let experiments = state.repo.experiments_for_decision(decision_id).await?;
+    for e in &experiments {
+        let first = if !e.lesson.trim().is_empty() {
+            e.lesson.trim()
+        } else if !e.result.trim().is_empty() {
+            e.result.trim()
+        } else if !e.hypothesis.trim().is_empty() {
+            e.hypothesis.trim()
+        } else {
+            e.title.trim()
+        };
+        let line: String = first
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .take(140)
+            .collect();
+        if !line.trim().is_empty() {
+            return Ok(format!("Evidence: {line}"));
+        }
+    }
+    Ok(String::new())
 }
 
 // ---------------------------------------------------------------------------

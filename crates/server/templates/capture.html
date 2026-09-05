@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Quick capture · Causelog{% endblock %}
+{% block fab %}{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    <h1>Quick capture</h1>
+  </div>
+</div>
+
+{% if classify %}
+<div class="section-panel" id="capture-classify">
+  <div class="row space-between section-head">
+    <h2>Captured</h2>
+    <span class="tag status-done">saved as note</span>
+  </div>
+  <div class="prose panel-summary">
+    <p class="strong">{{ note_title }}</p>
+    {% if !note_body.is_empty() %}<p class="muted small">{{ note_body }}</p>{% endif %}
+  </div>
+  <h3>What is this?</h3>
+  <div class="row quick-add">
+    <a class="btn primary" href="/notes/{{ note_id }}">Keep as note</a>
+    <a class="btn" href="/projects/{{ project_id }}/decisions/new?draft={{ draft_url }}">A decision</a>
+    <a class="btn" href="/projects/{{ project_id }}/experiments/new?draft={{ draft_url }}">An experiment</a>
+    <a class="btn" href="/projects/{{ project_id }}/notes/new?draft={{ draft_url }}">A lesson</a>
+    <a class="btn" href="/capture">Capture another</a>
+  </div>
+  <p class="muted small">Decisions and experiments open with this text pre-filled as the title.</p>
+</div>
+{% else %}
+<form method="post" action="/capture" class="panel-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <field>
+    <label for="capture-text">What happened?</label>
+    <textarea id="capture-text" name="text" rows="6" placeholder="We switched from Redis Streams because operational complexity was too high…" autofocus required></textarea>
+  </field>
+  {% if projects.len() > 1 %}
+  <field>
+    <label for="capture-project">Into which project?</label>
+    <select id="capture-project" name="project_id">
+      {% for p in projects %}
+      <option value="{{ p.id }}">{{ p.title }}</option>
+      {% endfor %}
+    </select>
+  </field>
+  {% elif projects.len() == 1 %}
+  <p class="muted small">Into “{{ projects[0].title }}” — you're a member of one project.</p>
+  {% else %}
+  <p class="muted small">You're not a member of any project yet — <a href="/projects/new">create one</a> first.</p>
+  {% endif %}
+  <button type="submit">Capture</button>
+</form>
+{% endif %}
+{% endblock %}

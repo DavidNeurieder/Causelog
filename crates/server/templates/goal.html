@@ -20,6 +20,7 @@
   </div>
   <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "goals", "Goals") %}
+    <a class="muted small" href="/projects/{{ project.id }}/graph?focus={{ goal.id }}">Focus on this →</a>
     <details class="nav-dropdown" id="action-dropdown">
       <summary>View</summary>
       <nav>

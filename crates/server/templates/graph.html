@@ -13,6 +13,76 @@
   </div>
 </div>
 
+{% if focused.is_some() %}
+{% let f = focused.as_ref().unwrap() %}
+<div class="panel panel-focus">
+  <div class="row space-between" style="align-items: center;">
+    <div>
+      <span class="tag node-{{ f.node_type }}">{{ f.node_type }}</span>
+      <h2 style="margin-top: var(--space-1); margin-bottom: 0;"><a href="{{ f.url }}" class="strong">{{ f.title }}</a></h2>
+    </div>
+    <div>
+      <a class="btn ghost" href="/projects/{{ project.id }}/graph">Clear focus</a>
+      <a class="btn" href="{{ f.url }}">Open entity</a>
+    </div>
+  </div>
+
+  {% if f.why.is_empty() && f.after.is_empty() %}
+  <p class="muted" style="margin-top: var(--space-2);">Nothing links to or from this entity yet.
+    Add explicit links below.</p>
+  {% endif %}
+
+  {% if !f.why.is_empty() %}
+  <h3 style="margin-top: var(--space-3); margin-bottom: var(--space-1);">Why?</h3>
+  <p class="muted" style="margin: 0 0 var(--space-2);">What led to this entity.</p>
+  <section class="list">
+    {% for e in f.why %}
+    <div class="row item">
+      <div>
+        {% if let Some(u) = e.from_focus_url %}<a class="strong" href="{{ u }}">{{ e.from_label }}</a>{% else %}<span class="strong">{{ e.from_label }}</span>{% endif %}
+        <span class="tag edge-{{ e.kind }}">— {{ e.kind }} →</span>
+        {% if let Some(u) = e.to_focus_url %}<a class="strong" href="{{ u }}">{{ e.to_label }}</a>{% else %}<span class="strong">{{ e.to_label }}</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% if !f.after.is_empty() %}
+  <h3 style="margin-top: var(--space-3); margin-bottom: var(--space-1);">What happened afterward?</h3>
+  <p class="muted" style="margin: 0 0 var(--space-2);">Consequences that followed from this entity.</p>
+  <section class="list">
+    {% for e in f.after %}
+    <div class="row item">
+      <div>
+        {% if let Some(u) = e.from_focus_url %}<a class="strong" href="{{ u }}">{{ e.from_label }}</a>{% else %}<span class="strong">{{ e.from_label }}</span>{% endif %}
+        <span class="tag edge-{{ e.kind }}">— {{ e.kind }} →</span>
+        {% if let Some(u) = e.to_focus_url %}<a class="strong" href="{{ u }}">{{ e.to_label }}</a>{% else %}<span class="strong">{{ e.to_label }}</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+</div>
+
+<h3>All entities (click to focus)</h3>
+{% if nodes.is_empty() %}
+<p class="muted">No entities yet.</p>
+{% else %}
+<section class="list">
+  {% for n in nodes %}
+  <div class="row item">
+    <div>
+      <a class="strong" href="{{ n.focus_url }}">{{ n.title }}</a>
+      <span class="tag node-{{ n.node_type }}">{{ n.node_type }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% else %}
+
 <h2>Nodes</h2>
 {% if nodes.is_empty() %}
 <p class="muted">No entities yet.</p>
@@ -23,24 +93,33 @@
     <div>
       <a class="strong" href="{{ n.url }}">{{ n.title }}</a>
       <span class="tag node-{{ n.node_type }}">{{ n.node_type }}</span>
+      <a class="link" href="{{ n.focus_url }}">focus</a>
     </div>
   </div>
   {% endfor %}
 </section>
 {% endif %}
 
-<h2>Structure</h2>
-<p class="muted">Edges that come from the entities themselves: what serves a goal, what an experiment tests, where a note was captured from.</p>
-{% if implicit.is_empty() %}
+<h2>Why?</h2>
+<p class="muted">Structure that comes from the entities themselves: what serves a goal, what an experiment tests, where a note was captured from. Click any link to focus on that entity.</p>
+{% if edge_groups.is_empty() %}
 <p class="muted">No structure yet. Link decisions and experiments to goals when you create them.</p>
 {% else %}
 <section class="list">
-  {% for e in implicit %}
-  <div class="row item">
-    <div>
-      <span class="strong">{{ e.from_label }}</span>
-      <span class="tag edge-{{ e.kind }}">— {{ e.kind }} →</span>
-      <span class="strong">{{ e.to_label }}</span>
+  {% for g in edge_groups %}
+  <div class="panel panel-entity">
+    <div class="row item">
+      <span class="strong">{{ g.from_label }}</span>
+    </div>
+    <div class="list">
+      {% for e in g.edges %}
+      <div class="row item">
+        <div>
+          <span class="tag edge-{{ e.kind }}">— {{ e.kind }} →</span>
+          {% if let Some(u) = e.to_focus_url %}<a class="strong" href="{{ u }}">{{ e.to_label }}</a>{% else %}<span class="strong">{{ e.to_label }}</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
     </div>
   </div>
   {% endfor %}
@@ -67,6 +146,8 @@
   </div>
   {% endfor %}
 </section>
+{% endif %}
+
 {% endif %}
 
 <h3>Add a link</h3>

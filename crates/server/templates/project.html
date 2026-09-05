@@ -74,57 +74,125 @@
 </div>
 
 <div class="row quick-add">
+  <a class="btn primary" href="/capture">+ Quick capture</a>
   <a class="btn" href="/projects/{{ project.id }}/goals/new">Add a goal</a>
   <a class="btn" href="/projects/{{ project.id }}/decisions/new">New decision</a>
   <a class="btn" href="/projects/{{ project.id }}/experiments/new">Start experiment</a>
   <a class="btn" href="/projects/{{ project.id }}/notes/new">New note</a>
 </div>
 
+{% if story.is_empty() %}
+<div class="section-panel">
+  {% call m::empty_state("Your project story starts here.", "Aim somewhere, weigh options, and test the assumption — Causelog chains goals, decisions, experiments and lessons into a narrative.", "/capture", "Quick capture") %}
+</div>
+{% else %}
 <div class="section-panel">
   <div class="row space-between section-head">
-    <h2>Goals</h2>
-    <a class="muted small" href="/projects/{{ project.id }}/goals">See all →</a>
+    <h2>The story</h2>
+    <span class="muted small">what happened, why, and what it taught you</span>
   </div>
-  {% if goals.is_empty() %}
-  <p class="muted">No goals yet.</p>
-  {% else %}
-  {% call m::goal_list_brief(goals) %}
-  {% endif %}
+  <ol class="story">
+    {% for s in story %}
+    <li class="story-node story-{{ s.kind }}" data-indent="{{ s.indent }}">
+      <span class="story-mark">{{ s.kind }}</span>
+      <a class="strong" href="{{ s.link }}">{{ s.title }}</a>
+      {% if !s.state.is_empty() %}<span class="tag state-{{ s.state }}" title="{{ s.state }}">{{ s.state }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
 </div>
+{% endif %}
 
-<div class="section-panel">
-  <div class="row space-between section-head">
-    <h2>Decisions</h2>
-    <a class="muted small" href="/projects/{{ project.id }}/decisions">See all →</a>
-  </div>
-  {% if decisions.is_empty() %}
-  <p class="muted">No decisions yet.</p>
-  {% else %}
-  {% call m::decision_list(decisions) %}
-  {% endif %}
+{% if !state_counts.is_empty() %}
+<div class="row state-chips">
+  {% for (key, count) in state_counts %}
+  <span class="tag state-{{ key }}">{{ count }} {{ key }}</span>
+  {% endfor %}
 </div>
+{% endif %}
 
+{% if !suggested_next.is_empty() %}
 <div class="section-panel">
   <div class="row space-between section-head">
-    <h2>Experiments</h2>
-    <a class="muted small" href="/projects/{{ project.id }}/experiments">See all →</a>
+    <h2>Suggested next</h2>
+    <span class="muted small">loose threads worth pulling</span>
   </div>
-  {% if experiments.is_empty() %}
-  <p class="muted">No experiments yet.</p>
-  {% else %}
-  {% call m::experiment_list(experiments) %}
-  {% endif %}
+  <ul class="list plain">
+    {% for n in suggested_next %}
+    <li class="row item">
+      <a href="{{ n.link }}">{{ n.title }}</a>
+    </li>
+    {% endfor %}
+  </ul>
 </div>
+{% endif %}
 
+{% if !recent_activity.is_empty() %}
 <div class="section-panel">
   <div class="row space-between section-head">
-    <h2>Notes</h2>
-    <a class="muted small" href="/projects/{{ project.id }}/notes">See all →</a>
+    <h2>Recent activity</h2>
+    <a class="muted small" href="/projects/{{ project.id }}/timeline">See all →</a>
   </div>
-  {% if notes.is_empty() %}
-  <p class="muted">No notes yet.</p>
-  {% else %}
-  {% call m::note_list(notes) %}
-  {% endif %}
+  <ul class="list plain">
+    {% for a in recent_activity %}
+    <li class="row item space-between">
+      <a href="{{ a.link }}">{{ a.label }}</a>
+      <span class="muted small">{{ a.at }}</span>
+    </li>
+    {% endfor %}
+  </ul>
 </div>
+{% endif %}
+
+<details class="section-panel details-panel">
+  <summary><h2>Everything else</h2><span class="muted small">goals, decisions, experiments, notes in full</span></summary>
+
+  <div class="section-panel">
+    <div class="row space-between section-head">
+      <h2>Goals</h2>
+      <a class="muted small" href="/projects/{{ project.id }}/goals">See all →</a>
+    </div>
+    {% if goals.is_empty() %}
+    <p class="muted">No goals yet.</p>
+    {% else %}
+    {% call m::goal_list_brief(goals) %}
+    {% endif %}
+  </div>
+
+  <div class="section-panel">
+    <div class="row space-between section-head">
+      <h2>Decisions</h2>
+      <a class="muted small" href="/projects/{{ project.id }}/decisions">See all →</a>
+    </div>
+    {% if decisions.is_empty() %}
+    <p class="muted">No decisions yet.</p>
+    {% else %}
+    {% call m::decision_list(decisions) %}
+    {% endif %}
+  </div>
+
+  <div class="section-panel">
+    <div class="row space-between section-head">
+      <h2>Experiments</h2>
+      <a class="muted small" href="/projects/{{ project.id }}/experiments">See all →</a>
+    </div>
+    {% if experiments.is_empty() %}
+    <p class="muted">No experiments yet.</p>
+    {% else %}
+    {% call m::experiment_list(experiments) %}
+    {% endif %}
+  </div>
+
+  <div class="section-panel">
+    <div class="row space-between section-head">
+      <h2>Notes</h2>
+      <a class="muted small" href="/projects/{{ project.id }}/notes">See all →</a>
+    </div>
+    {% if notes.is_empty() %}
+    <p class="muted">No notes yet.</p>
+    {% else %}
+    {% call m::note_list(notes) %}
+    {% endif %}
+  </div>
+</details>
 {% endblock %}

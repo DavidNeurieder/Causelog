@@ -41,6 +41,14 @@
   --st-archived: var(--muted);
   --st-dropped: var(--muted);
 
+  /* knowledge state → semantic colors (Phase 5 of the UX plan) */
+  --st-validated: var(--success);
+  --st-unvalidated: var(--warn);
+  --st-invalidated: var(--danger);
+  --st-superseded: var(--muted);
+
+  /* typography scale: project 28–32px, section 16–18px, body 14–16px */
+
   /* shape & rhythm */
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -138,7 +146,39 @@ input.search:focus { border-color: var(--accent); outline: none; }
 main.container { padding-top: var(--space-5); padding-bottom: var(--space-6); }
 
 footer.site { border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
-footer.site .container { display: flex; height: 48px; align-items: center; }
+footer.site .container { display: flex; height: 48px; align-items: center; gap: var(--space-4); }
+kbd {
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 0.85em;
+}
+
+/* Floating capture button (mobile-only single primary action). */
+.fab {
+  display: none;
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 28px;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.4);
+  z-index: 50;
+  text-decoration: none;
+}
+.fab:hover { color: var(--bg); background: var(--accent-hi); }
+@media (max-width: 640px) {
+  .fab { display: flex; }
+}
 
 /* ---------------------------------------------------------------------------
    Typography
@@ -434,6 +474,12 @@ a.row-link .chev { color: var(--muted); font-size: 13px; }
 .status-rejected { color: var(--st-rejected); border-color: color-mix(in srgb, var(--st-rejected) 40%, transparent); }
 .status-planned, .status-abandoned, .status-archived, .status-dropped { color: var(--muted); }
 
+/* knowledge-state tags (validated/unvalidated/invalidated/superseded) */
+.state-validated, .state-tag.state-validated { color: var(--st-validated); border-color: color-mix(in srgb, var(--st-validated) 45%, transparent); }
+.state-unvalidated, .state-tag.state-unvalidated { color: var(--st-unvalidated); border-color: color-mix(in srgb, var(--st-unvalidated) 45%, transparent); }
+.state-invalidated, .state-tag.state-invalidated { color: var(--st-invalidated); border-color: color-mix(in srgb, var(--st-invalidated) 45%, transparent); }
+.state-superseded, .state-tag.state-superseded { color: var(--st-superseded); border-color: color-mix(in srgb, var(--st-superseded) 45%, transparent); }
+
 .kind-observation { color: var(--accent-hi); border-color: color-mix(in srgb, var(--accent-hi) 40%, transparent); }
 .kind-measurement { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
 .kind-milestone { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
@@ -502,6 +548,11 @@ a.row-link .chev { color: var(--muted); font-size: 13px; }
 }
 .nav-dropdown nav a:hover { color: var(--fg); background: var(--panel-2); }
 .nav-dropdown nav a.on { color: var(--accent-hi); background: var(--panel); }
+.nav-dropdown nav .nav-sep {
+  display: block;
+  border-top: 1px solid var(--border);
+  margin: var(--space-2) var(--space-1);
+}
 
 /* ---------------------------------------------------------------------------
    Markdown prose
@@ -880,6 +931,157 @@ details.create-project field { margin-bottom: var(--space-3); }
 }
 .nav-dropdown nav form button:hover { color: var(--fg); background: var(--panel-2); }
 .nav-dropdown nav form button.danger { color: var(--danger); }
+
+/* ---------------------------------------------------------------------------
+   Project story (homepage)
+   ------------------------------------------------------------------------- */
+
+ol.story {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 2px solid var(--border);
+  margin-left: 6px;
+  padding-left: var(--space-4);
+}
+li.story-node {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+li.story-node::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--space-4) - 5px);
+  top: 1.1em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+li.story-node a { overflow-wrap: anywhere; }
+.story-mark {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  flex: 0 0 auto;
+}
+li.story-goal > .story-mark { color: var(--success); }
+li.story-decision > .story-mark { color: var(--accent-hi); }
+li.story-experiment > .story-mark { color: var(--warn); }
+li.story-note > .story-mark { color: var(--violet); }
+li.story-node[data-indent="1"] { padding-left: 1rem; }
+li.story-node[data-indent="2"] { padding-left: 2rem; }
+li.story-node[data-indent="3"] { padding-left: 3rem; }
+
+.state-chips {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: var(--space-2) 0 var(--space-4);
+}
+.state-chips .tag { margin-left: 0; }
+
+.list.plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.details-panel summary {
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-5));
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+}
+.details-panel summary h2 { display: inline; }
+.details-panel summary:hover { background: var(--bg-2); }
+.details-panel[open] summary {
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  margin-bottom: var(--space-4);
+}
+.details-panel .section-panel {
+  background: var(--bg-2);
+}
+
+/* ---------------------------------------------------------------------------
+   Decision page
+   ------------------------------------------------------------------------- */
+
+.kicker + h1 { margin-top: 0; }
+h1 + .kicker { margin-top: var(--space-1); }
+.kicker {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: var(--space-1);
+}
+
+.panel-highlight {
+  border-color: var(--accent-hi);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-hi) 25%, transparent);
+}
+.panel-highlight h2 { color: var(--accent-hi); }
+
+.card-chosen {
+  border-color: var(--st-validated);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-validated) 30%, transparent);
+}
+.chosen-mark { color: var(--st-validated); }
+.chosen-label { color: var(--st-validated); }
+
+.panel-focus {
+  border-color: var(--accent-hi);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-hi) 25%, transparent);
+}
+.panel-entity {
+  border-color: var(--border);
+  background: var(--bg-2);
+}
+.panel-entity > .list { border-top: 1px solid var(--border); margin-top: 0; }
+.panel-suggested {
+  border-color: var(--border);
+  background: var(--bg-2);
+}
+.panel-suggested ul { line-height: 1.7; }
+.panel-suggested a { color: var(--fg); }
+.panel-suggested a:hover { color: var(--accent-hi); }
+
+ul.timeline list li.revision summary { cursor: pointer; }
+details.revision {
+  border-top: 1px solid var(--border);
+  padding: var(--space-2) 0;
+}
+details.revision summary {
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+details.revision .revision-screen {
+  margin: var(--space-3) 0 var(--space-2) 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  max-height: 24rem;
+  overflow: auto;
+}
 
 /* ---------------------------------------------------------------------------
    Responsive

@@ -187,7 +187,7 @@ test.describe('full creator journey', () => {
 
 		// Decision with two options, tied to the goal.
 		await page.goto(`${projectUrl}/decisions`);
-		await page.getByRole('link', { name: 'New decision' }).click();
+		await page.getByRole('link', { name: 'New decision' }).first().click();
 		await expect(page).toHaveURL(`${projectUrl}/decisions/new`);
 		await page.locator('#dnew-title').fill(DECISION);
 		await page.locator('#dnew-context').fill('The API needs persistence. Dilithium crystals are out.');
@@ -199,12 +199,13 @@ test.describe('full creator journey', () => {
 		await page.locator('#dnew-o2p').fill('Battle-tested, concurrent.');
 		await page.locator('#dnew-o2c').fill('A server to run.');
 		await page.getByRole('button', { name: 'Create decision' }).click();
-		await expect(page.locator('section.list .row.item', { hasText: DECISION })).toBeVisible();
-		decisionUrl = (await page.getByRole('link', { name: DECISION }).getAttribute('href'))!;
+		// Creating a decision now lands on its page with a "captured" flash.
+		await expect(page).toHaveURL(/\/decisions\/[0-9a-f-]+\?flash=decision_created/);
+		decisionUrl = page.url().split('?')[0];
 
 		// Experiment that tests the decision and serves the goal.
 		await page.goto(`${projectUrl}/experiments`);
-		await page.getByRole('link', { name: 'New experiment' }).click();
+		await page.getByRole('link', { name: 'New experiment' }).first().click();
 		await expect(page).toHaveURL(`${projectUrl}/experiments/new`);
 		await page.locator('#enew-title').fill(EXPERIMENT);
 		await page.locator('#enew-hypothesis').fill('WAL keeps reads and writes fast enough without a server.');
@@ -291,8 +292,8 @@ test.describe('full creator journey', () => {
 		await page.locator('#rrat').fill('One file, no ops, and plenty of headroom for a single user.');
 		await page.getByRole('button', { name: 'Record' }).click();
 
-		await expect(page.getByText(/Chose SQLite on /)).toBeVisible();
-		await expect(page.getByRole('heading', { name: 'Decision' })).toBeVisible();
+		await expect(page.getByText(/We chose SQLite/i)).toBeVisible();
+		await expect(page.getByRole('heading', { name: DECISION })).toBeVisible();
 		await page.context().close();
 	});
 

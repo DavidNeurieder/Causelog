@@ -665,10 +665,19 @@ async fn decision_lifecycle_with_history() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
-    assert_eq!(
-        redirect_to(&res),
-        format!("{project_url}/decisions?flash=decision_created")
+    let created_redirect = redirect_to(&res);
+    assert!(
+        created_redirect.starts_with("/decisions/"),
+        "got: {created_redirect}"
     );
+    assert!(
+        created_redirect.contains("flash=decision_created"),
+        "got: {created_redirect}"
+    );
+    let decision_url = created_redirect
+        .split('?')
+        .next()
+        .expect("redirect should have a path");
 
     // The decisions page links to the new decision.
     let page = send(
@@ -677,16 +686,16 @@ async fn decision_lifecycle_with_history() {
     )
     .await;
     let body = body_string(page).await;
-    let decision_url = extract_href(&body, "/decisions/");
-    assert!(decision_url.starts_with("/decisions/"), "got: {body}");
+    let decision_href = extract_href(&body, "/decisions/");
+    assert!(decision_href.starts_with("/decisions/"), "got: {body}");
 
     // Decision page renders title, options, and the initial revision.
-    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let page = send(&app, with_cookie(get(decision_url), &cookie)).await;
     assert_eq!(page.status(), StatusCode::OK);
     let body = body_string(page).await;
     assert!(body.contains("Which datastore?"), "got: {body}");
     assert!(body.contains("SQLite"), "got: {body}");
-    assert!(body.contains("History"), "got: {body}");
+    assert!(body.contains("How our thinking changed"), "got: {body}");
 
     // Resolve it.
     let res = send(
@@ -709,14 +718,14 @@ async fn decision_lifecycle_with_history() {
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
 
     // Page now shows the decision and the review date.
-    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let page = send(&app, with_cookie(get(decision_url), &cookie)).await;
     let body = body_string(page).await;
     assert!(body.contains("Chose"), "got: {body}");
     assert!(body.contains("2026-12-31"), "got: {body}");
     // Two revisions: creation + resolution.
     // Two nav-dropdowns (subnav + edit) have classes.
-    assert_eq!(body.matches("details class").count(), 2);
-    let revisions: Vec<_> = body.match_indices("History").collect();
+    assert_eq!(body.matches("details class=\"nav-dropdown\"").count(), 2);
+    let revisions: Vec<_> = body.match_indices("How our thinking changed").collect();
     assert!(!revisions.is_empty(), "got: {body}");
     // The resolution snapshot should be in history.
     assert!(
@@ -1118,6 +1127,27 @@ async fn knowledge_capture_and_graph() {
         assert!(body.contains(marker), "{marker} missing: {body}");
     }
 
+    // Focused graph: 1-hop view of the decision with Why/What happened and a
+    // clear-focus escape hatch.
+    let page = send(
+        &app,
+        with_cookie(
+            get(&format!("{project_url}/graph?focus={decision_id}")),
+            &cookie,
+        ),
+    )
+    .await;
+    let body = body_string(page).await;
+    for marker in [
+        "Clear focus",
+        "Why?",
+        "What happened afterward?",
+        "panel-focus",
+    ] {
+        assert!(body.contains(marker), "{marker} missing: {body}");
+    }
+    assert!(body.contains(&decision_id), "focused id missing: {body}");
+
     // Explicit link note → decision via the combined type:uuid selects.
     let note_id = note_url
         .split('?')
@@ -1448,7 +1478,7 @@ async fn decision_update_appends_revision() {
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
 
-    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let page = send(&app, with_cookie(get(decision_url.as_str()), &cookie)).await;
     let body = body_string(page).await;
     assert!(body.contains("Which datastore? (rev 2)"), "got: {body}");
     // History keeps both snapshots: the original context and the edited one.
@@ -1514,7 +1544,7 @@ async fn resolve_without_chosen_option_reverts_to_open() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
-    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let page = send(&app, with_cookie(get(decision_url.as_str()), &cookie)).await;
     let body = body_string(page).await;
     assert!(
         body.contains("status-open"),
@@ -3434,7 +3464,7 @@ async fn api_decision_update_fields() {
     );
 
     // Options should be preserved.
-    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let page = send(&app, with_cookie(get(decision_url.as_str()), &cookie)).await;
     let body = body_string(page).await;
     assert!(body.contains("Updated decision"), "got: {body}");
     assert!(body.contains("Option A"), "options preserved: {body}");
@@ -3505,7 +3535,7 @@ async fn api_decision_resolve_fields() {
     assert_eq!(data["status"], "decided");
 
     // Verify on the rendered page.
-    let page = send(&app, with_cookie(get(&decision_url), &cookie)).await;
+    let page = send(&app, with_cookie(get(decision_url.as_str()), &cookie)).await;
     let body = body_string(page).await;
     assert!(body.contains("Chose"), "got: {body}");
     assert!(body.contains("Simpler stack."), "got: {body}");
