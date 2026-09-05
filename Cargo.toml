@@ -4,6 +4,7 @@ members = [
     "crates/model",
     "crates/content",
     "crates/search",
+    "crates/export",
     "crates/server",
 ]
 

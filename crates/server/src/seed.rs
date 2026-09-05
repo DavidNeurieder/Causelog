@@ -675,6 +675,196 @@ async fn seed_coffee_project(repo: &SqliteRepository, created_by: Uuid) -> anyho
     )
     .await?;
 
+    // ── Knowledge states & next-action scenarios ────────────────────────────
+    // Each branch below exercises a distinct derived state so the demo shows
+    // the whole palette: superseded → invalidated → validated → unvalidated.
+
+    // Superseded: an earlier decision later overtaken by a follow-up.
+    let d_espresso = repo
+        .create_decision(
+            project.id,
+            Some(g_queue.id),
+            "Make espresso the only fast option?",
+            "The queue blames the menu for having too many decisions and not enough speed.",
+            &[
+                DecisionOption {
+                    id: "x1".into(),
+                    label: "Espresso-only menu".into(),
+                    pros: "One word to say at the counter: 'espresso'.".into(),
+                    cons: "Every oat-milk request becomes a philosophy.".into(),
+                },
+                DecisionOption {
+                    id: "x2".into(),
+                    label: "Keep the full menu".into(),
+                    pros: "Nobody gets cancelled.".into(),
+                    cons: "The queue keeps its identity crisis.".into(),
+                },
+            ],
+            Some(created_by),
+        )
+        .await?;
+    repo.resolve_decision(
+        d_espresso.id,
+        "decided",
+        Some("x1".into()),
+        "Speed first. The menu can grieve privately.",
+        None,
+    )
+    .await?;
+    let d_cold_brew = repo
+        .create_decision(
+            project.id,
+            Some(g_queue.id),
+            "Pre-batch cold brew or keep the espresso line?",
+            "The espresso line was fast. Then cold-brew season arrived, and with it, a second queue.",
+            &[
+                DecisionOption {
+                    id: "y1".into(),
+                    label: "Pre-batch cold brew by the jug".into(),
+                    pros: "One tap and the 11am crowd is served.".into(),
+                    cons: "We are now a cold-brew company with an espresso problem.".into(),
+                },
+                DecisionOption {
+                    id: "y2".into(),
+                    label: "Stay espresso-first".into(),
+                    pros: "No new equipment, no new taps.".into(),
+                    cons: "The cold-brew queue does not care about our strategy.".into(),
+                },
+            ],
+            Some(created_by),
+        )
+        .await?;
+    repo.resolve_decision(
+        d_cold_brew.id,
+        "decided",
+        Some("y1".into()),
+        "The jug wins. The espresso-only menu is hereby a historical document.",
+        None,
+    )
+    .await?;
+    repo.create_link(
+        project.id,
+        "decision",
+        d_cold_brew.id,
+        "decision",
+        d_espresso.id,
+        "follows",
+    )
+    .await?;
+
+    // Invalidated: decided, then contradicted by an abandoned experiment.
+    let d_robusta = repo
+        .create_decision(
+            project.id,
+            Some(g_budget.id),
+            "Robusta blend or single-origin for the house pour?",
+            "The budget likes robusta. The budget also likes being liked.",
+            &[
+                DecisionOption {
+                    id: "r1".into(),
+                    label: "Robusta blend".into(),
+                    pros: "Cheaper, stronger, unforgiving.".into(),
+                    cons: "Tastes like the hallway after a tense meeting.".into(),
+                },
+                DecisionOption {
+                    id: "r2".into(),
+                    label: "Single-origin".into(),
+                    pros: "The good stuff, ethically sourced.".into(),
+                    cons: "The bean fund files a formal complaint.".into(),
+                },
+            ],
+            Some(created_by),
+        )
+        .await?;
+    repo.resolve_decision(
+        d_robusta.id,
+        "decided",
+        Some("r1".into()),
+        "The hallway tastes fine by eleven.",
+        None,
+    )
+    .await?;
+    let e_robusta = repo
+        .create_experiment(
+            project.id,
+            Some(g_budget.id),
+            Some(d_robusta.id),
+            "The robusta queue test",
+            "Robusta keeps the 11am crowd caffeinated with fewer beans per cup.",
+            Some(created_by),
+        )
+        .await?;
+    repo.create_event(
+        e_robusta.id,
+        "observation",
+        now_ms(),
+        "Day one: morale measured. The espresso machine drew a sad face on our order tickets.",
+    )
+    .await?;
+    repo.update_experiment(
+        e_robusta.id,
+        "The robusta queue test",
+        "Robusta keeps the 11am crowd caffeinated with fewer beans per cup.",
+        "abandoned",
+        "The coffee reached the cups, but the cups went into recycling angry.",
+        "",
+    )
+    .await?;
+
+    // Unvalidated + overdue review: decided, no experiment, past its review date.
+    let d_sugar = repo
+        .create_decision(
+            project.id,
+            Some(g_queue.id),
+            "Free sugar or pay-per-sachet?",
+            "The sachet tray empties nightly. The treasury is nervous.",
+            &[
+                DecisionOption {
+                    id: "z1".into(),
+                    label: "Free sugar, honestly".into(),
+                    pros: "Sugar is 0.003% of the budget; trust is 100% of it.".into(),
+                    cons: "The sachet tray empties nightly (unchanged).".into(),
+                },
+                DecisionOption {
+                    id: "z2".into(),
+                    label: "Pay per sachet".into(),
+                    pros: "The tray finally stabilizes.".into(),
+                    cons: "A one-euro coin now buys ten grams of betrayal.".into(),
+                },
+            ],
+            Some(created_by),
+        )
+        .await?;
+    repo.resolve_decision(
+        d_sugar.id,
+        "decided",
+        Some("z1".into()),
+        "We stand by the sugar. The treasury can file its complaint in triplicate.",
+        Some(now_ms() - 30 * 86_400_000),
+    )
+    .await?;
+
+    // Done experiment with no lesson → "capture the lesson" next step.
+    let e_grinder = repo
+        .create_experiment(
+            project.id,
+            Some(g_queue.id),
+            None,
+            "The grinder dial-down experiment",
+            "Grinding finer shaves seconds off brew time at the cost of coffee-dust storms.",
+            Some(created_by),
+        )
+        .await?;
+    repo.update_experiment(
+        e_grinder.id,
+        "The grinder dial-down experiment",
+        "Grinding finer shaves seconds off brew time at the cost of coffee-dust storms.",
+        "done",
+        "Brew time dropped; the dust-sweeper union has logged a complaint.",
+        "",
+    )
+    .await?;
+
     let note = repo
         .create_note(
             project.id,

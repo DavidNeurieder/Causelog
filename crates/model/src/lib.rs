@@ -27,7 +27,7 @@ pub struct Session {
     pub expires_at_ms: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub id: Uuid,
     pub title: String,
@@ -39,7 +39,7 @@ pub struct Project {
     pub updated_at_ms: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProjectMember {
     pub project_id: Uuid,
     pub user_id: Uuid,
@@ -48,7 +48,7 @@ pub struct ProjectMember {
     pub created_at_ms: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Goal {
     pub id: Uuid,
     pub project_id: Uuid,
@@ -62,7 +62,7 @@ pub struct Goal {
     pub updated_at_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DecisionOption {
     pub id: String,
     pub label: String,
@@ -98,7 +98,7 @@ pub struct Decision {
 /// Immutable snapshot appended to `revisions` whenever a decision or note
 /// changes. `snapshot` is Markdown so history renders with the same renderer
 /// as everything else.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Revision {
     pub id: Uuid,
     /// `decision` | `note`
@@ -109,7 +109,7 @@ pub struct Revision {
     pub created_at_ms: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Experiment {
     pub id: Uuid,
     pub project_id: Uuid,
@@ -132,7 +132,7 @@ pub struct Experiment {
     pub updated_at_ms: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExperimentEvent {
     pub id: Uuid,
     pub experiment_id: Uuid,
@@ -147,7 +147,7 @@ pub struct ExperimentEvent {
 
 /// A piece of durable knowledge within a project. Extracted lessons point back
 /// at their source (`source_type`/`source_id`) so the graph can trace origins.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Note {
     pub id: Uuid,
     pub project_id: Uuid,
@@ -163,7 +163,7 @@ pub struct Note {
 }
 
 /// Explicit, typed edge between two entities in the same project.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Link {
     pub id: Uuid,
     pub project_id: Uuid,

@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod error;
+pub mod export_adapter;
 pub mod pages;
 pub mod repository;
 pub mod routes;

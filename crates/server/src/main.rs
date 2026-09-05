@@ -8,6 +8,7 @@
 //! `seed-demo` creates a first user and a filled-out three-project demo — two
 //! of them comedic — so you can poke around before using the app for real.
 
+mod export_cli;
 mod seed;
 
 use std::path::{Path, PathBuf};
@@ -47,6 +48,9 @@ enum Command {
         #[arg(long, env = "DATABASE_URL", default_value = "sqlite://causelog.db")]
         database_url: String,
     },
+    /// Export a project (JSON, Markdown, or a static HTML site) from a local
+    /// database.
+    Export(export_cli::ExportArgs),
 }
 
 #[derive(Args)]
@@ -110,6 +114,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::SeedDemo { database_url }) => seed::seed_demo(&database_url).await,
+        Some(Command::Export(args)) => export_cli::run(&args).await,
         Some(Command::Serve(args)) => serve(args).await,
         None => serve(ServeArgs::default()).await,
     }
