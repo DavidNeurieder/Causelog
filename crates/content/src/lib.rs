@@ -69,6 +69,35 @@ pub fn format_date_ms(ms: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// Format a millisecond timestamp as `MONTH YEAR` (UTC), e.g. `AUGUST 2026`.
+pub fn format_month_ms(ms: i64) -> String {
+    let (y, m, _d) = civil_from_days(ms.div_euclid(86_400_000));
+    const MONTHS: [&str; 12] = [
+        "JANUARY",
+        "FEBRUARY",
+        "MARCH",
+        "APRIL",
+        "MAY",
+        "JUNE",
+        "JULY",
+        "AUGUST",
+        "SEPTEMBER",
+        "OCTOBER",
+        "NOVEMBER",
+        "DECEMBER",
+    ];
+    format!("{} {y}", MONTHS[(m - 1) as usize])
+}
+
+/// Day-of-month (UTC) for a timestamp, for "14 AUG" style day headers.
+pub fn format_day_ms(ms: i64) -> String {
+    let (_y, m, d) = civil_from_days(ms.div_euclid(86_400_000));
+    const MONTHS: [&str; 12] = [
+        "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    ];
+    format!("{d} {}", MONTHS[(m - 1) as usize])
+}
+
 /// Parse `YYYY-MM-DD` (UTC) into a millisecond timestamp at start-of-day.
 /// Impossible dates (2026-02-30, 2025-04-31) are rejected.
 pub fn parse_date_ms(s: &str) -> Option<i64> {

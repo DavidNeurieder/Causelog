@@ -25,7 +25,6 @@ use crate::auth;
 use crate::error::ApiError;
 use crate::repository::{
     DashboardCounts, GraphData, GraphEdge, ProjectCounts, Repository, RepositoryError, SearchRow,
-    TimelineEntry,
 };
 
 // ---------------------------------------------------------------------------
@@ -246,18 +245,65 @@ struct ProjectTemplate {
     decisions: Vec<DecisionItemView>,
     experiments: Vec<ExperimentItemView>,
     notes: Vec<Note>,
-    story: Vec<StoryItemView>,
-    state_counts: Vec<(String, i64)>,
+    story: StoryView,
     suggested_next: Vec<NextStepView>,
     recent_activity: Vec<RecentActivityView>,
 }
 
 /// One node of the project story shown on the homepage.
-struct StoryItemView {
-    kind: String,
-    title: String,
-    indent: u32,
+/// Shared story view for the project landing page, derived from the export
+/// crate's `ProjectStory` so the UI stays aligned with the export renderers
+/// (per the UX contract: never build a presentation by querying the DB
+/// directly).
+struct StoryView {
+    /// Headline problem: a single open goal's body, else the summary.
+    problem: String,
+    /// Current knowledge-state tallies (validated/unvalidated/invalidated/
+    /// superseded), each with a human label.
+    state_counts: Vec<StateCountView>,
+    /// The causal chain: decisions, each carrying its experiments/evidence.
+    decisions: Vec<StoryDecisionView>,
+    /// Deduplicated lessons.
+    lessons: Vec<StoryLessonView>,
+    /// The current belief: each decided decision with its knowledge state.
+    current_state: Vec<StoryStateView>,
+}
+
+#[derive(Clone)]
+struct StateCountView {
+    key: String,
+    count: i64,
+}
+
+/// One decision node in the story chain.
+struct StoryDecisionView {
     link: String,
+    title: String,
+    state: String,
+    decided_label: String,
+    context: String,
+    rationale: String,
+    experiments: Vec<StoryExperimentView>,
+}
+
+/// One experiment (with its evidence) under a decision in the story chain.
+struct StoryExperimentView {
+    link: String,
+    title: String,
+    status: String,
+    result: String,
+    evidence: Vec<String>,
+}
+
+/// One lesson node in the story chain.
+struct StoryLessonView {
+    text: String,
+}
+
+/// One current-belief entry: a decided decision and its knowledge state.
+struct StoryStateView {
+    decision_link: String,
+    title: String,
     state: String,
 }
 
@@ -329,6 +375,115 @@ struct RecentActivityView {
     at: String,
     label: String,
     link: String,
+}
+
+/// Derive the landing-page story view from the canonical export, so the UI
+/// and the export renderers consume the same `ProjectStory` (UX contract:
+/// no presentation queries the database directly).
+fn story_view(export: &causelog_export::model::ExportProject) -> StoryView {
+    let story = causelog_export::build_story(export);
+
+    // Group raw experiments by the decision they resolve.
+    let by_decision = export.experiments.iter().fold(
+        std::collections::HashMap::<Uuid, Vec<&causelog_model::Experiment>>::new(),
+        |mut m, e| {
+            if let Some(did) = e.decision_id {
+                m.entry(did).or_default().push(e);
+            }
+            m
+        },
+    );
+
+    let decisions: Vec<StoryDecisionView> = story
+        .key_decisions
+        .iter()
+        .map(|d| {
+            let exps: Vec<StoryExperimentView> = by_decision
+                .get(&d.id)
+                .map(|list| {
+                    list.iter()
+                        .map(|e| {
+                            let events: Vec<causelog_model::ExperimentEvent> = export
+                                .events
+                                .iter()
+                                .filter(|ev| ev.experiment_id == e.id)
+                                .cloned()
+                                .collect();
+                            let evidence: Vec<String> = events
+                                .iter()
+                                .map(|ev| {
+                                    if ev.note.trim().is_empty() {
+                                        ev.kind.clone()
+                                    } else {
+                                        ev.note.trim().to_string()
+                                    }
+                                })
+                                .collect();
+                            StoryExperimentView {
+                                link: format!("/experiments/{}", e.id),
+                                title: e.title.clone(),
+                                status: e.status.clone(),
+                                result: e.result.clone(),
+                                evidence,
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let decided_label = d
+                .decided_option
+                .as_deref()
+                .and_then(|id| d.options.iter().find(|o| o.id == id))
+                .map(|o| o.label.clone())
+                .unwrap_or_default();
+            StoryDecisionView {
+                link: format!("/decisions/{}", d.id),
+                title: d.title.clone(),
+                state: d.state.clone(),
+                decided_label,
+                context: d.context.clone(),
+                rationale: d.rationale.clone(),
+                experiments: exps,
+            }
+        })
+        .collect();
+
+    let mut tally: Vec<StateCountView> = Vec::new();
+    for key in ["validated", "unvalidated", "invalidated", "superseded"] {
+        let n = story
+            .current_state
+            .iter()
+            .filter(|s| s.state == key)
+            .count() as i64;
+        if n > 0 {
+            tally.push(StateCountView {
+                key: key.to_string(),
+                count: n,
+            });
+        }
+    }
+
+    StoryView {
+        problem: story.problem.clone().unwrap_or_default(),
+        state_counts: tally,
+        decisions,
+        lessons: story
+            .lessons
+            .iter()
+            .map(|l| StoryLessonView {
+                text: l.text.clone(),
+            })
+            .collect(),
+        current_state: story
+            .current_state
+            .iter()
+            .map(|s| StoryStateView {
+                decision_link: format!("/decisions/{}", s.decision_id),
+                title: s.title.clone(),
+                state: s.state.clone(),
+            })
+            .collect(),
+    }
 }
 
 #[derive(Template)]
@@ -572,14 +727,66 @@ struct TimelineTemplate {
     display_name: String,
     csrf_token: String,
     project: Project,
-    entries: Vec<TimelineView>,
+    months: Vec<TimelineMonthView>,
 }
 
-struct TimelineView {
+/// A month grouping (e.g. "AUGUST 2026") of chronological history.
+struct TimelineMonthView {
+    month: String,
+    days: Vec<TimelineDayView>,
+}
+
+/// A single day grouping of history entries.
+struct TimelineDayView {
+    day: String,
+    entries: Vec<TimelineEntryView>,
+}
+
+struct TimelineEntryView {
     at: String,
     kind: String,
     note: String,
-    experiment_id: String,
+    link: String,
+    /// Entity family for filtering: decision | experiment | lesson | goal.
+    filter: String,
+    /// True when the event is part of the causal chain (decision → experiment
+    /// → evidence → lesson) rather than peripheral activity.
+    chain: bool,
+}
+
+/// "What's changed?" — since the reader's last visit (per the `cl_last_visit`
+/// cookie), summarized as counts plus a day-grouped feed.
+#[derive(Template)]
+#[template(path = "activity.html")]
+struct ActivityTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    since: String,
+    counts: Vec<ActivityCountView>,
+    days: Vec<ActivityDayView>,
+    first_visit: bool,
+}
+
+struct ActivityCountView {
+    label: String,
+    count: i64,
+}
+
+struct ActivityDayView {
+    day: String,
+    entries: Vec<ActivityEntryView>,
+}
+
+struct ActivityEntryView {
+    kind: String,
+    title: String,
+    link: String,
+    at: String,
 }
 
 /// Decision row on a project page.
@@ -609,6 +816,7 @@ struct DecisionTemplate {
     revisions: Vec<RevisionView>,
     evidence: Vec<EvidenceView>,
     evidence_notes: Vec<Note>,
+    support: Vec<SupportView>,
 }
 
 /// Rendered (HTML-safe) display of a decision, separate from the raw Markdown
@@ -639,6 +847,15 @@ struct EvidenceView {
     status: String,
     summary: String,
     link: String,
+}
+
+/// Evidence backing a decided decision's knowledge state (Phase 8: the state
+/// explains itself — which experiment/decision made it so, and when).
+struct SupportView {
+    title: String,
+    link: String,
+    detail: String,
+    when: String,
 }
 
 struct RevisionView {
@@ -682,12 +899,21 @@ struct NoteTemplate {
     view: NoteView,
     created_by_name: String,
     revisions: Vec<RevisionView>,
+    connections: Vec<ConnectionView>,
 }
 
 struct NoteView {
     body_html: String,
     source_title: String,
     source_url: String,
+}
+
+/// One explicit link where this note is an endpoint; the "other" side resolves
+/// to its record page.
+struct ConnectionView {
+    kind: String,
+    other_label: String,
+    other_link: String,
 }
 
 #[derive(Template)]
@@ -1449,41 +1675,13 @@ pub(crate) async fn project_page(
     let notes = state.repo.list_notes(project.id).await?;
     let decision_states = state.repo.decision_knowledge_states(project.id).await?;
 
-    // Story: goal → decision → experiment → note chain.
-    let story: Vec<StoryItemView> = state
-        .repo
-        .story(project.id)
-        .await?
-        .into_iter()
-        .map(|s| {
-            let link = match s.kind.as_str() {
-                "goal" => format!("/goals/{}", s.id),
-                "decision" => format!("/decisions/{}", s.id),
-                "experiment" => format!("/experiments/{}", s.id),
-                _ => format!("/notes/{}", s.id),
-            };
-            let state = decision_states.get(&s.id).cloned().unwrap_or_default();
-            StoryItemView {
-                kind: s.kind,
-                title: s.title,
-                indent: s.indent,
-                link,
-                state,
-            }
-        })
-        .collect();
-
-    // Current state: knowledge-state chips for the project's decisions.
-    let mut tally: Vec<(String, i64)> = Vec::new();
-    for key in ["validated", "unvalidated", "invalidated", "superseded"] {
-        let n = decision_states
-            .values()
-            .filter(|s| s.as_str() == key)
-            .count() as i64;
-        if n > 0 {
-            tally.push((key.to_string(), n));
-        }
-    }
+    // Shared story view derived from the canonical export (UX contract: the UI
+    // and the export renderers consume the same ProjectStory).
+    let repo = &*state.repo;
+    let export = causelog_export::collect(&repo, project.id)
+        .await
+        .map_err(|e| ApiError::internal(format!("loading story failed: {e:#}")))?;
+    let story = story_view(&export);
 
     // Suggested next steps (reusable heuristic; also shown on the decisions page).
     let next = suggested_next(
@@ -1560,7 +1758,6 @@ pub(crate) async fn project_page(
             .collect(),
         notes: notes.into_iter().take(5).collect(),
         story,
-        state_counts: tally,
         suggested_next: next,
         recent_activity,
     })
@@ -2633,6 +2830,52 @@ pub(crate) async fn decision_page(
         })
         .collect();
 
+    // What makes the state true (Phase 8): the experiments that validated or
+    // invalidated it, or the decision that superseded it.
+    let support: Vec<SupportView> = match view.state.as_str() {
+        "validated" => evidence_experiments
+            .iter()
+            .filter(|e| e.status == "done" && !e.lesson.trim().is_empty())
+            .map(|e| SupportView {
+                title: e.title.clone(),
+                link: format!("/experiments/{}", e.id),
+                detail: "completed experiment with a recorded lesson".into(),
+                when: e.ended_at_ms.map(format_date_ms).unwrap_or_default(),
+            })
+            .collect(),
+        "invalidated" => evidence_experiments
+            .iter()
+            .filter(|e| e.status == "abandoned")
+            .map(|e| SupportView {
+                title: e.title.clone(),
+                link: format!("/experiments/{}", e.id),
+                detail: "abandoned experiment against this decision".into(),
+                when: e.ended_at_ms.map(format_date_ms).unwrap_or_default(),
+            })
+            .collect(),
+        "superseded" => {
+            let links = state.repo.list_links(decision.project_id).await?;
+            let mut follow = Vec::new();
+            for l in links.into_iter().filter(|l| {
+                l.kind == "follows"
+                    && l.to_type == "decision"
+                    && l.to_id == decision_id
+                    && l.from_type == "decision"
+            }) {
+                if let Some(f) = state.repo.find_decision(l.from_id).await? {
+                    follow.push(SupportView {
+                        title: f.title.clone(),
+                        link: format!("/decisions/{}", f.id),
+                        detail: "a later decision follows from this one".into(),
+                        when: f.decided_at_ms.map(format_date_ms).unwrap_or_default(),
+                    });
+                }
+            }
+            follow
+        }
+        _ => Vec::new(),
+    };
+
     page(&DecisionTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -2654,6 +2897,7 @@ pub(crate) async fn decision_page(
             .collect(),
         evidence,
         evidence_notes,
+        support,
     })
 }
 
@@ -3112,16 +3356,112 @@ pub(crate) async fn timeline_page(
     };
     let project = require_project_member(&state, &id, &auth_user.user).await?;
     let project_id = project.id;
-    let entries = state.repo.timeline(project_id).await?;
-    let entries_view = entries
-        .into_iter()
-        .map(|e: TimelineEntry| TimelineView {
-            at: format_date_ms(e.at_ms),
-            kind: e.kind,
-            note: e.note,
-            experiment_id: e.experiment_id.to_string(),
-        })
-        .collect();
+
+    // A history spanning every entity family, newest first. `chain` marks the
+    // causal thread (decision → experiment → evidence → lesson) so "Show
+    // causal chain" can hide peripheral activity.
+    let mut feed: Vec<(i64, String, String, String, &'static str, bool)> = Vec::new();
+    if let Ok(timeline) = state.repo.timeline(project_id).await {
+        for t in timeline {
+            feed.push((
+                t.at_ms,
+                t.kind.clone(),
+                t.note,
+                format!("/experiments/{}", t.experiment_id),
+                "experiment",
+                true,
+            ));
+        }
+    }
+    for d in state.repo.list_decisions(project_id).await? {
+        if d.status == "decided" {
+            feed.push((
+                d.decided_at_ms.unwrap_or(d.updated_at_ms),
+                "decision_decided".into(),
+                format!("Decision decided: “{}”", d.title),
+                format!("/decisions/{}", d.id),
+                "decision",
+                true,
+            ));
+        }
+        feed.push((
+            d.created_at_ms,
+            "decision_created".into(),
+            format!("Decision proposed: “{}”", d.title),
+            format!("/decisions/{}", d.id),
+            "decision",
+            true,
+        ));
+    }
+    for e in state.repo.list_experiments(project_id).await? {
+        feed.push((
+            e.created_at_ms,
+            "experiment_planned".into(),
+            format!("Experiment planned: “{}”", e.title),
+            format!("/experiments/{}", e.id),
+            "experiment",
+            true,
+        ));
+    }
+    for n in state.repo.list_notes(project_id).await? {
+        let (kind, filter, chain) = match n.source_type.as_deref() {
+            Some("experiment") | Some("decision") => ("lesson_added", "lesson", true),
+            _ => ("note_added", "goal", false),
+        };
+        feed.push((
+            n.created_at_ms,
+            kind.into(),
+            format!("Lesson recorded: “{}”", n.title),
+            format!("/notes/{}", n.id),
+            filter,
+            chain,
+        ));
+    }
+    for g in state.repo.list_goals(project_id).await? {
+        feed.push((
+            g.created_at_ms,
+            "goal_created".into(),
+            format!("Goal created: “{}”", g.title),
+            format!("/goals/{}", g.id),
+            "goal",
+            false,
+        ));
+    }
+    feed.sort_by(|a, b| b.0.cmp(&a.0));
+
+    // Group newest-first into month → day buckets.
+    let mut months: Vec<TimelineMonthView> = Vec::new();
+    for (at, kind, note, link, filter, chain) in feed {
+        let month = causelog_content::format_month_ms(at);
+        let day = causelog_content::format_day_ms(at);
+        if months.last().map(|m| m.month.as_str()) != Some(month.as_str()) {
+            months.push(TimelineMonthView {
+                month,
+                days: Vec::new(),
+            });
+        }
+        let current = months.last_mut().expect("month pushed above");
+        if current.days.last().map(|d| d.day.as_str()) != Some(day.as_str()) {
+            current.days.push(TimelineDayView {
+                day,
+                entries: Vec::new(),
+            });
+        }
+        current
+            .days
+            .last_mut()
+            .expect("day pushed above")
+            .entries
+            .push(TimelineEntryView {
+                at: format!("{:02}:{:02}", (at / 3_600_000) % 24, (at / 60_000) % 60),
+                kind,
+                note,
+                link,
+                filter: filter.to_string(),
+                chain,
+            });
+    }
+
     page(&TimelineTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -3130,8 +3470,166 @@ pub(crate) async fn timeline_page(
         display_name: auth_user.user.display_name,
         csrf_token: auth_user.csrf_token,
         project,
-        entries: entries_view,
+        months,
     })
+}
+
+/// What's changed since the reader's last visit. The last-visit marker lives
+/// in the `cl_last_visit` cookie (ms); each visit refreshes it.
+pub(crate) async fn activity_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+    let project_id = project.id;
+
+    let since = auth::cookie(&headers, "cl_last_visit")
+        .and_then(|c| c.parse::<i64>().ok())
+        .filter(|ms| *ms > 0)
+        .unwrap_or(0);
+    let first_visit = since == 0;
+    let now = now_ms();
+
+    // ── Gather what changed ──────────────────────────────────────────────
+    // (at_ms, kind, title, link) sorted newest-first. Kinds drive the marker
+    // colors: decision / experiment / lesson / event.
+    let mut feed: Vec<(i64, &'static str, String, String)> = Vec::new();
+
+    if let Ok(timeline) = state.repo.timeline(project_id).await {
+        for t in timeline {
+            feed.push((
+                t.at_ms,
+                "event",
+                t.note,
+                format!("/experiments/{}", t.experiment_id),
+            ));
+        }
+    }
+    for d in state.repo.list_decisions(project_id).await? {
+        feed.push((
+            d.updated_at_ms,
+            "decision",
+            format!("Decision changed: “{}”", d.title),
+            format!("/decisions/{}", d.id),
+        ));
+    }
+    for e in state.repo.list_experiments(project_id).await? {
+        if e.status == "done" {
+            let at = e.ended_at_ms.unwrap_or(e.updated_at_ms);
+            feed.push((
+                at,
+                "experiment",
+                format!("Experiment completed: “{}”", e.title),
+                format!("/experiments/{}", e.id),
+            ));
+        }
+    }
+    for n in state.repo.list_notes(project_id).await? {
+        let kind = if matches!(
+            n.source_type.as_deref(),
+            Some("experiment") | Some("decision")
+        ) {
+            "lesson"
+        } else {
+            "note"
+        };
+        feed.push((
+            n.updated_at_ms,
+            kind,
+            format!("Lesson added: “{}”", n.title),
+            format!("/notes/{}", n.id),
+        ));
+    }
+    feed.sort_by(|a, b| b.0.cmp(&a.0));
+
+    // ── Counts for the "since your last visit" summary ───────────────────
+    let decisions_changed = feed
+        .iter()
+        .filter(|(at, kind, ..)| kind == &"decision" && *at >= since)
+        .count() as i64;
+    let experiments_completed = feed
+        .iter()
+        .filter(|(at, kind, ..)| kind == &"experiment" && *at >= since)
+        .count() as i64;
+    let lessons_added = feed
+        .iter()
+        .filter(|(at, kind, ..)| kind == &"lesson" && *at >= since)
+        .count() as i64;
+    let mut counts = Vec::new();
+    if decisions_changed > 0 {
+        counts.push(ActivityCountView {
+            label: "decisions changed".into(),
+            count: decisions_changed,
+        });
+    }
+    if experiments_completed > 0 {
+        counts.push(ActivityCountView {
+            label: "experiments completed".into(),
+            count: experiments_completed,
+        });
+    }
+    if lessons_added > 0 {
+        counts.push(ActivityCountView {
+            label: "lessons added".into(),
+            count: lessons_added,
+        });
+    }
+
+    // ── Day-grouped feed ─────────────────────────────────────────────────
+    let today_day = now / 86_400_000;
+    let yesterday_day = today_day - 1;
+    let mut days: Vec<ActivityDayView> = Vec::new();
+    for (at, kind, title, link) in feed.into_iter().filter(|(at, ..)| !first_visit || *at > 0) {
+        let day = at / 86_400_000;
+        let day_label = if day == today_day {
+            "Today".to_string()
+        } else if day == yesterday_day {
+            "Yesterday".to_string()
+        } else {
+            format_date_ms(at)
+        };
+        if days.last().map(|d| d.day.as_str()) != Some(day_label.as_str()) {
+            days.push(ActivityDayView {
+                day: day_label,
+                entries: Vec::new(),
+            });
+        }
+        if let Some(g) = days.last_mut() {
+            g.entries.push(ActivityEntryView {
+                kind: kind.to_string(),
+                title,
+                link,
+                at: format!("{:02}:{:02}", (at / 3_600_000) % 24, (at / 60_000) % 60),
+            });
+        }
+    }
+
+    let mut response = page(&ActivityTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        since: format_date_ms(since),
+        counts,
+        days,
+        first_visit,
+    })?;
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        header::HeaderValue::from_str(&format!(
+            "cl_last_visit={now}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax"
+        ))
+        .expect("cookie value"),
+    );
+    Ok(response)
 }
 
 // ---------------------------------------------------------------------------
@@ -3261,6 +3759,36 @@ pub(crate) async fn note_page(
         })
         .collect();
     let created_by_name = creator_name(&state.repo, note.created_by).await;
+    // Connections: reuse the graph's titles so the note shows the same labels
+    // as the exploration view (Phase 5: what is it connected to?).
+    let graph_data = state.repo.graph(note.project_id).await?;
+    let mut titles: std::collections::HashMap<(String, Uuid), String> =
+        std::collections::HashMap::new();
+    for n in &graph_data.nodes {
+        titles.insert((n.node_type.clone(), n.id), n.title.clone());
+    }
+    let connections = state
+        .repo
+        .list_links(note.project_id)
+        .await?
+        .into_iter()
+        .filter(|l| {
+            (l.from_type == "note" && l.from_id == note.id)
+                || (l.to_type == "note" && l.to_id == note.id)
+        })
+        .map(|l| {
+            let (other_type, other_id) = if l.from_type == "note" && l.from_id == note.id {
+                (l.to_type, l.to_id)
+            } else {
+                (l.from_type, l.from_id)
+            };
+            ConnectionView {
+                kind: l.kind.clone(),
+                other_label: label_for(&titles, &other_type, other_id, &other_type),
+                other_link: entity_url(&other_type, other_id),
+            }
+        })
+        .collect();
     page(&NoteTemplate {
         authed: true,
         flash: flash_view(flash.flash.as_deref()).0,
@@ -3273,6 +3801,7 @@ pub(crate) async fn note_page(
         view,
         created_by_name,
         revisions: revisions_view,
+        connections,
     })
 }
 

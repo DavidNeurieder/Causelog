@@ -125,6 +125,7 @@ fn router(state: AppState) -> Router {
             get(pages::experiment_new_page),
         )
         .route("/projects/{id}/timeline", get(pages::timeline_page))
+        .route("/projects/{id}/activity", get(pages::activity_page))
         .route(
             "/experiments/{id}",
             get(pages::experiment_page).post(pages::experiment_update),

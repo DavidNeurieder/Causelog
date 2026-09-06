@@ -243,6 +243,22 @@
         if (!anyActive()) { setEditMode(false); hideDoneBar(); }
       }
     }
+    // Contextual button that opens a specific editable field (e.g. a
+    // completion panel prompting the lesson editor).
+    if (e.target.matches('[data-action="edit-field"]')) {
+      e.preventDefault();
+      var entity = e.target.getAttribute('data-edit-entity');
+      var field = e.target.getAttribute('data-edit-field');
+      var target = document.querySelector(
+        '.editable[data-entity="' + entity + '"][data-field="' + field + '"]'
+      );
+      if (target) {
+        target.classList.add('active');
+        showDoneBar();
+        setEditMode(true);
+        focusEditable(target);
+      }
+    }
   });
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────

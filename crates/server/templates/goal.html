@@ -109,4 +109,17 @@
   {% call m::experiment_list(experiments) %}
 </div>
 {% endif %}
+
+{% if goal.status == "open" || goal.status == "ongoing" %}
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>What's next</h2>
+    <span class="muted small">progress on this goal</span>
+  </div>
+  <div class="row quick-add">
+    <a class="btn" href="/projects/{{ project.id }}/decisions/new">+ New decision serving this goal</a>
+    <a class="btn" href="/projects/{{ project.id }}/experiments/new">+ Test an assumption</a>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

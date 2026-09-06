@@ -57,6 +57,34 @@
   </div>
 </div>
 
+{% if !connections.is_empty() %}
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>Connected to</h2>
+    <a class="muted small" href="/projects/{{ project.id }}/graph">Explore on graph →</a>
+  </div>
+  <ul class="list plain">
+    {% for c in connections %}
+    <li class="row item space-between">
+      <a class="strong" href="{{ c.other_link }}">{{ c.other_label }}</a>
+      <span class="tag kind-{{ c.kind }}">{{ c.kind }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>What's next</h2>
+    <span class="muted small">loose threads</span>
+  </div>
+  <div class="row quick-add">
+    <a class="btn" href="/projects/{{ project.id }}/graph">Link this note on the graph</a>
+    <a class="btn" href="/capture">Quick capture</a>
+  </div>
+</div>
+
 <h2>History</h2>
 {% if revisions.is_empty() %}
 <p class="muted">No revisions yet.</p>

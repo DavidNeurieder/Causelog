@@ -6,6 +6,7 @@
   <div>
     {% call m::crumb(project) %}
     <h1>Timeline</h1>
+    <p class="muted small">the project's history, oldest lesson to latest hunch</p>
   </div>
   <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
     {% call m::subnav(project, "timeline", "Timeline") %}
@@ -13,19 +14,45 @@
   </div>
 </div>
 
-{% if entries.is_empty() %}
-<p class="muted">Nothing here yet. Start an experiment and log observations to build the story of this project.</p>
+<div class="row timeline-controls">
+  <nav class="filter-tabs" role="tablist" aria-label="Filter timeline">
+    <button class="filter-tab on" data-filter="all">All</button>
+    <button class="filter-tab" data-filter="decision">Decisions</button>
+    <button class="filter-tab" data-filter="experiment">Experiments</button>
+    <button class="filter-tab" data-filter="lesson">Lessons</button>
+    <button class="filter-tab" data-filter="goal">Goals</button>
+  </nav>
+  <label class="compact checkable">
+    <input type="checkbox" id="chain-toggle">
+    <span>Show causal chain</span>
+  </label>
+</div>
+
+{% if months.is_empty() %}
+<div class="section-panel">
+  <p class="muted">Nothing here yet. Start an experiment and log observations to build the story of this project.</p>
+</div>
 {% else %}
-<ol class="timeline">
-  {% for entry in entries %}
-  <li>
-    <div class="row">
-      <span class="muted small">{{ entry.at }}</span>
-      <span class="tag kind-{{ entry.kind }}">{{ entry.kind }}</span>
-    </div>
-    <a class="strong" href="/experiments/{{ entry.experiment_id }}">{{ entry.note }}</a>
-  </li>
+{% for month in months %}
+<section class="timeline-month" data-month="{{ month.month }}">
+  <h2 class="month-head">{{ month.month }}</h2>
+  {% for day in month.days %}
+  <div class="timeline-day" data-day="{{ day.day }}">
+    <h3 class="day-head">{{ day.day }}</h3>
+    <ol class="timeline">
+      {% for e in day.entries %}
+      <li class="timeline-entry" data-filter="{{ e.filter }}" {% if e.chain %}data-chain="true"{% else %}data-chain="false"{% endif %}>
+        <div class="row">
+          <span class="kind-dot kind-{{ e.kind }}" title="{{ e.kind }}"></span>
+          <a class="strong" href="{{ e.link }}">{{ e.note }}</a>
+          <span class="muted small">{{ e.at }}</span>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
   {% endfor %}
-</ol>
+</section>
+{% endfor %}
 {% endif %}
 {% endblock %}

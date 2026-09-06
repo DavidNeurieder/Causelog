@@ -73,41 +73,136 @@
   </div>
 </div>
 
-<div class="row quick-add">
-  <a class="btn primary" href="/capture">+ Quick capture</a>
-  <a class="btn" href="/projects/{{ project.id }}/goals/new">Add a goal</a>
+<div class="row project-actions">
+  <a class="btn primary" href="/capture">+ Capture</a>
+  <a class="btn" href="/projects/{{ project.id }}/export">Share</a>
   <a class="btn" href="/projects/{{ project.id }}/decisions/new">New decision</a>
   <a class="btn" href="/projects/{{ project.id }}/experiments/new">Start experiment</a>
-  <a class="btn" href="/projects/{{ project.id }}/notes/new">New note</a>
 </div>
 
-{% if story.is_empty() %}
+{% if story.decisions.is_empty() %}
 <div class="section-panel">
   {% call m::empty_state("Your project story starts here.", "Aim somewhere, weigh options, and test the assumption — Causelog chains goals, decisions, experiments and lessons into a narrative.", "/capture", "Quick capture") %}
 </div>
 {% else %}
+
+{% if !story.problem.is_empty() %}
+<div class="section-panel story-lede">
+  <span class="kicker">Problem</span>
+  <p class="story-problem">{{ story.problem }}</p>
+</div>
+{% endif %}
+
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>Current state</h2>
+    {% if story.state_counts.is_empty() %}
+    <span class="tag state-unvalidated">Awaiting evidence</span>
+    {% else %}
+    <span class="muted small">what you trust right now</span>
+    {% endif %}
+  </div>
+  <div class="row state-chips">
+    {% for c in story.state_counts %}
+    <span class="tag state-{{ c.key }}" title="A decided decision in this state">{{ c.count }} {{ c.key }}</span>
+    {% endfor %}
+    {% if story.state_counts.is_empty() %}
+    <span class="muted small">No decided decisions yet — settle one to show current belief.</span>
+    {% endif %}
+  </div>
+</div>
+
 <div class="section-panel">
   <div class="row space-between section-head">
     <h2>The story</h2>
     <span class="muted small">what happened, why, and what it taught you</span>
   </div>
-  <ol class="story">
-    {% for s in story %}
-    <li class="story-node story-{{ s.kind }}" data-indent="{{ s.indent }}">
-      <span class="story-mark">{{ s.kind }}</span>
-      <a class="strong" href="{{ s.link }}">{{ s.title }}</a>
-      {% if !s.state.is_empty() %}<span class="tag state-{{ s.state }}" title="{{ s.state }}">{{ s.state }}</span>{% endif %}
+  <div class="story-chain">
+    {% for d in story.decisions %}
+    <div class="chain-decision">
+      <div class="chain-node chain-decision-node" data-node-kind="Decision" data-node-link="{{ d.link }}">
+        <div class="chain-node-head">
+          <span class="story-mark">Decision</span>
+          {% if !d.state.is_empty() %}<span class="tag state-{{ d.state }}">{{ d.state }}</span>{% endif %}
+        </div>
+        <a class="strong chain-title" href="{{ d.link }}">{{ d.title }}</a>
+        {% if !d.decided_label.is_empty() %}<div class="muted small">Chose: {{ d.decided_label }}</div>{% endif %}
+        {% if !d.context.is_empty() %}<div class="muted small chain-context">{{ d.context }}</div>{% endif %}
+        {% if !d.rationale.is_empty() %}<div class="muted small">Why: {{ d.rationale }}</div>{% endif %}
+        <div class="node-details" hidden>
+          <div class="panel-row"><span class="muted small">State</span><span>{{ d.state }}</span></div>
+          {% if !d.decided_label.is_empty() %}<div class="panel-row"><span class="muted small">Chose</span><span>{{ d.decided_label }}</span></div>{% endif %}
+          {% if !d.context.is_empty() %}<div class="panel-row"><span class="muted small">Context</span><span>{{ d.context }}</span></div>{% endif %}
+          {% if !d.rationale.is_empty() %}<div class="panel-row"><span class="muted small">Why</span><span>{{ d.rationale }}</span></div>{% endif %}
+        </div>
+      </div>
+      {% for e in d.experiments %}
+      <div class="chain-node chain-experiment-node" data-node-kind="Experiment" data-node-link="{{ e.link }}">
+        <div class="chain-node-head">
+          <span class="story-mark">Experiment</span>
+          <span class="tag status-{{ e.status }}">{{ e.status }}</span>
+        </div>
+        <a class="strong chain-title" href="{{ e.link }}">{{ e.title }}</a>
+        {% if !e.result.is_empty() %}<div class="muted small">Result: {{ e.result }}</div>{% endif %}
+        <div class="node-details" hidden>
+          <div class="panel-row"><span class="muted small">Status</span><span>{{ e.status }}</span></div>
+          {% if !e.result.is_empty() %}<div class="panel-row"><span class="muted small">Result</span><span>{{ e.result }}</span></div>{% endif %}
+        </div>
+      </div>
+      {% if !e.evidence.is_empty() %}
+      <div class="chain-node chain-evidence-node" data-node-kind="Evidence" data-node-link="{{ e.link }}">
+        <div class="chain-node-head"><span class="story-mark">Evidence</span></div>
+        <ul class="list plain">
+          {% for ev in e.evidence %}
+          <li class="muted small">{{ ev }}</li>
+          {% endfor %}
+        </ul>
+        <div class="node-details" hidden>
+          {% for ev in e.evidence %}
+          <div class="panel-row"><span class="muted small">Evidence</span><span>{{ ev }}</span></div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if !story.lessons.is_empty() %}
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>Lessons</h2>
+    <span class="muted small">what you'd rather not re-learn</span>
+  </div>
+  <ul class="list plain">
+    {% for l in story.lessons %}
+    <li class="row item">
+      <span class="story-mark">Lesson</span>
+      <span>{{ l.text }}</span>
     </li>
     {% endfor %}
-  </ol>
+  </ul>
 </div>
 {% endif %}
 
-{% if !state_counts.is_empty() %}
-<div class="row state-chips">
-  {% for (key, count) in state_counts %}
-  <span class="tag state-{{ key }}">{{ count }} {{ key }}</span>
-  {% endfor %}
+{% endif %}
+
+{% if !story.current_state.is_empty() %}
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>Current belief</h2>
+    <span class="muted small">what you trust now</span>
+  </div>
+  <ul class="list plain">
+    {% for s in story.current_state %}
+    <li class="row item space-between">
+      <a class="strong" href="{{ s.decision_link }}">{{ s.title }}</a>
+      <span class="tag state-{{ s.state }}">{{ s.state }}</span>
+    </li>
+    {% endfor %}
+  </ul>
 </div>
 {% endif %}
 
@@ -130,8 +225,8 @@
 {% if !recent_activity.is_empty() %}
 <div class="section-panel">
   <div class="row space-between section-head">
-    <h2>Recent activity</h2>
-    <a class="muted small" href="/projects/{{ project.id }}/timeline">See all →</a>
+    <h2>What's changed</h2>
+    <a class="muted small" href="/projects/{{ project.id }}/activity">See all →</a>
   </div>
   <ul class="list plain">
     {% for a in recent_activity %}

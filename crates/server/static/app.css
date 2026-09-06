@@ -989,6 +989,159 @@ li.story-node[data-indent="3"] { padding-left: 3rem; }
 }
 .state-chips .tag { margin-left: 0; }
 
+/* Story chain (Story-first landing page) */
+.story-lede { border-left: 3px solid var(--violet); }
+.story-lede .kicker { display: block; margin-bottom: var(--space-1); }
+.story-problem { margin: 0; font-size: 1.05rem; }
+
+.story-chain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.chain-decision { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.chain-node {
+  position: relative;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-2);
+}
+.chain-node-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+.chain-title { display: inline-block; margin-bottom: var(--space-1); }
+.chain-context { margin-top: var(--space-1); }
+
+.chain-decision-node { border-left-color: var(--accent-hi); }
+.chain-experiment-node { border-left-color: var(--success); margin-left: var(--space-5); }
+.chain-evidence-node { border-left-color: var(--warn); margin-left: calc(var(--space-5) * 2); }
+
+/* Left connector rail for nested chain nodes */
+.chain-experiment-node::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--space-5));
+  top: 50%;
+  width: var(--space-5);
+  height: 1px;
+  background: var(--border-strong);
+}
+.chain-evidence-node::before {
+  content: "";
+  position: absolute;
+  left: calc(-2 * var(--space-5));
+  top: 50%;
+  width: calc(2 * var(--space-5) - 1px);
+  height: 1px;
+  background: var(--border);
+}
+
+.project-actions { margin: var(--space-3) 0 var(--space-4); flex-wrap: wrap; }
+
+.step { margin: var(--space-2) 0 var(--space-3); }
+.step:last-child { margin-bottom: 0; }
+
+/* Story node side panel */
+.side-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 40;
+}
+.side-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(360px, 90vw);
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+  z-index: 50;
+  transform: translateX(100%);
+  transition: transform 0.18s ease;
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+.side-drawer.open { transform: translateX(0); }
+.story-panel { display: flex; flex-direction: column; gap: var(--space-4); }
+.story-panel-head { display: flex; align-items: center; gap: var(--space-2); }
+.story-panel-head h2 { margin: 0; overflow-wrap: anywhere; }
+.story-panel .btn { align-self: flex-start; }
+.panel-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) 0;
+}
+.panel-row span { overflow-wrap: anywhere; }
+
+/* Activity feed — colored kind dots */
+.kind-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  align-self: center;
+}
+.kind-dot.kind-decision { background: var(--success); }
+.kind-dot.kind-experiment { background: var(--accent-hi); }
+.kind-dot.kind-lesson { background: var(--violet); }
+.kind-dot.kind-note { background: var(--muted); }
+.kind-dot.kind-event { background: var(--warn); }
+
+/* Timeline: month/day grouping + filters */
+.timeline-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin: var(--space-3) 0 var(--space-5);
+}
+.filter-tabs { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+.filter-tab {
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.filter-tab.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+.timeline-month { margin-bottom: var(--space-5); }
+.month-head {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-1);
+  margin: 0 0 var(--space-3);
+}
+.timeline-day { margin-bottom: var(--space-3); }
+.day-head {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong);
+  margin: 0 0 var(--space-2);
+}
+.timeline-entry.hidden { display: none; }
+.graph-filters { margin-bottom: var(--space-2); }
+
+
 .list.plain {
   list-style: none;
   margin: 0;

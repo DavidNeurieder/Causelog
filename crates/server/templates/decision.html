@@ -50,6 +50,35 @@
   </div>
 </div>
 
+{% if view.status == "decided" %}
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>Current understanding</h2>
+    <span class="tag state-{{ view.state }}">{{ view.state }}</span>
+  </div>
+  {% if view.state == "validated" %}
+  <p class="muted small">This decision is supported by evidence — experiments you completed taught you something consistent with the choice.</p>
+  {% elif view.state == "unvalidated" %}
+  <p class="muted small">Nothing has tested this yet. Running a completed experiment against the decided assumption is what turns it into validated.</p>
+  {% elif view.state == "invalidated" %}
+  <p class="muted small">An experiment against this was abandoned — treat the original reasoning as shaken until it's re-tested.</p>
+  {% elif view.state == "superseded" %}
+  <p class="muted small">A later decision follows from this one. Read the newer decision for the current belief.</p>
+  {% else %}
+  <p class="muted small">No knowledge state recorded yet.</p>
+  {% endif %}
+  {% for s in support %}
+  <div class="row item space-between">
+    <div>
+      <a class="strong" href="{{ s.link }}">{{ s.title }}</a>
+      <div class="muted small">{{ s.detail }}</div>
+    </div>
+    {% if !s.when.is_empty() %}<span class="muted small">{{ s.when }}</span>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if flash == "decision_created" %}
 <div class="section-panel panel-highlight">
   <h2>Captured. Make it useful?</h2>

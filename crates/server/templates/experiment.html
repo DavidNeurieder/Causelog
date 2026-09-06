@@ -103,6 +103,69 @@
 </div>
 
 <div class="section-panel">
+  {% if experiment.status == "done" %}
+  <div class="row space-between section-head">
+    <h2>Experiment completed ✓</h2>
+    <span class="tag status-done">done</span>
+  </div>
+  <p class="muted">Close the loop: write down what you learned and connect it to what it changes.</p>
+  <div class="step">
+    <p class="strong small">1. What did you learn?</p>
+    {% if experiment.lesson.is_empty() %}
+    <div class="row quick-add">
+      <button type="button" class="btn primary" data-action="edit-field" data-edit-entity="experiment" data-edit-field="lesson">Write the lesson</button>
+      <form method="post" action="/experiments/{{ experiment.id }}/extract" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Capture it as a note</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="muted small">Saved: “{{ experiment.lesson }}”. <button type="button" class="link" data-action="edit-field" data-edit-entity="experiment" data-edit-field="lesson">Revise it</button></p>
+    {% endif %}
+  </div>
+  <div class="step">
+    <p class="strong small">2. Did this change a decision?</p>
+    {% if !view.decision_title.is_empty() %}
+    <p class="muted small">This experiment tests “{{ view.decision_title }}” — revisit the decision and update its state.</p>
+    <div class="row quick-add">
+      <a class="btn" href="/projects/{{ project.id }}/graph?focus={{ experiment.id }}">Link it on the graph</a>
+    </div>
+    {% else %}
+    <div class="row quick-add">
+      <a class="btn" href="/projects/{{ project.id }}/graph?focus={{ experiment.id }}">Link it to a decision</a>
+    </div>
+    {% endif %}
+  </div>
+  {% elif experiment.status == "planned" %}
+  <div class="row space-between section-head">
+    <h2>What's next</h2>
+    <span class="muted small">kick it off</span>
+  </div>
+  <p class="muted small">This experiment is queued. Start it and log what you see as you go.</p>
+  <div class="row quick-add">
+    <form method="post" action="/experiments/{{ experiment.id }}/events" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="kind" value="milestone">
+      <input type="hidden" name="note" value="Started running.">
+      <button type="submit">Start running</button>
+    </form>
+  </div>
+  {% elif experiment.status == "ongoing" %}
+  <div class="row space-between section-head">
+    <h2>What's next</h2>
+    <span class="muted small">keep the thread</span>
+  </div>
+  <p class="muted small">Log observations as they come. When you've learned enough, mark it done and record the result and lesson.</p>
+  {% else %}
+  <div class="row space-between section-head">
+    <h2>What's next</h2>
+    <span class="muted small">closed</span>
+  </div>
+  <p class="muted small">Nothing left to do here — the loop is closed.</p>
+  {% endif %}
+</div>
+
+<div class="section-panel">
   <h2>Hypothesis</h2>
   <div class="editable" data-entity="experiment" data-id="{{ experiment.id }}" data-field="hypothesis" data-display="hypothesis">
     <div class="editable-display">

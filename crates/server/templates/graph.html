@@ -69,13 +69,21 @@
 {% if nodes.is_empty() %}
 <p class="muted">No entities yet.</p>
 {% else %}
+<nav class="graph-filters" aria-label="Filter graph">
+  <button class="filter-tab on" data-graph-filter="all">All</button>
+  <button class="filter-tab" data-graph-filter="decision">Decisions</button>
+  <button class="filter-tab" data-graph-filter="experiment">Experiments</button>
+  <button class="filter-tab" data-graph-filter="note">Notes</button>
+</nav>
+<p class="muted small">Click any entity to inspect it in the side panel; focus zooms to its connections.</p>
 <section class="list">
   {% for n in nodes %}
-  <div class="row item">
+  <div class="row item graph-node-item" data-graph-type="{{ n.node_type }}">
     <div>
-      <a class="strong" href="{{ n.focus_url }}">{{ n.title }}</a>
+      <a class="graph-node strong" href="{{ n.url }}" data-node-kind="{{ n.node_type }}" data-node-title="{{ n.title }}" data-node-link="{{ n.url }}">{{ n.title }}</a>
       <span class="tag node-{{ n.node_type }}">{{ n.node_type }}</span>
     </div>
+    <a class="link" href="{{ n.focus_url }}">focus</a>
   </div>
   {% endfor %}
 </section>
@@ -87,11 +95,18 @@
 {% if nodes.is_empty() %}
 <p class="muted">No entities yet.</p>
 {% else %}
+<nav class="graph-filters" aria-label="Filter graph">
+  <button class="filter-tab on" data-graph-filter="all">All</button>
+  <button class="filter-tab" data-graph-filter="decision">Decisions</button>
+  <button class="filter-tab" data-graph-filter="experiment">Experiments</button>
+  <button class="filter-tab" data-graph-filter="note">Notes</button>
+</nav>
+<p class="muted small">Click any entity to inspect it in the side panel; focus zooms to its connections.</p>
 <section class="list">
   {% for n in nodes %}
-  <div class="row item">
+  <div class="row item graph-node-item" data-graph-type="{{ n.node_type }}">
     <div>
-      <a class="strong" href="{{ n.url }}">{{ n.title }}</a>
+      <a class="graph-node strong" href="{{ n.url }}" data-node-kind="{{ n.node_type }}" data-node-title="{{ n.title }}" data-node-link="{{ n.url }}">{{ n.title }}</a>
       <span class="tag node-{{ n.node_type }}">{{ n.node_type }}</span>
       <a class="link" href="{{ n.focus_url }}">focus</a>
     </div>

@@ -882,6 +882,10 @@ async fn experiment_lifecycle_and_timeline() {
     assert!(body.contains("Read latency halved."), "got: {body}");
     assert!(body.contains("started"), "got: {body}");
     assert!(body.contains("ended"), "got: {body}");
+    assert!(
+        body.contains("Experiment completed ✓"),
+        "completion panel missing: got: {body}"
+    );
 
     // The timeline tells the story in order.
     let page = send(
@@ -1187,6 +1191,27 @@ async fn knowledge_capture_and_graph() {
     assert!(body.contains("edge-supports"), "got: {body}");
     assert!(body.contains("Lesson: WAL trial"), "got: {body}");
 
+    // The overview leads with the shared story chain: decision → experiment →
+    // result, followed by the lessons it taught.
+    let page = send(&app, with_cookie(get(&project_url), &cookie)).await;
+    let body = body_string(page).await;
+    for marker in [
+        "The story",
+        "chain-decision-node",
+        "Which datastore?",
+        "chain-experiment-node",
+        "WAL trial",
+        "Result: Reads got 2x faster.",
+        "Lessons",
+        "WAL is worth enabling.",
+    ] {
+        assert!(body.contains(marker), "{marker} missing: {body}");
+    }
+    assert!(
+        !body.contains("Your project story starts here."),
+        "empty story state shown with content: got: {body}"
+    );
+
     // Delete the link.
     let link_form = {
         let dash = send(
@@ -1220,6 +1245,96 @@ async fn knowledge_capture_and_graph() {
     .await;
     let body = body_string(page).await;
     assert!(!body.contains("edge-supports"), "got: {body}");
+}
+
+#[tokio::test]
+async fn activity_shows_changes_and_stamps_last_visit() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let csrf =
+        extract_csrf(&body_string(send(&app, with_cookie(get("/dashboard"), &cookie)).await).await);
+
+    let project_url = create_project(&app, &cookie, "Activity project", "active").await;
+
+    // Create a decision so the feed has content.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Use activity feeds"),
+                    ("context", ""),
+                    ("goal_id", ""),
+                    ("opt_1_label", "Activity"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", ""),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // First visit: everything since the dawn of time, with counts, and the
+    // last-visit cookie is stamped on the response.
+    let first = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/activity")), &cookie),
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK, "activity page status");
+    let set_cookie = first
+        .headers()
+        .get("set-cookie")
+        .and_then(|v| v.to_str().ok())
+        .expect("last-visit cookie")
+        .to_string();
+    let body = body_string(first).await;
+    for marker in [
+        "What's changed",
+        "Welcome — here's everything so far.",
+        "Decision changed",
+        "Use activity feeds",
+        "Today",
+    ] {
+        assert!(body.contains(marker), "{marker} missing: {body}");
+    }
+    assert!(
+        set_cookie.starts_with("cl_last_visit="),
+        "cookie: {set_cookie}"
+    );
+
+    // Replay the cookie back: the visit is now "later", so the summary should
+    // not claim brand-new activity for a stale marker -> the decision was made
+    // before the cookie, so counts stay empty and welcome goes away.
+    let last_visit = set_cookie
+        .split('=')
+        .nth(1)
+        .and_then(|v| v.split(';').next())
+        .unwrap()
+        .to_string();
+    let second = send(
+        &app,
+        with_cookie(
+            get(&format!("{project_url}/activity")),
+            &format!("{cookie}; cl_last_visit={}", last_visit),
+        ),
+    )
+    .await;
+    let body = body_string(second).await;
+    assert!(
+        !body.contains("Welcome — here's everything so far."),
+        "welcome on second visit: got: {body}"
+    );
 }
 
 #[tokio::test]

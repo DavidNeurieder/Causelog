@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}What's changed · {{ project.title }} · Causelog{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    {% call m::crumb(project) %}
+    <h1>What's changed</h1>
+  </div>
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    {% call m::subnav(project, "activity", "Activity") %}
+    <a class="btn" href="/projects/{{ project.id }}/timeline">Full timeline</a>
+  </div>
+</div>
+
+<div class="section-panel panel-highlight">
+  {% if first_visit %}
+  <h2>Welcome — here's everything so far.</h2>
+  {% elif !counts.is_empty() %}
+  <h2>Since your last visit</h2>
+  <p class="muted small">You last visited {{ since }}.</p>
+  <div class="row quick-add">
+    {% for c in counts %}
+    <span class="tag status-ongoing">{{ c.count }} {{ c.label }}</span>
+    {% endfor %}
+  </div>
+  {% else %}
+  <h2>Nothing new since your last visit.</h2>
+  <p class="muted small">Last seen {{ since }} — come back after something changes and it'll show up here.</p>
+  {% endif %}
+</div>
+
+{% if days.is_empty() %}
+<div class="section-panel">
+  <p class="muted">No activity recorded yet.</p>
+</div>
+{% else %}
+{% for d in days %}
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>{{ d.day }}</h2>
+    <span class="muted small">{{ d.entries.len() }} changes</span>
+  </div>
+  <ol class="timeline">
+    {% for e in d.entries %}
+    <li>
+      <div class="row">
+        <span class="kind-dot kind-{{ e.kind }}" title="{{ e.kind }}"></span>
+        <a class="strong" href="{{ e.link }}">{{ e.title }}</a>
+        <span class="muted small">{{ e.at }}</span>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}
