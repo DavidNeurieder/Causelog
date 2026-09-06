@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Slides · {{ project.title }} · Causelog{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    {% call m::crumb(project) %}
+    <h1>Slides</h1>
+    <p class="muted small">a deck built from your story — one slide per decision, experiment and lesson ({{ slide_count }} slides)</p>
+  </div>
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    {% call m::subnav(project, "export", "Share") %}
+    <a class="btn ghost" href="/projects/{{ project.id }}/export">More formats</a>
+    <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
+  </div>
+</div>
+
+<section class="slides-deck list">
+  {% for slot in &deck %}
+  <div class="row item slides-slot">
+    <span class="slides-num">{{ slot.num }}</span>
+    <div class="grow">
+      <span class="strong">{{ slot.label }}</span>
+      {% if slot.detail.is_empty() %}
+      <div class="muted small">Nothing here yet.</div>
+      {% else %}
+      <ul class="list plain muted small">
+        {% for d in &slot.detail %}
+        <li>{{ d }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+
+<div class="actions" style="display: flex; gap: var(--space-2); margin-top: var(--space-3);">
+  <a class="btn" href="/projects/{{ project.id }}/export.odp" download>Generate ODP</a>
+  <span class="muted small align-self-center">Opens in Impress, PowerPoint, and Google Slides.</span>
+</div>
+{% endblock %}

@@ -587,7 +587,7 @@ async fn dashboard_create_form_has_visible_title() {
         "title must not be a hidden input: {body}"
     );
     assert!(
-        !body.contains("<details class=\"create-project\" open"),
+        !body.contains(r#"id="new-project" open"#),
         "form closed by default: {body}"
     );
 
@@ -601,7 +601,7 @@ async fn dashboard_create_form_has_visible_title() {
     assert_eq!(res.status(), StatusCode::OK);
     let body = body_string(res).await;
     assert!(
-        body.contains("<details class=\"create-project\" open"),
+        body.contains(r#"id="new-project" open"#),
         "form auto-opens after invalid_title: {body}"
     );
     assert!(
@@ -3682,11 +3682,13 @@ async fn export_page_lists_download_options() {
     assert_eq!(res.status(), StatusCode::OK);
     let body = body_string(res).await;
     for label in [
+        "Share project",
+        "One-pager",
+        "Story",
+        "Web page",
         "JSON snapshot",
         "Markdown tree",
-        "Static HTML site",
         "Archive",
-        "Slides",
     ] {
         assert!(body.contains(label), "{label} missing: {body}");
     }
@@ -3800,4 +3802,507 @@ async fn download_and_split(
         .to_string();
     let bytes = res.into_body().collect().await.unwrap().to_bytes().to_vec();
     (bytes, ctype, disp)
+}
+
+#[tokio::test]
+async fn story_editor_toggles_selection_and_resets() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let csrf =
+        extract_csrf(&body_string(send(&app, with_cookie(get("/dashboard"), &cookie)).await).await);
+
+    let project_url = create_project(&app, &cookie, "Story editor project", "active").await;
+
+    // A decision so there is something to hide.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Keep the web worker"),
+                    ("context", "Background work is slow on the main thread."),
+                    ("goal_id", ""),
+                    ("opt_1_label", "Keep worker"),
+                    ("opt_1_pros", "Faster"),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", ""),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Editor page lists the decision with its checkbox.
+    let edit = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/story/edit")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    assert!(edit.contains("Edit story"), "editor: {edit}");
+    assert!(edit.contains("Keep the web worker"), "editor: {edit}");
+    let decision_field = {
+        // name="on_d_<uuid>"
+        let needle = r#"name="on_d_"#;
+        let start = edit.find(needle).expect("checkbox present");
+        let rest = &edit[start + needle.len()..];
+        let end = rest.find('"').expect("closing quote");
+        format!("on_d_{}", &rest[..end])
+    };
+
+    // Hide the decision: every section stays on, the decision item does not.
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/story/edit"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("order", "problem,decisions,lessons,current_state"),
+                    ("section_problem", "on"),
+                    ("section_decisions", "on"),
+                    ("section_lessons", "on"),
+                    ("section_current_state", "on"),
+                    // notice: the decision checkbox is deliberately absent
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER, "save story");
+
+    let story = body_string(send(&app, with_cookie(get(&project_url), &cookie)).await).await;
+    assert!(
+        !story.contains("chain-decision-node"),
+        "hidden decision should leave no chain node: {story}"
+    );
+    assert!(story.contains("Current belief"), "{story}");
+    assert!(story.contains("Edit story"), "{story}");
+
+    // Reset restores the automatic story (the decision shows in the chain
+    // again as well as Everything else).
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/story/edit"),
+                &[("csrf_token", &csrf), ("action", "reset")],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER, "reset story");
+    let story = body_string(send(&app, with_cookie(get(&project_url), &cookie)).await).await;
+    assert!(
+        story.contains("chain-decision-node"),
+        "after reset: {story}"
+    );
+    // The editor still lists the decision for future toggling.
+    let edit = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/story/edit")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        edit.contains(&format!("name=\"{decision_field}\"")),
+        "editor keeps the checkbox: {edit}"
+    );
+}
+
+#[tokio::test]
+async fn share_hero_and_one_pager_render_the_story() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let csrf =
+        extract_csrf(&body_string(send(&app, with_cookie(get("/dashboard"), &cookie)).await).await);
+    let project_url = create_project(&app, &cookie, "Share hero project", "active").await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Ship the batching layer"),
+                    ("context", ""),
+                    ("goal_id", ""),
+                    ("opt_1_label", "Batch"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", ""),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Hero page: three choices plus the More downloads.
+    let share = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/export")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    for marker in [
+        "Share project",
+        "One-pager",
+        "Best for presentations",
+        "Best for documentation",
+        format!("href=\"{project_url}/one-pager\"").as_str(),
+        "JSON snapshot",
+    ] {
+        assert!(share.contains(marker), "{marker} missing: {share}");
+    }
+
+    // The one-pager renders the same story the UI shows.
+    let op = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/one-pager")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    for marker in ["One-pager", "Ship the batching layer", "Key decisions"] {
+        assert!(op.contains(marker), "{marker} missing: {op}");
+    }
+    assert!(op.contains("generated from your story"), "{op}");
+}
+
+#[tokio::test]
+async fn one_pager_downloads_html_svg_and_respect_section_selection() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let csrf =
+        extract_csrf(&body_string(send(&app, with_cookie(get("/dashboard"), &cookie)).await).await);
+    let project_url = create_project(&app, &cookie, "One-pager downloads", "active").await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Free-thread the engine"),
+                    ("context", "We kept a lock on the fast path."),
+                    ("goal_id", ""),
+                    ("opt_1_label", "Free-thread"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", ""),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Full HTML document, served for download.
+    let html = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/one-pager.html")), &cookie),
+    )
+    .await;
+    assert_eq!(html.status(), StatusCode::OK);
+    assert_eq!(html.headers()["content-type"], "text/html; charset=utf-8");
+    assert!(
+        html.headers()["content-disposition"]
+            .to_str()
+            .unwrap()
+            .contains("attachment")
+    );
+    let html = body_string(html).await;
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("Free-thread the engine"));
+    assert!(html.contains(">Key decisions</h3>"));
+
+    // Selection drops sections and keeps order intact.
+    let filtered = body_string(
+        send(
+            &app,
+            with_cookie(
+                get(&format!(
+                    "{project_url}/one-pager.html?sections=goal&sections=lessons"
+                )),
+                &cookie,
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert!(!filtered.contains("Key decisions"));
+    assert!(!filtered.contains("Free-thread the engine"));
+
+    // SVG vector document.
+    let svg = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/one-pager.svg")), &cookie),
+    )
+    .await;
+    assert_eq!(svg.status(), StatusCode::OK);
+    assert_eq!(svg.headers()["content-type"], "image/svg+xml");
+    let svg = body_string(svg).await;
+    assert!(svg.starts_with("<?xml"));
+    assert!(svg.contains("<svg"));
+
+    // The preview page renders the customize controls.
+    let preview = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/one-pager")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    for marker in [
+        "Customize",
+        "Download HTML",
+        "Download SVG",
+        "Print / save as PDF",
+    ] {
+        assert!(preview.contains(marker), "{marker} missing");
+    }
+}
+
+#[tokio::test]
+async fn slides_page_lists_deck_and_generates_odp() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let csrf =
+        extract_csrf(&body_string(send(&app, with_cookie(get("/dashboard"), &cookie)).await).await);
+    let project_url = create_project(&app, &cookie, "Slides deck project", "active").await;
+
+    let res = send(
+        &app,
+        with_cookie(
+            post_form(
+                &format!("{project_url}/decisions"),
+                &[
+                    ("csrf_token", &csrf),
+                    ("title", "Slides anchor"),
+                    ("context", ""),
+                    ("goal_id", ""),
+                    ("opt_1_label", "Anchor"),
+                    ("opt_1_pros", ""),
+                    ("opt_1_cons", ""),
+                    ("opt_2_label", ""),
+                    ("opt_2_pros", ""),
+                    ("opt_2_cons", ""),
+                    ("opt_3_label", ""),
+                    ("opt_3_pros", ""),
+                    ("opt_3_cons", ""),
+                ],
+            ),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let page = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/slides")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    for marker in [
+        "Slides",
+        "1",
+        "Problem",
+        "Decisions",
+        "Experiments",
+        "Evidence",
+        "Lessons",
+        "Current state",
+        "Slides anchor",
+        "Generate ODP",
+        "export.odp",
+    ] {
+        assert!(page.contains(marker), "{marker} missing");
+    }
+
+    // The generated ODP is still served for download.
+    let odp = send(
+        &app,
+        with_cookie(get(&format!("{project_url}/export.odp")), &cookie),
+    )
+    .await;
+    assert_eq!(odp.status(), StatusCode::OK);
+    assert_eq!(
+        &odp.headers()["content-type"],
+        "application/vnd.oasis.opendocument.presentation"
+    );
+    let body = odp.into_body().collect().await.unwrap().to_bytes();
+    assert!(body.starts_with(b"PK"), "expected a zip container");
+}
+
+#[tokio::test]
+async fn empty_states_offer_a_next_action() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let project_url = create_project(&app, &cookie, "Empty states project", "active").await;
+
+    // Decisions board.
+    let decisions = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/decisions")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    for marker in [
+        "No decisions yet.",
+        "preserve why you made it",
+        format!("href=\"{project_url}/decisions/new\"").as_str(),
+    ] {
+        assert!(decisions.contains(marker), "{marker} missing");
+    }
+
+    // Experiments board.
+    let experiments = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/experiments")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    for marker in [
+        "No experiments yet.",
+        "assumptions into evidence",
+        format!("href=\"{project_url}/experiments/new\"").as_str(),
+    ] {
+        assert!(experiments.contains(marker), "{marker} missing");
+    }
+
+    // Timeline, graph, and activity get a visible next action too.
+    let timeline = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/timeline")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        timeline.contains("Nothing happened yet."),
+        "timeline empty state"
+    );
+    assert!(timeline.contains("Quick capture"), "timeline CTA");
+
+    let graph = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/graph")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    assert!(graph.contains("No entities yet."), "graph empty state");
+    assert!(graph.contains("Quick capture"), "graph CTA");
+
+    let activity = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("{project_url}/activity")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        activity.contains("No activity recorded yet."),
+        "activity empty state"
+    );
+    assert!(activity.contains("Quick capture"), "activity CTA");
+}
+
+#[tokio::test]
+async fn first_run_welcome_and_explore_example() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+
+    // A brand-new user with no projects meets the welcome screen on the dashboard.
+    let dash = send(&app, with_cookie(get("/dashboard"), &cookie)).await;
+    assert_eq!(dash.status(), StatusCode::OK);
+    let welcome = body_string(dash).await;
+    for marker in [
+        "Welcome to Causelog",
+        "preserves how your team arrived",
+        "Explore an example",
+        "Create my project",
+        "href=\"#new-project\"",
+    ] {
+        assert!(welcome.contains(marker), "{marker} missing");
+    }
+
+    // Explore an example seeds the golden path and opens it.
+    let csrf =
+        extract_csrf(&body_string(send(&app, with_cookie(get("/welcome"), &cookie)).await).await);
+    let res = send(
+        &app,
+        with_cookie(
+            post_form("/welcome/example", &[("csrf_token", &csrf)]),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let location = res.headers()["location"].to_str().unwrap().to_string();
+    assert!(location.starts_with("/projects/"));
+
+    let project_page = body_string(send(&app, with_cookie(get(&location), &cookie)).await).await;
+    for marker in [
+        "The Coffee Machine Uprising",
+        "A coffee machine the team trusts",
+        "Keep the office coffee refilled",
+        "Scheduled refill",
+        "Rituals outlast reminders",
+        "chain-decision-node",
+        "Two-week scheduled refill pilot",
+    ] {
+        assert!(project_page.contains(marker), "{marker} missing");
+    }
+
+    // Now the dashboard is populated.
+    let dash2 = body_string(send(&app, with_cookie(get("/dashboard"), &cookie)).await).await;
+    assert!(
+        dash2.contains("The Coffee Machine Uprising"),
+        "example on dashboard"
+    );
 }

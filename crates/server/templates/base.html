@@ -45,12 +45,13 @@
 <footer class="site">
   <div class="container">
     <span>© {{ year }} Causelog</span>
-    <span class="muted small">Press <kbd>/</kbd> to search · <kbd>n</kbd> to capture</span>
+    <span class="muted small">Press <kbd>/</kbd> to search · <kbd>c</kbd> to capture · <kbd>?</kbd> shortcuts</span>
   </div>
 </footer>
 {% block fab %}{% if authed %}<a class="fab" href="/capture" aria-label="Quick capture">+</a>{% endif %}{% endblock %}
 <script src="/static/editable.js"></script>
 <script src="/static/story.js"></script>
+<script src="/static/story_editor.js"></script>
 <script src="/static/timeline.js"></script>
 <script src="/static/shortcuts.js"></script>
 </body>

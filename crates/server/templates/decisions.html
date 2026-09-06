@@ -35,7 +35,7 @@
 {% else %}
 <h2>All decisions</h2>
 {% if decisions.is_empty() %}
-{% call m::empty_state("No decisions yet.", "Decisions record what you chose and why — the trade-offs you weighed before the reasoning fades.", "/projects/" ~ project.id ~ "/decisions/new", "New decision") %}
+{% call m::empty_state("No decisions yet.", "Capture an important choice and preserve why you made it — the reasoning fades long before the decision does.", "/projects/" ~ project.id ~ "/decisions/new", "Record decision") %}
 {% else %}
 {% call m::decision_list(decisions) %}
 {% endif %}

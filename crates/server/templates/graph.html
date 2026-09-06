@@ -67,7 +67,7 @@
 
 <h3>All entities (click to focus)</h3>
 {% if nodes.is_empty() %}
-<p class="muted">No entities yet.</p>
+{% call m::empty_state("No entities yet.", "Goals, decisions, experiments and notes become the nodes of your graph as you capture them.", "/capture", "Quick capture") %}
 {% else %}
 <nav class="graph-filters" aria-label="Filter graph">
   <button class="filter-tab on" data-graph-filter="all">All</button>
@@ -93,7 +93,7 @@
 
 <h2>Nodes</h2>
 {% if nodes.is_empty() %}
-<p class="muted">No entities yet.</p>
+{% call m::empty_state("No entities yet.", "Goals, decisions, experiments and notes become the nodes of your graph as you capture them.", "/capture", "Quick capture") %}
 {% else %}
 <nav class="graph-filters" aria-label="Filter graph">
   <button class="filter-tab on" data-graph-filter="all">All</button>
@@ -118,7 +118,7 @@
 <h2>Why?</h2>
 <p class="muted">Structure that comes from the entities themselves: what serves a goal, what an experiment tests, where a note was captured from. Click any link to focus on that entity.</p>
 {% if edge_groups.is_empty() %}
-<p class="muted">No structure yet. Link decisions and experiments to goals when you create them.</p>
+{% call m::empty_state("No structure yet.", "Link decisions and experiments to goals when you create them — the graph shows what serves what.", "/projects/" ~ project.id ~ "/decisions/new", "Record decision") %}
 {% else %}
 <section class="list">
   {% for g in edge_groups %}

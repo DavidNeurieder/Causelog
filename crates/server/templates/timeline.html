@@ -30,7 +30,7 @@
 
 {% if months.is_empty() %}
 <div class="section-panel">
-  <p class="muted">Nothing here yet. Start an experiment and log observations to build the story of this project.</p>
+  {% call m::empty_state("Nothing happened yet.", "Capture a decision, log an experiment observation, or note a lesson — your timeline grows as the story does.", "/capture", "Quick capture") %}
 </div>
 {% else %}
 {% for month in months %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Welcome · Causelog{% endblock %}
+{% block content %}
+<div class="welcome">
+  <h1>Welcome to Causelog</h1>
+  <p class="welcome-tagline">Causelog preserves how your team arrived at today's decisions.</p>
+
+  <div class="welcome-actions">
+    <form method="post" action="/welcome/example" class="welcome-choice">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h2>Explore an example</h2>
+      <p class="muted small">See a finished story — goal, decision, experiment and lesson wired together — in under two minutes.</p>
+      <button class="btn primary" type="submit">Explore an example</button>
+    </form>
+
+    <div class="welcome-or" aria-hidden="true">or</div>
+
+    <div class="welcome-choice">
+      <h2>Create my project</h2>
+      <p class="muted small">Start from scratch and grow your own story, one capture at a time.</p>
+      <details class="create-project">
+        <summary>Create my project</summary>
+        <form method="post" action="/projects" class="panel-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <field>
+            <label for="p-title">Title</label>
+            <input id="p-title" name="title" required autofocus>
+          </field>
+          <field>
+            <label for="p-summary">Summary</label>
+            <textarea id="p-summary" name="summary" rows="2"></textarea>
+          </field>
+          <field>
+            <label for="p-status">Status</label>
+            <select id="p-status" name="status">
+              <option value="active">active</option>
+              <option value="paused">paused</option>
+              <option value="archived">archived</option>
+            </select>
+          </field>
+          <button type="submit">Create project</button>
+        </form>
+      </details>
+    </div>
+  </div>
+</div>
+{% endblock %}

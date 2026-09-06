@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Edit story · {{ project.title }} · Causelog{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    {% call m::crumb(project) %}
+    <h1>Edit story</h1>
+    <p class="muted small">pick what the story shows, and in what order. the underlying records are never changed</p>
+  </div>
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    <a class="btn ghost" href="/projects/{{ project.id }}">Preview</a>
+    <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
+  </div>
+</div>
+
+<form method="post" action="/projects/{{ project.id }}/story/edit" id="story-editor">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="order" id="order-sections" value="{{ order_sections }}">
+  <input type="hidden" name="order_decisions" id="order-decisions" value="{{ order_decisions }}">
+  <input type="hidden" name="order_experiments" id="order-experiments" value="{{ order_experiments }}">
+  <input type="hidden" name="order_lessons" id="order-lessons" value="{{ order_lessons }}">
+
+  <div class="section-panel">
+    <div class="row space-between section-head">
+      <h2>Order</h2>
+      <span class="muted small">drag the sections to rearrange</span>
+    </div>
+    <div class="drag-list sections" data-order-input="order">
+      {% for s in sections %}
+      <div class="drag-row sec-row" data-id="{{ s.key }}">
+        <span class="drag-handle" draggable="true" data-drag="true">⋮⋮</span>
+        <label class="checkable">
+          <input type="checkbox" name="section_{{ s.key }}" {% if s.on %}checked{% endif %}>
+          <span>
+            <span class="strong">{{ s.label }}</span>
+            <span class="muted small block">{{ s.description }}</span>
+          </span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="section-panel">
+    <div class="row space-between section-head">
+      <h2>Problem</h2>
+      <span class="muted small">overrides the auto-lede when set, never edits the goal</span>
+    </div>
+    <input type="text" name="problem" value="{{ problem }}" placeholder="Leave blank to use the goal's problem statement">
+  </div>
+
+  <div class="section-panel">
+    <div class="row space-between section-head">
+      <h2>Decisions</h2>
+      <span class="muted small">drag to order within the chain</span>
+    </div>
+    {% if decisions.is_empty() %}
+    <p class="muted">No decisions yet.</p>
+    {% else %}
+    <div class="drag-list items" data-order-input="order_decisions">
+      {% for d in decisions %}
+      <div class="drag-row item-row" data-id="{{ d.id }}">
+        <span class="drag-handle" draggable="true" data-drag="true">⋮⋮</span>
+        <label class="checkable">
+          <input type="checkbox" name="on_d_{{ d.id }}" {% if d.on %}checked{% endif %}>
+          <span class="strong">{{ d.label }}</span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="section-panel">
+    <div class="row space-between section-head">
+      <h2>Experiments</h2>
+      <span class="muted small">drag to order within the chain</span>
+    </div>
+    {% if experiments.is_empty() %}
+    <p class="muted">No experiments yet.</p>
+    {% else %}
+    <div class="drag-list items" data-order-input="order_experiments">
+      {% for e in experiments %}
+      <div class="drag-row item-row" data-id="{{ e.id }}">
+        <span class="drag-handle" draggable="true" data-drag="true">⋮⋮</span>
+        <label class="checkable">
+          <input type="checkbox" name="on_e_{{ e.id }}" {% if e.on %}checked{% endif %}>
+          <span class="strong">{{ e.label }}</span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="section-panel">
+    <div class="row space-between section-head">
+      <h2>Lessons</h2>
+      <span class="muted small">summaries override the full lesson text on the story page</span>
+    </div>
+    {% if lessons.is_empty() %}
+    <p class="muted">No lessons yet.</p>
+    {% else %}
+    <div class="drag-list items" data-order-input="order_lessons">
+      {% for l in lessons %}
+      <div class="drag-row item-row" data-id="{{ l.id }}">
+        <span class="drag-handle" draggable="true" data-drag="true">⋮⋮</span>
+        <label class="checkable">
+          <input type="checkbox" name="on_l_{{ l.id }}" {% if l.on %}checked{% endif %}>
+          <span class="muted small">{{ l.label }}</span>
+        </label>
+        <input type="text" name="summary_l_{{ l.id }}" value="{{ l.summary }}" placeholder="1-line summary (optional)">
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="row" style="gap: var(--space-2);">
+    <button type="submit" class="primary">Save story</button>
+    <button type="submit" name="action" value="reset" class="ghost danger"
+            onclick="return confirm('Forget your story customizations and use the automatic story?')">Reset to automatic</button>
+  </div>
+</form>
+{% endblock %}

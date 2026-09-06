@@ -265,6 +265,13 @@ pub trait Repository: Send + Sync {
     /// extracted notes, following the entity links.
     async fn story(&self, project_id: Uuid) -> Result<Vec<StoryNode>, RepositoryError>;
 
+    /// The project's saved story presentation config (a JSON blob), if any.
+    /// This controls selection/ordering/summaries in the story UI and export
+    /// renderers; the underlying records are never modified.
+    async fn get_story_config(&self, project_id: Uuid) -> Result<Option<String>, RepositoryError>;
+    async fn set_story_config(&self, project_id: Uuid, json: &str) -> Result<(), RepositoryError>;
+    async fn delete_story_config(&self, project_id: Uuid) -> Result<(), RepositoryError>;
+
     // -----------------------------------------------------------------------
     // Knowledge: notes, links, graph
     // -----------------------------------------------------------------------
@@ -1727,6 +1734,36 @@ impl Repository for SqliteRepository {
         }
         nodes = nodes.into_iter().take(60).collect();
         Ok(nodes)
+    }
+
+    async fn get_story_config(&self, project_id: Uuid) -> Result<Option<String>, RepositoryError> {
+        let row = sqlx::query("SELECT json FROM story_config WHERE project_id = ?")
+            .bind(project_id.to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.get("json")))
+    }
+
+    async fn set_story_config(&self, project_id: Uuid, json: &str) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO story_config (project_id, json, updated_at_ms) VALUES (?, ?, ?)
+             ON CONFLICT(project_id) DO UPDATE SET json = excluded.json,
+                                                   updated_at_ms = excluded.updated_at_ms",
+        )
+        .bind(project_id.to_string())
+        .bind(json.to_string())
+        .bind(causelog_content::now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_story_config(&self, project_id: Uuid) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM story_config WHERE project_id = ?")
+            .bind(project_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     // -----------------------------------------------------------------------

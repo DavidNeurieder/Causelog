@@ -32,7 +32,7 @@
 
 {% if days.is_empty() %}
 <div class="section-panel">
-  <p class="muted">No activity recorded yet.</p>
+  {% call m::empty_state("No activity recorded yet.", "Capture a decision or log an experiment result — what changed shows up here.", "/capture", "Quick capture") %}
 </div>
 {% else %}
 {% for d in days %}

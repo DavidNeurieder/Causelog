@@ -9,7 +9,7 @@
 use askama::Template;
 use axum::Json;
 use axum::body::Bytes;
-use axum::extract::{Form, Path, Query, State};
+use axum::extract::{Form, Path, Query, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use causelog_content::{format_date_ms, now_ms, parse_date_ms, render_markdown};
@@ -26,6 +26,7 @@ use crate::error::ApiError;
 use crate::repository::{
     DashboardCounts, GraphData, GraphEdge, ProjectCounts, Repository, RepositoryError, SearchRow,
 };
+use causelog_export::story_config::{StoryConfig, StoryConfigItem};
 
 // ---------------------------------------------------------------------------
 // Template structs
@@ -256,7 +257,14 @@ struct ProjectTemplate {
 /// (per the UX contract: never build a presentation by querying the DB
 /// directly).
 struct StoryView {
-    /// Headline problem: a single open goal's body, else the summary.
+    /// Story sections in their configured display order, each with its
+    /// visibility flag. Drives the landing template's section loop.
+    sections: Vec<StorySectionView>,
+    /// True when the project truly has no narrative data yet (guides the
+    /// "start here" empty state even when sections are hidden).
+    data_empty: bool,
+    /// Headline problem: a single open goal's body, else the summary, else
+    /// the editor's override.
     problem: String,
     /// Current knowledge-state tallies (validated/unvalidated/invalidated/
     /// superseded), each with a human label.
@@ -267,6 +275,14 @@ struct StoryView {
     lessons: Vec<StoryLessonView>,
     /// The current belief: each decided decision with its knowledge state.
     current_state: Vec<StoryStateView>,
+}
+
+/// One layout block of the story page. Keys: `problem | decisions | lessons
+/// | current_state` (in `story_config::DEFAULT_SECTION_ORDER`).
+#[derive(Clone)]
+struct StorySectionView {
+    key: String,
+    on: bool,
 }
 
 #[derive(Clone)]
@@ -377,11 +393,35 @@ struct RecentActivityView {
     link: String,
 }
 
+/// Order a list of entity ids per the editor's saved order; entities the
+/// editor has never seen keep their canonical (build) position.
+fn story_order(story_ids: Vec<Uuid>, configured: &[StoryConfigItem]) -> Vec<Uuid> {
+    let asked: Vec<Uuid> = configured
+        .iter()
+        .map(|i| i.id)
+        .filter(|id| story_ids.contains(id))
+        .collect();
+    let mut ordered: Vec<Uuid> = story_ids
+        .iter()
+        .filter(|id| !asked.contains(id))
+        .copied()
+        .collect();
+    asked.into_iter().rev().for_each(|id| ordered.insert(0, id));
+    ordered
+}
+
 /// Derive the landing-page story view from the canonical export, so the UI
 /// and the export renderers consume the same `ProjectStory` (UX contract:
-/// no presentation queries the database directly).
-fn story_view(export: &causelog_export::model::ExportProject) -> StoryView {
+/// no presentation queries the database directly). A saved `StoryConfig`
+/// overrides selection, ordering, and summaries — the records themselves
+/// are never modified.
+fn story_view(
+    export: &causelog_export::model::ExportProject,
+    config: Option<&StoryConfig>,
+) -> StoryView {
     let story = causelog_export::build_story(export);
+    let no_config = StoryConfig::default();
+    let cfg = config.unwrap_or(&no_config);
 
     // Group raw experiments by the decision they resolve.
     let by_decision = export.experiments.iter().fold(
@@ -394,15 +434,35 @@ fn story_view(export: &causelog_export::model::ExportProject) -> StoryView {
         },
     );
 
-    let decisions: Vec<StoryDecisionView> = story
-        .key_decisions
+    let decision_ids: Vec<Uuid> = story.key_decisions.iter().map(|d| d.id).collect();
+    let decision_ids = story_order(decision_ids, &cfg.decisions);
+    let visible_decisions: Vec<Uuid> = decision_ids
         .iter()
-        .map(|d| {
+        .copied()
+        .filter(|id| cfg.on(&cfg.decisions, *id))
+        .collect();
+
+    let decisions: Vec<StoryDecisionView> = decision_ids
+        .iter()
+        .filter_map(|id| {
+            if !cfg.on(&cfg.decisions, *id) {
+                return None;
+            }
+            let d = story.key_decisions.iter().find(|d| &d.id == id)?;
             let exps: Vec<StoryExperimentView> = by_decision
-                .get(&d.id)
+                .get(id)
                 .map(|list| {
-                    list.iter()
-                        .map(|e| {
+                    let exp_ids =
+                        story_order(list.iter().map(|e| e.id).collect(), &cfg.experiments);
+                    let exp_ids: Vec<Uuid> = exp_ids
+                        .iter()
+                        .copied()
+                        .filter(|eid| cfg.on(&cfg.experiments, *eid))
+                        .collect();
+                    exp_ids
+                        .iter()
+                        .filter_map(|eid| {
+                            let e = list.iter().find(|e| &e.id == eid)?;
                             let events: Vec<causelog_model::ExperimentEvent> = export
                                 .events
                                 .iter()
@@ -419,13 +479,13 @@ fn story_view(export: &causelog_export::model::ExportProject) -> StoryView {
                                     }
                                 })
                                 .collect();
-                            StoryExperimentView {
+                            Some(StoryExperimentView {
                                 link: format!("/experiments/{}", e.id),
                                 title: e.title.clone(),
                                 status: e.status.clone(),
                                 result: e.result.clone(),
                                 evidence,
-                            }
+                            })
                         })
                         .collect()
                 })
@@ -433,10 +493,10 @@ fn story_view(export: &causelog_export::model::ExportProject) -> StoryView {
             let decided_label = d
                 .decided_option
                 .as_deref()
-                .and_then(|id| d.options.iter().find(|o| o.id == id))
+                .and_then(|oid| d.options.iter().find(|o| o.id == oid))
                 .map(|o| o.label.clone())
                 .unwrap_or_default();
-            StoryDecisionView {
+            Some(StoryDecisionView {
                 link: format!("/decisions/{}", d.id),
                 title: d.title.clone(),
                 state: d.state.clone(),
@@ -444,7 +504,24 @@ fn story_view(export: &causelog_export::model::ExportProject) -> StoryView {
                 context: d.context.clone(),
                 rationale: d.rationale.clone(),
                 experiments: exps,
+            })
+        })
+        .collect();
+
+    let lesson_ids: Vec<Uuid> = story.lessons.iter().map(|l| l.id).collect();
+    let lesson_ids = story_order(lesson_ids, &cfg.lessons);
+    let lessons: Vec<StoryLessonView> = lesson_ids
+        .iter()
+        .filter_map(|id| {
+            if !cfg.on(&cfg.lessons, *id) {
+                return None;
             }
+            let l = story.lessons.iter().find(|l| &l.id == id)?;
+            Some(StoryLessonView {
+                text: cfg
+                    .summary(&cfg.lessons, *id)
+                    .unwrap_or_else(|| l.text.clone()),
+            })
         })
         .collect();
 
@@ -454,6 +531,7 @@ fn story_view(export: &causelog_export::model::ExportProject) -> StoryView {
             .current_state
             .iter()
             .filter(|s| s.state == key)
+            .filter(|s| visible_decisions.contains(&s.decision_id))
             .count() as i64;
         if n > 0 {
             tally.push(StateCountView {
@@ -463,26 +541,45 @@ fn story_view(export: &causelog_export::model::ExportProject) -> StoryView {
         }
     }
 
+    let current_state: Vec<StoryStateView> = story
+        .current_state
+        .iter()
+        .filter(|s| visible_decisions.contains(&s.decision_id))
+        .map(|s| StoryStateView {
+            decision_link: format!("/decisions/{}", s.decision_id),
+            title: s.title.clone(),
+            state: s.state.clone(),
+        })
+        .collect();
+
+    let sections = cfg
+        .effective_order()
+        .into_iter()
+        .map(|key| StorySectionView {
+            on: cfg.section_on(&key),
+            key,
+        })
+        .collect();
+    let problem = cfg
+        .problem
+        .clone()
+        .or_else(|| {
+            let s = story.problem.clone().unwrap_or_default();
+            if s.trim().is_empty() { None } else { Some(s) }
+        })
+        .unwrap_or_default();
+
     StoryView {
-        problem: story.problem.clone().unwrap_or_default(),
+        data_empty: story.key_decisions.is_empty()
+            && story.lessons.is_empty()
+            && export.experiments.is_empty()
+            && problem.is_empty(),
+        sections,
+        problem,
         state_counts: tally,
         decisions,
-        lessons: story
-            .lessons
-            .iter()
-            .map(|l| StoryLessonView {
-                text: l.text.clone(),
-            })
-            .collect(),
-        current_state: story
-            .current_state
-            .iter()
-            .map(|s| StoryStateView {
-                decision_link: format!("/decisions/{}", s.decision_id),
-                title: s.title.clone(),
-                state: s.state.clone(),
-            })
-            .collect(),
+        lessons,
+        current_state,
     }
 }
 
@@ -1123,6 +1220,8 @@ fn flash_message(key: Option<&str>) -> String {
         Some("decision_updated") => "Decision updated.".into(),
         Some("decision_resolved") => "Decision recorded.".into(),
         Some("decision_deleted") => "Decision deleted.".into(),
+        Some("story_saved") => "Story updated. Nothing in the record itself changed.".into(),
+        Some("story_reset") => "Story back to automatic.".into(),
         Some("invalid_decision") => "Give the decision a title.".into(),
         Some("approved") => "User approved.".into(),
         Some("role_updated") => "User role updated.".into(),
@@ -1533,6 +1632,15 @@ pub(crate) async fn static_file(Path(name): Path<String>) -> Result<Response, Pa
             include_str!("../static/shortcuts.js"),
             "application/javascript",
         ),
+        "story.js" => (include_str!("../static/story.js"), "application/javascript"),
+        "story_editor.js" => (
+            include_str!("../static/story_editor.js"),
+            "application/javascript",
+        ),
+        "timeline.js" => (
+            include_str!("../static/timeline.js"),
+            "application/javascript",
+        ),
         "favicon.svg" => (include_str!("../static/favicon.svg"), "image/svg+xml"),
         _ => {
             return Err(PageError(ApiError(RepositoryError::NotFound(
@@ -1581,6 +1689,70 @@ pub(crate) async fn dashboard_page(
         create_open: flash.flash.as_deref() == Some("invalid_title"),
         is_admin,
     })
+}
+
+#[derive(Template)]
+#[template(path = "welcome.html")]
+struct WelcomeTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+}
+
+/// First-run welcome: users with no projects are greeted by a choice —
+/// explore an example (seeds the golden path) or create their own project.
+pub(crate) async fn welcome_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_approved(&auth_user.user) {
+        return Ok(Redirect::to("/login?flash=not_approved").into_response());
+    }
+    let project_count = if auth::is_admin(&auth_user.user) {
+        state.repo.list_projects().await?.len()
+    } else {
+        state
+            .repo
+            .list_projects_for_user(auth_user.user.id)
+            .await?
+            .len()
+    };
+    if project_count > 0 {
+        return Ok(Redirect::to("/dashboard").into_response());
+    }
+
+    page(&WelcomeTemplate {
+        authed: true,
+        flash: String::new(),
+        flash_kind: "",
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+    })
+}
+
+/// "Explore an example": create a small project that walks the whole golden
+/// path (goal → decision → experiment → lesson) and open it.
+pub(crate) async fn explore_example_post(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    if !auth::is_approved(&auth_user.user) {
+        return Ok(Redirect::to("/login?flash=not_approved").into_response());
+    }
+    let project = crate::example::seed_example_project(&*state.repo, auth_user.user.id)
+        .await
+        .map_err(|e| ApiError::internal(format!("seeding example failed: {e:#}")))?;
+    Ok(Redirect::to(&format!("/projects/{}", project.id)).into_response())
 }
 
 pub(crate) async fn statistics_page(
@@ -1681,7 +1853,12 @@ pub(crate) async fn project_page(
     let export = causelog_export::collect(&repo, project.id)
         .await
         .map_err(|e| ApiError::internal(format!("loading story failed: {e:#}")))?;
-    let story = story_view(&export);
+    let saved_config = state
+        .repo
+        .get_story_config(project.id)
+        .await?
+        .and_then(|json| serde_json::from_str::<StoryConfig>(&json).ok());
+    let story = story_view(&export, saved_config.as_ref());
 
     // Suggested next steps (reusable heuristic; also shown on the decisions page).
     let next = suggested_next(
@@ -1761,6 +1938,365 @@ pub(crate) async fn project_page(
         suggested_next: next,
         recent_activity,
     })
+}
+
+#[derive(Template)]
+#[template(path = "story_edit.html")]
+struct StoryEditTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    sections: Vec<StoryEditSectionView>,
+    order_sections: String,
+    problem: String,
+    decisions: Vec<StoryEditItemView>,
+    experiments: Vec<StoryEditItemView>,
+    lessons: Vec<StoryEditItemView>,
+    order_decisions: String,
+    order_experiments: String,
+    order_lessons: String,
+}
+
+/// One selectable/reorderable section of the story editor.
+struct StoryEditSectionView {
+    key: String,
+    label: String,
+    description: String,
+    on: bool,
+}
+
+/// One selectable entity in the story editor; `summary` is the optional
+/// one-liner override (lessons only).
+struct StoryEditItemView {
+    id: String,
+    label: String,
+    on: bool,
+    summary: String,
+}
+
+/// Section `(label, description)` pairs for the editor's section rows.
+fn section_meta(key: &str) -> (&str, &str) {
+    match key {
+        "problem" => ("Problem", "A one-liner on what the project is about"),
+        "decisions" => (
+            "Decisions",
+            "The chain: decisions, experiments, and their evidence",
+        ),
+        "lessons" => ("Lessons", "What the project taught you"),
+        "current_state" => (
+            "Current belief",
+            "Each decided decision and its knowledge state",
+        ),
+        other => (other, ""),
+    }
+}
+
+/// The editor's starting state: every section and entity visible in the
+/// canonical order, overlaid with any saved config.
+fn story_editor_items(export: &causelog_export::model::ExportProject) -> StoryConfig {
+    let story = causelog_export::build_story(export);
+    StoryConfig {
+        decisions: story
+            .key_decisions
+            .iter()
+            .map(|d| StoryConfigItem {
+                id: d.id,
+                on: true,
+                summary: None,
+            })
+            .collect(),
+        experiments: export
+            .experiments
+            .iter()
+            .map(|e| StoryConfigItem {
+                id: e.id,
+                on: true,
+                summary: None,
+            })
+            .collect(),
+        lessons: story
+            .lessons
+            .iter()
+            .map(|l| StoryConfigItem {
+                id: l.id,
+                on: true,
+                summary: None,
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+pub(crate) async fn story_edit_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(flash): Query<FlashQuery>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+
+    let repo = &*state.repo;
+    let export = causelog_export::collect(&repo, project.id)
+        .await
+        .map_err(|e| ApiError::internal(format!("loading story failed: {e:#}")))?;
+    let story = causelog_export::build_story(&export);
+    let saved = state
+        .repo
+        .get_story_config(project.id)
+        .await?
+        .and_then(|json| serde_json::from_str::<StoryConfig>(&json).ok())
+        .unwrap_or_default();
+
+    // Sections: always the four known keys, in saved order (defaults correct).
+    let sections: Vec<StoryEditSectionView> = saved
+        .effective_order()
+        .into_iter()
+        .map(|key| {
+            let (label, description) = section_meta(&key);
+            StoryEditSectionView {
+                on: saved.section_on(&key),
+                key: key.clone(),
+                label: label.to_string(),
+                description: description.to_string(),
+            }
+        })
+        .collect();
+    let order_sections = sections
+        .iter()
+        .map(|s| s.key.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let decisions: Vec<StoryEditItemView> = story_order(
+        story.key_decisions.iter().map(|d| d.id).collect(),
+        &saved.decisions,
+    )
+    .into_iter()
+    .map(|id| {
+        let d = story
+            .key_decisions
+            .iter()
+            .find(|d| d.id == id)
+            .expect("id from story");
+        StoryEditItemView {
+            id: id.to_string(),
+            label: d.title.clone(),
+            on: saved.on(&saved.decisions, id),
+            summary: String::new(),
+        }
+    })
+    .collect();
+
+    let experiments: Vec<StoryEditItemView> = story_order(
+        export.experiments.iter().map(|e| e.id).collect(),
+        &saved.experiments,
+    )
+    .into_iter()
+    .map(|id| {
+        let e = export
+            .experiments
+            .iter()
+            .find(|e| e.id == id)
+            .expect("id from export");
+        StoryEditItemView {
+            id: id.to_string(),
+            label: e.title.clone(),
+            on: saved.on(&saved.experiments, id),
+            summary: String::new(),
+        }
+    })
+    .collect();
+
+    let lessons: Vec<StoryEditItemView> =
+        story_order(story.lessons.iter().map(|l| l.id).collect(), &saved.lessons)
+            .into_iter()
+            .map(|id| {
+                let l = story
+                    .lessons
+                    .iter()
+                    .find(|l| l.id == id)
+                    .expect("id from story");
+                StoryEditItemView {
+                    id: id.to_string(),
+                    label: l.text.clone(),
+                    on: saved.on(&saved.lessons, id),
+                    summary: saved.summary(&saved.lessons, id).unwrap_or_default(),
+                }
+            })
+            .collect();
+
+    let join_ids = |v: &[StoryEditItemView]| {
+        v.iter()
+            .map(|i| i.id.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let (order_decisions, order_experiments, order_lessons) = (
+        join_ids(&decisions),
+        join_ids(&experiments),
+        join_ids(&lessons),
+    );
+    page(&StoryEditTemplate {
+        authed: true,
+        flash: flash_view(flash.flash.as_deref()).0,
+        flash_kind: flash_view(flash.flash.as_deref()).1,
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        sections,
+        order_sections,
+        problem: saved
+            .problem
+            .clone()
+            .or_else(|| {
+                let s = story.problem.clone().unwrap_or_default();
+                if s.trim().is_empty() { None } else { Some(s) }
+            })
+            .unwrap_or_default(),
+        decisions,
+        experiments,
+        lessons,
+        order_decisions,
+        order_experiments,
+        order_lessons,
+    })
+}
+
+pub(crate) async fn story_edit_post(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(body): Form<std::collections::HashMap<String, String>>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+    auth::verify_csrf_form(
+        &headers,
+        body.get("csrf_token").map(|s| s.as_str()),
+        &auth_user.csrf_token,
+    )?;
+
+    if body.get("action").map(|s| s.as_str()) == Some("reset") {
+        state.repo.delete_story_config(project.id).await?;
+        return Ok(
+            Redirect::to(&format!("/projects/{}?flash=story_reset", project.id)).into_response(),
+        );
+    }
+
+    // All entity ids that exist today, so the saved config stays complete even
+    // when checkboxes are missing (unchecked).
+    let defaults = {
+        let repo = &*state.repo;
+        let export = causelog_export::collect(&repo, project.id)
+            .await
+            .map_err(|e| ApiError::internal(format!("loading story failed: {e:#}")))?;
+        story_editor_items(&export)
+    };
+
+    let mut cfg = StoryConfig::default();
+
+    for key in ["problem", "decisions", "lessons", "current_state"] {
+        cfg.sections.insert(
+            key.to_string(),
+            body.contains_key(&format!("section_{key}")),
+        );
+    }
+    cfg.order = body
+        .get("order")
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| {
+            s.split(',')
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty())
+                .collect()
+        })
+        .unwrap_or_else(|| StoryConfig::default().order);
+    let problem = body
+        .get("problem")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    cfg.problem = if problem.is_empty() {
+        None
+    } else {
+        Some(problem)
+    };
+
+    for (kind, base) in [("d", "decisions"), ("e", "experiments"), ("l", "lessons")] {
+        let defaults = match base {
+            "decisions" => &defaults.decisions,
+            "experiments" => &defaults.experiments,
+            _ => &defaults.lessons,
+        };
+        let list: Vec<StoryConfigItem> = defaults
+            .iter()
+            .map(|item| StoryConfigItem {
+                id: item.id,
+                on: body.contains_key(&format!("on_{kind}_{}", item.id)),
+                summary: if base == "lessons" {
+                    let v = body
+                        .get(&format!("summary_l_{}", item.id))
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_default();
+                    if v.is_empty() { None } else { Some(v) }
+                } else {
+                    None
+                },
+            })
+            .collect();
+        if base == "decisions" {
+            cfg.decisions = list;
+        } else if base == "experiments" {
+            cfg.experiments = list;
+        } else {
+            cfg.lessons = list;
+        }
+    }
+
+    // Apply drag ordering: ids submitted in order (comma list) move first.
+    for (field, target) in [
+        ("order_decisions", &mut cfg.decisions),
+        ("order_experiments", &mut cfg.experiments),
+        ("order_lessons", &mut cfg.lessons),
+    ] {
+        let ask: Vec<Uuid> = body
+            .get(field)
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| {
+                s.split(',')
+                    .filter_map(|v| Uuid::parse_str(v.trim()).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if ask.is_empty() {
+            continue;
+        }
+        let mut ordered: Vec<StoryConfigItem> = target
+            .iter()
+            .filter(|i| ask.contains(&i.id))
+            .cloned()
+            .collect();
+        for i in target.iter() {
+            if !ordered.iter().any(|o| o.id == i.id) {
+                ordered.push(i.clone());
+            }
+        }
+        *target = ordered;
+    }
+
+    let json = serde_json::to_string(&cfg)
+        .map_err(|e| ApiError::internal(format!("serializing story config: {e}")))?;
+    state.repo.set_story_config(project.id, &json).await?;
+    Ok(Redirect::to(&format!("/projects/{}?flash=story_saved", project.id)).into_response())
 }
 
 pub(crate) async fn project_stats_page(
@@ -1873,7 +2409,12 @@ pub(crate) async fn project_export_download(
             format!("{slug}-{now}.zip"),
         ),
         "odp" => {
-            let story = causelog_export::build_story(&export);
+            let saved_config = state
+                .repo
+                .get_story_config(project.id)
+                .await?
+                .and_then(|json| serde_json::from_str::<StoryConfig>(&json).ok());
+            let story = causelog_export::build_story_with_config(&export, saved_config.as_ref());
             let presentation = causelog_export::build_presentation(&story);
             (
                 causelog_export::render_odp(&presentation, &export.causelog_version),
@@ -1896,6 +2437,396 @@ pub(crate) async fn project_export_download(
         Bytes::from(bytes),
     )
         .into_response())
+}
+
+#[derive(Template)]
+#[template(path = "one_pager.html")]
+struct OnePagerTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    story: causelog_export::ProjectStory,
+    sel: OnePagerSel,
+    download_html: String,
+    download_svg: String,
+    timeline: Vec<PagerTimelineEntry>,
+}
+
+/// One timeline row in the preview; day labels are formatted server-side
+/// because Askama templates cannot call Rust functions.
+struct PagerTimelineEntry {
+    day: String,
+    kind: String,
+    title: String,
+}
+
+/// Which one-pager sections are currently shown in the preview.
+#[derive(Clone, Copy)]
+struct OnePagerSel {
+    goal: bool,
+    problem: bool,
+    decisions: bool,
+    evidence: bool,
+    lessons: bool,
+    timeline: bool,
+}
+
+impl OnePagerSel {
+    fn all() -> Self {
+        OnePagerSel {
+            goal: true,
+            problem: true,
+            decisions: true,
+            evidence: true,
+            lessons: true,
+            timeline: true,
+        }
+    }
+
+    fn from_keys(keys: &[String]) -> Self {
+        let mut sel = OnePagerSel::all();
+        if keys.is_empty() {
+            return sel;
+        }
+        sel.goal = keys.iter().any(|k| k == "goal");
+        sel.problem = keys.iter().any(|k| k == "problem");
+        sel.decisions = keys.iter().any(|k| k == "decisions");
+        sel.evidence = keys.iter().any(|k| k == "evidence");
+        sel.lessons = keys.iter().any(|k| k == "lessons");
+        sel.timeline = keys.iter().any(|k| k == "timeline");
+        sel
+    }
+}
+
+fn parse_sections(query: &std::collections::HashMap<String, Vec<String>>) -> Vec<String> {
+    query
+        .get("sections")
+        .map(|values: &Vec<String>| {
+            values
+                .iter()
+                .flat_map(|s| s.split(','))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn sections_param(sel: &OnePagerSel) -> String {
+    causelog_export::one_pager::ONE_PAGER_SECTIONS
+        .iter()
+        .filter(|k| match **k {
+            "goal" => sel.goal,
+            "problem" => sel.problem,
+            "decisions" => sel.decisions,
+            "evidence" => sel.evidence,
+            "lessons" => sel.lessons,
+            "timeline" => sel.timeline,
+            _ => false,
+        })
+        .map(|k| k.to_string())
+        .collect::<Vec<_>>()
+        .join("&sections=")
+}
+
+async fn load_story(
+    state: &AppState,
+    project: &Project,
+) -> Result<
+    (
+        causelog_export::ProjectStory,
+        Option<causelog_export::StoryConfig>,
+    ),
+    PageError,
+> {
+    let repo = &*state.repo;
+    let export = causelog_export::collect(&repo, project.id)
+        .await
+        .map_err(|e| ApiError::internal(format!("loading story failed: {e:#}")))?;
+    let saved_config = state
+        .repo
+        .get_story_config(project.id)
+        .await?
+        .and_then(|json| serde_json::from_str::<causelog_export::StoryConfig>(&json).ok());
+    let story = causelog_export::build_story_with_config(&export, saved_config.as_ref());
+    Ok((story, saved_config))
+}
+
+/// Percent-decode a query component (only `%HH` escapes are meaningful here).
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = |c: u8| -> Option<u8> {
+                match c {
+                    b'0'..=b'9' => Some(c - b'0'),
+                    b'a'..=b'f' => Some(c - b'a' + 10),
+                    b'A'..=b'F' => Some(c - b'A' + 10),
+                    _ => None,
+                }
+            };
+            if let (Some(h), Some(l)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push(h << 4 | l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Parse a raw query string into a key → values map. Unlike axum's `Query`
+/// extractor, this tolerates both repeated parameters (`sections=a&sections=b`)
+/// and comma-joined values (`sections=a,b`), which the one-pager links rely on.
+fn parse_raw_query(raw: Option<&str>) -> std::collections::HashMap<String, Vec<String>> {
+    let mut map: std::collections::HashMap<String, Vec<String>> = Default::default();
+    for pair in raw.unwrap_or("").split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (key, value) = match pair.split_once('=') {
+            Some((k, v)) => (k, v),
+            None => (pair, ""),
+        };
+        map.entry(percent_decode(key))
+            .or_default()
+            .push(percent_decode(value));
+    }
+    map
+}
+
+/// The One-pager: a single-page narrative generated from the same
+/// `ProjectStory` the UI renders, so the shareable artifact can never drift
+/// from what the author sees. Customization (`?sections=goal,problem,...`)
+/// and HTML/SVG downloads live in Phase 14.
+pub(crate) async fn one_pager_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    RawQuery(raw): RawQuery,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+    let (story, _config) = load_story(&state, &project).await?;
+
+    let query = parse_raw_query(raw.as_deref());
+    let sections = parse_sections(&query);
+    let requested = causelog_export::one_pager::selected_sections(&sections);
+    let sel = OnePagerSel::from_keys(&requested);
+    let download_html = format!(
+        "/projects/{}/one-pager.html?sections={}",
+        project.id,
+        sections_param(&sel)
+    );
+    let download_svg = format!(
+        "/projects/{}/one-pager.svg?sections={}",
+        project.id,
+        sections_param(&sel)
+    );
+    let timeline = story
+        .timeline
+        .iter()
+        .map(|t| PagerTimelineEntry {
+            day: causelog_content::format_day_ms(t.at_ms),
+            kind: t.kind.clone(),
+            title: if t.detail.is_empty() {
+                t.title.clone()
+            } else {
+                t.detail.clone()
+            },
+        })
+        .collect();
+
+    page(&OnePagerTemplate {
+        authed: true,
+        flash: String::new(),
+        flash_kind: "",
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        story,
+        sel,
+        download_html,
+        download_svg,
+        timeline,
+    })
+}
+
+/// Download a render of the one-pager: `.html` (standalone document) or
+/// `.svg` (vector, A4). Honors the same `?sections=` selection.
+pub(crate) async fn one_pager_download(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, format)): Path<(String, String)>,
+    RawQuery(raw): RawQuery,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+    let (story, _config) = load_story(&state, &project).await?;
+    let sections = causelog_export::one_pager::selected_sections(&parse_sections(
+        &parse_raw_query(raw.as_deref()),
+    ));
+    let slug = causelog_export::slugify(&project.title);
+    let now = now_ms() / 1000;
+
+    let (bytes, content_type, ext) = match format.as_str() {
+        "svg" => (
+            causelog_export::one_pager::one_pager_svg(&story, &sections),
+            "image/svg+xml".to_string(),
+            "svg".to_string(),
+        ),
+        _ => (
+            causelog_export::one_pager::one_pager_html(&story, &sections),
+            "text/html; charset=utf-8".to_string(),
+            "html".to_string(),
+        ),
+    };
+
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, content_type),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{slug}-one-pager-{now}.{ext}\""),
+            ),
+        ],
+        Bytes::from(bytes),
+    )
+        .into_response())
+}
+
+/// One slot of the fixed slide-deck outline shown on the Slides page.
+struct SlideSlot {
+    num: u8,
+    label: String,
+    detail: Vec<String>,
+}
+
+#[derive(Template)]
+#[template(path = "slides.html")]
+struct SlidesTemplate {
+    authed: bool,
+    flash: String,
+    flash_kind: &'static str,
+    year: u32,
+    display_name: String,
+    csrf_token: String,
+    project: Project,
+    deck: Vec<SlideSlot>,
+    slide_count: usize,
+}
+
+/// The Slides page: shows the simple fixed deck (Project … Current state)
+/// with what each slide will contain, plus "Generate ODP". Causelog owns the
+/// story, not slide-layout software — so the deck is derived from the same
+/// `ProjectStory` the UI renders.
+pub(crate) async fn slides_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, PageError> {
+    let Some(auth_user) = auth::session_user(&state, &headers).await else {
+        return Ok(login_redirect());
+    };
+    let project = require_project_member(&state, &id, &auth_user.user).await?;
+    let (story, _config) = load_story(&state, &project).await?;
+
+    let presentation = causelog_export::build_presentation(&story);
+    let slide_count = presentation.slides.len();
+
+    let mut deck = Vec::new();
+    deck.push(SlideSlot {
+        num: 1,
+        label: "Project".to_string(),
+        detail: vec![format!("{} — {}", story.title, story.status)],
+    });
+    deck.push(SlideSlot {
+        num: 2,
+        label: "Problem".to_string(),
+        detail: match &story.problem {
+            Some(problem) if !problem.is_empty() => vec![problem.clone()],
+            _ => vec!["Not captured yet.".to_string()],
+        },
+    });
+    deck.push(SlideSlot {
+        num: 3,
+        label: "Decisions".to_string(),
+        detail: story
+            .key_decisions
+            .iter()
+            .map(|d| format!("{} ({})", d.title, d.state))
+            .collect(),
+    });
+    deck.push(SlideSlot {
+        num: 4,
+        label: "Experiments".to_string(),
+        detail: story
+            .experiments
+            .iter()
+            .map(|e| format!("{} ({})", e.title, e.status))
+            .collect(),
+    });
+    deck.push(SlideSlot {
+        num: 5,
+        label: "Evidence".to_string(),
+        detail: story
+            .experiments
+            .iter()
+            .flat_map(|e| {
+                e.events.iter().map(|ev| {
+                    format!(
+                        "{}: {}{}",
+                        e.title,
+                        ev.kind,
+                        if ev.note.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" — {}", ev.note)
+                        }
+                    )
+                })
+            })
+            .collect(),
+    });
+    deck.push(SlideSlot {
+        num: 6,
+        label: "Lessons".to_string(),
+        detail: story.lessons.iter().map(|l| l.text.clone()).collect(),
+    });
+    deck.push(SlideSlot {
+        num: 7,
+        label: "Current state".to_string(),
+        detail: story
+            .current_state
+            .iter()
+            .map(|s| format!("{} ({})", s.title, s.state))
+            .collect(),
+    });
+
+    page(&SlidesTemplate {
+        authed: true,
+        flash: String::new(),
+        flash_kind: "",
+        year: current_year(),
+        display_name: auth_user.user.display_name,
+        csrf_token: auth_user.csrf_token,
+        project,
+        deck,
+        slide_count,
+    })
 }
 
 /// Check that the user is an admin or a member of the project.

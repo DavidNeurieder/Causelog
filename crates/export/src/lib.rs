@@ -20,7 +20,9 @@ pub mod json;
 pub mod markdown;
 pub mod model;
 pub mod odp;
+pub mod one_pager;
 pub mod story;
+pub mod story_config;
 pub mod timeline;
 
 pub use archive::{Manifest, ManifestFile, ManifestProject, archive};
@@ -32,6 +34,10 @@ pub use model::{
 pub use odp::{Presentation, Slide, build_presentation, render_odp};
 pub use story::{
     ProjectStory, StoryDecision, StoryExperiment, StoryGoal, StoryLesson, StoryState, build_story,
+};
+pub use story_config::{
+    DEFAULT_SECTION_ORDER, StoryConfig, StoryConfigItem, apply_config, build_story_with_config,
+    section_enabled,
 };
 
 /// One generated file of an export. Renderers return a flat list of these so

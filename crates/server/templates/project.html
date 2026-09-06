@@ -76,23 +76,55 @@
 <div class="row project-actions">
   <a class="btn primary" href="/capture">+ Capture</a>
   <a class="btn" href="/projects/{{ project.id }}/export">Share</a>
+  <a class="btn" href="/projects/{{ project.id }}/story/edit">Edit story</a>
   <a class="btn" href="/projects/{{ project.id }}/decisions/new">New decision</a>
   <a class="btn" href="/projects/{{ project.id }}/experiments/new">Start experiment</a>
 </div>
 
-{% if story.decisions.is_empty() %}
+{% if story.data_empty %}
 <div class="section-panel">
   {% call m::empty_state("Your project story starts here.", "Aim somewhere, weigh options, and test the assumption — Causelog chains goals, decisions, experiments and lessons into a narrative.", "/capture", "Quick capture") %}
 </div>
+
+<div class="section-panel">
+  <div class="row space-between section-head">
+    <h2>How your story grows</h2>
+    <span class="muted small">each step links to the next</span>
+  </div>
+  <ol class="guided-steps">
+    <li>
+      <span class="strong">Goal</span>
+      <span class="muted small">where you're headed</span>
+      <a class="link" href="/projects/{{ project.id }}/goals/new">Add a goal</a>
+    </li>
+    <li>
+      <span class="strong">Decision</span>
+      <span class="muted small">the choice and the trade-offs</span>
+      <a class="link" href="/projects/{{ project.id }}/decisions/new">Record a decision</a>
+    </li>
+    <li>
+      <span class="strong">Experiment</span>
+      <span class="muted small">test the assumption</span>
+      <a class="link" href="/projects/{{ project.id }}/experiments/new">Start an experiment</a>
+    </li>
+    <li>
+      <span class="strong">Lesson</span>
+      <span class="muted small">capture what changed your mind</span>
+      <a class="link" href="/projects/{{ project.id }}/notes/new">Add a note</a>
+    </li>
+  </ol>
+</div>
 {% else %}
 
-{% if !story.problem.is_empty() %}
+{% for s in story.sections %}
+{% if s.on && s.key == "problem" %}
 <div class="section-panel story-lede">
   <span class="kicker">Problem</span>
   <p class="story-problem">{{ story.problem }}</p>
 </div>
 {% endif %}
 
+{% if s.on && s.key == "decisions" %}
 <div class="section-panel">
   <div class="row space-between section-head">
     <h2>Current state</h2>
@@ -168,14 +200,30 @@
     </div>
     {% endfor %}
   </div>
-</div>
 
-{% if !story.lessons.is_empty() %}
+  {% if story.decisions.is_empty() %}
+  <div class="empty">
+    <p class="strong">No decisions yet.</p>
+    <p class="muted small">Capture an important choice and preserve why you made it — it becomes the backbone of your story.</p>
+    <a class="btn" href="/projects/{{ project.id }}/decisions/new">Record decision</a>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if s.on && s.key == "lessons" %}
 <div class="section-panel">
   <div class="row space-between section-head">
     <h2>Lessons</h2>
     <span class="muted small">what you'd rather not re-learn</span>
   </div>
+  {% if story.lessons.is_empty() %}
+  <div class="empty">
+    <p class="strong">No lessons yet.</p>
+    <p class="muted small">Experiments turn assumptions into evidence — finishing one captures the durable insight.</p>
+    <a class="btn" href="/projects/{{ project.id }}/experiments/new">Start experiment</a>
+  </div>
+  {% else %}
   <ul class="list plain">
     {% for l in story.lessons %}
     <li class="row item">
@@ -184,26 +232,28 @@
     </li>
     {% endfor %}
   </ul>
+  {% endif %}
 </div>
 {% endif %}
 
-{% endif %}
-
-{% if !story.current_state.is_empty() %}
+{% if s.on && s.key == "current_state" %}
 <div class="section-panel">
   <div class="row space-between section-head">
     <h2>Current belief</h2>
     <span class="muted small">what you trust now</span>
   </div>
   <ul class="list plain">
-    {% for s in story.current_state %}
+    {% for st in story.current_state %}
     <li class="row item space-between">
-      <a class="strong" href="{{ s.decision_link }}">{{ s.title }}</a>
-      <span class="tag state-{{ s.state }}">{{ s.state }}</span>
+      <a class="strong" href="{{ st.decision_link }}">{{ st.title }}</a>
+      <span class="tag state-{{ st.state }}">{{ st.state }}</span>
     </li>
     {% endfor %}
   </ul>
 </div>
+{% endif %}
+{% endfor %}
+
 {% endif %}
 
 {% if !suggested_next.is_empty() %}

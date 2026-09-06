@@ -25,7 +25,7 @@
 {% else %}
 <h2>All experiments</h2>
 {% if experiments.is_empty() %}
-{% call m::empty_state("No experiments yet.", "Experiments test whether your decisions survive contact with reality.", "/projects/" ~ project.id ~ "/experiments/new", "Start experiment") %}
+{% call m::empty_state("No experiments yet.", "Experiments turn assumptions into evidence — start small, measure, and let the result change your belief.", "/projects/" ~ project.id ~ "/experiments/new", "Start experiment") %}
 {% else %}
 {% call m::experiment_list(experiments) %}
 {% endif %}

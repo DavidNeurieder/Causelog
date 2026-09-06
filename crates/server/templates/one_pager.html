@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}One-pager · {{ project.title }} · Causelog{% endblock %}
+{% block content %}
+<div class="row space-between">
+  <div>
+    {% call m::crumb(project) %}
+    <h1>One-pager</h1>
+    <p class="muted small">generated from your story — the same representation the project page renders</p>
+  </div>
+  <div class="actions" style="display: flex; align-items: flex-start; gap: var(--space-2);">
+    {% call m::subnav(project, "export", "Share") %}
+    <a class="btn ghost" href="/projects/{{ project.id }}/story/edit">Edit story</a>
+    <a class="btn" href="/projects/{{ project.id }}">Back to project</a>
+  </div>
+</div>
+
+<form class="one-page-customize panel" method="get" action="/projects/{{ project.id }}/one-pager">
+  <div class="row space-between section-head">
+    <h2>Customize</h2>
+    <span class="muted small">choose which parts of the story to include</span>
+  </div>
+  <div class="one-page-toggles">
+    <label class="checkbox"><input type="checkbox" name="sections" value="goal" {% if sel.goal %}checked{% endif %}> Goal</label>
+    <label class="checkbox"><input type="checkbox" name="sections" value="problem" {% if sel.problem %}checked{% endif %}> Problem</label>
+    <label class="checkbox"><input type="checkbox" name="sections" value="decisions" {% if sel.decisions %}checked{% endif %}> Key decisions</label>
+    <label class="checkbox"><input type="checkbox" name="sections" value="evidence" {% if sel.evidence %}checked{% endif %}> Evidence</label>
+    <label class="checkbox"><input type="checkbox" name="sections" value="lessons" {% if sel.lessons %}checked{% endif %}> Lessons</label>
+    <label class="checkbox"><input type="checkbox" name="sections" value="timeline" {% if sel.timeline %}checked{% endif %}> Timeline</label>
+  </div>
+  <div class="actions" style="display: flex; gap: var(--space-2); margin-top: var(--space-3);">
+    <button class="btn" type="submit">Refresh preview</button>
+    <a class="btn" href="{{ download_html }}" download>Download HTML</a>
+    <a class="btn ghost" href="{{ download_svg }}" download>Download SVG</a>
+    <button class="btn ghost" type="button" onclick="window.print()">Print / save as PDF</button>
+  </div>
+</form>
+
+<div class="one-pager">
+  <header class="one-pager-head">
+    <span class="muted small">{{ story.status }}</span>
+    <h2>{{ story.title }}</h2>
+    {% if !story.summary.is_empty() %}
+    <p class="muted">{{ story.summary }}</p>
+    {% endif %}
+  </header>
+
+  {% if sel.goal %}
+  {% if let Some(goal) = &story.goal %}
+  <section class="one-page-block">
+    <span class="kicker">Goal</span>
+    <h3>{{ goal.title }}</h3>
+    {% if !goal.body.is_empty() %}<p>{{ goal.body }}</p>{% endif %}
+  </section>
+  {% endif %}
+  {% endif %}
+
+  {% if sel.problem %}
+  {% if let Some(problem) = &story.problem %}
+  <section class="one-page-block">
+    <span class="kicker">Problem</span>
+    <p>{{ problem }}</p>
+  </section>
+  {% endif %}
+  {% endif %}
+
+  {% if sel.decisions %}
+  {% if !story.key_decisions.is_empty() %}
+  <section class="one-page-block">
+    <span class="kicker">Key decisions</span>
+    {% for d in &story.key_decisions %}
+    <div class="one-page-item">
+      <div class="row space-between" style="align-items: baseline;">
+        <h4>{{ d.title }}</h4>
+        {% if !d.state.is_empty() %}<span class="tag state-{{ d.state }}">{{ d.state }}</span>{% endif %}
+      </div>
+      {% if !d.context.is_empty() %}<p class="muted small">{{ d.context }}</p>{% endif %}
+      {% if !d.rationale.is_empty() %}<p class="small">Why: {{ d.rationale }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+  {% endif %}
+
+  {% if sel.evidence %}
+  {% if !story.experiments.is_empty() %}
+  <section class="one-page-block">
+    <span class="kicker">Evidence</span>
+    {% for e in &story.experiments %}
+    <div class="one-page-item">
+      <div class="row space-between" style="align-items: baseline;">
+        <h4>{{ e.title }}</h4>
+        <span class="tag status-{{ e.status }}">{{ e.status }}</span>
+      </div>
+      {% if !e.hypothesis.is_empty() %}<p class="muted small">Hypothesis: {{ e.hypothesis }}</p>{% endif %}
+      {% if !e.result.is_empty() %}<p class="small">Result: {{ e.result }}</p>{% endif %}
+      {% if !e.events.is_empty() %}
+      <ul class="list plain">
+        {% for ev in &e.events %}
+        <li class="muted small">{{ ev.kind }}{% if !ev.note.is_empty() %}: {{ ev.note }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+  {% endif %}
+
+  {% if sel.lessons %}
+  {% if !story.lessons.is_empty() %}
+  <section class="one-page-block">
+    <span class="kicker">Lessons</span>
+    <ul class="list plain">
+      {% for l in &story.lessons %}
+      <li class="row item"><span class="story-mark">Lesson</span><span>{{ l.text }}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  {% endif %}
+
+  {% if sel.timeline %}
+  {% if !timeline.is_empty() %}
+  <section class="one-page-block">
+    <span class="kicker">Timeline</span>
+    <ul class="list plain">
+      {% for t in &timeline %}
+      <li class="row item space-between">
+        <span class="muted small">{{ t.day }}</span>
+        <span class="small">{{ t.kind }}: {{ t.title }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

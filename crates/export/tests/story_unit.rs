@@ -312,3 +312,72 @@ fn story_timeline_matches_export_timeline() {
     assert_eq!(story.timeline, derived);
     assert!(!story.timeline.is_empty());
 }
+
+#[test]
+fn story_config_applies_selection_ordering_and_summaries() {
+    let ep = fixture();
+    let story = build_story(&ep);
+
+    // Grab the lesson id rather than guessing it: dedup rules decide which
+    // note becomes the lesson.
+    let lesson_id = story.lessons[0].id;
+
+    let config = causelog_export::story_config::StoryConfig {
+        problem: Some("Reduce grinder failures, for real.".into()),
+        decisions: vec![
+            causelog_export::story_config::StoryConfigItem {
+                id: id("44444444-4444-4444-4444-444444444444"),
+                on: true,
+                summary: None,
+            },
+            causelog_export::story_config::StoryConfigItem {
+                id: id("33333333-3333-3333-3333-333333333333"),
+                on: true,
+                summary: None,
+            },
+            causelog_export::story_config::StoryConfigItem {
+                id: id("55555555-5555-5555-5555-555555555555"),
+                on: false,
+                summary: None,
+            },
+        ],
+        experiments: vec![causelog_export::story_config::StoryConfigItem {
+            id: id("66666666-6666-6666-6666-666666666666"),
+            on: false,
+            summary: None,
+        }],
+        lessons: vec![causelog_export::story_config::StoryConfigItem {
+            id: lesson_id,
+            on: true,
+            summary: Some("Skip the blade.".into()),
+        }],
+        ..Default::default()
+    };
+
+    let applied = causelog_export::story_config::apply_config(story, &config);
+
+    // Order honors the saved list; the deselected decision is gone.
+    let decided: Vec<(&str, &str)> = applied
+        .key_decisions
+        .iter()
+        .map(|d| (d.title.as_str(), d.state.as_str()))
+        .collect();
+    assert_eq!(
+        decided,
+        vec![
+            ("Open a second queue", "unvalidated"),
+            ("Buy a heavier grinder", "validated"),
+        ]
+    );
+
+    // Hiding the experiment hides it everywhere (nested under decision).
+    assert!(applied.experiments.is_empty());
+
+    // Summary override replaces the lesson text, not the record.
+    assert_eq!(applied.lessons.len(), 1);
+    assert_eq!(applied.lessons[0].text, "Skip the blade.");
+    assert_eq!(
+        applied.problem.as_deref(),
+        Some("Reduce grinder failures, for real.")
+    );
+}

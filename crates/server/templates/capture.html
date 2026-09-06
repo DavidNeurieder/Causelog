@@ -21,13 +21,14 @@
   </div>
   <h3>What is this?</h3>
   <div class="row quick-add">
-    <a class="btn primary" href="/notes/{{ note_id }}">Keep as note</a>
-    <a class="btn" href="/projects/{{ project_id }}/decisions/new?draft={{ draft_url }}">A decision</a>
-    <a class="btn" href="/projects/{{ project_id }}/experiments/new?draft={{ draft_url }}">An experiment</a>
-    <a class="btn" href="/projects/{{ project_id }}/notes/new?draft={{ draft_url }}">A lesson</a>
+    <a class="btn primary" href="/notes/{{ note_id }}" data-kbd="n">Keep as note</a>
+    <a class="btn" href="/projects/{{ project_id }}/decisions/new?draft={{ draft_url }}" data-kbd="d">A decision</a>
+    <a class="btn" href="/projects/{{ project_id }}/experiments/new?draft={{ draft_url }}" data-kbd="e">An experiment</a>
+    <a class="btn" href="/projects/{{ project_id }}/notes/new?draft={{ draft_url }}" data-kbd="l">A lesson</a>
     <a class="btn" href="/capture">Capture another</a>
   </div>
   <p class="muted small">Decisions and experiments open with this text pre-filled as the title.</p>
+  <p class="muted small"><kbd>d</kbd> decision · <kbd>e</kbd> experiment · <kbd>l</kbd> lesson · <kbd>n</kbd> keep as note</p>
 </div>
 {% else %}
 <form method="post" action="/capture" class="panel-form">

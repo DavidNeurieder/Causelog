@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod error;
+pub mod example;
 pub mod export_adapter;
 pub mod pages;
 pub mod repository;
@@ -66,6 +67,8 @@ fn router(state: AppState) -> Router {
         .route("/login", get(pages::login_page).post(pages::login_form))
         .route("/logout", post(pages::logout_form))
         .route("/dashboard", get(pages::dashboard_page))
+        .route("/welcome", get(pages::welcome_page))
+        .route("/welcome/example", post(pages::explore_example_post))
         .route(
             "/capture",
             get(pages::capture_page).post(pages::capture_form),
@@ -126,6 +129,16 @@ fn router(state: AppState) -> Router {
         )
         .route("/projects/{id}/timeline", get(pages::timeline_page))
         .route("/projects/{id}/activity", get(pages::activity_page))
+        .route(
+            "/projects/{id}/story/edit",
+            get(pages::story_edit_page).post(pages::story_edit_post),
+        )
+        .route("/projects/{id}/one-pager", get(pages::one_pager_page))
+        .route(
+            "/projects/{id}/one-pager.{format}",
+            get(pages::one_pager_download),
+        )
+        .route("/projects/{id}/slides", get(pages::slides_page))
         .route(
             "/experiments/{id}",
             get(pages::experiment_page).post(pages::experiment_update),

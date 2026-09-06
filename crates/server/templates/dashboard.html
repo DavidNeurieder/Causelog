@@ -3,7 +3,7 @@
 {% block content %}
 <div class="row space-between">
   <h1>Dashboard{% if is_admin %} <span class="tag">Admin</span>{% endif %}</h1>
-  <details class="create-project" {% if create_open %}open{% endif %}>
+  <details class="create-project" id="new-project" {% if create_open %}open{% endif %}>
     <summary>New project</summary>
     <form method="post" action="/projects" class="panel-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -29,9 +29,23 @@
 </div>
 
 {% if projects.is_empty() %}
-<div class="empty">
-  <p class="strong">Start your first project</p>
-  <p class="muted small">A project is a container for goals, decisions, and experiments — everything you record here becomes part of your history you can search later.</p>
+<div class="welcome">
+  <h2>Welcome to Causelog</h2>
+  <p class="welcome-tagline">Causelog preserves how your team arrived at today's decisions.</p>
+  <div class="welcome-actions">
+    <form method="post" action="/welcome/example" class="welcome-choice">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h3>Explore an example</h3>
+      <p class="muted small">See a finished story — goal, decision, experiment and lesson wired together — in under two minutes.</p>
+      <button class="btn primary" type="submit">Explore an example</button>
+    </form>
+    <div class="welcome-or" aria-hidden="true">or</div>
+    <a class="welcome-choice" href="#new-project">
+      <h3>Create my project</h3>
+      <p class="muted small">Start from scratch and grow your own story, one capture at a time.</p>
+      <span class="btn">Create project</span>
+    </a>
+  </div>
 </div>
 {% else %}
 <section class="list">

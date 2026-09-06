@@ -1,0 +1,15 @@
+{
+  "cookies": [
+    {
+      "name": "causelog_session",
+      "value": "2acc2091-4a73-4ce5-b473-e695f5db5e76",
+      "domain": "127.0.0.1",
+      "path": "/",
+      "expires": 1791281818.051765,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}
