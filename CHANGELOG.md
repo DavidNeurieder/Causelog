@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-09-07
 
 ### Export
 
@@ -22,6 +22,26 @@
   regenerated per request, so it is always current.
 - New `crates/export` crate holds the format model and pure renderers, keeping
   the export format stable as the database evolves.
+
+### Story configuration
+
+- **Single source of truth for the story.** The project page, Markdown, HTML,
+  ODP, one-pager, and CLI all consume the same configured `ProjectStory`, so a
+  saved story configuration renders identically in every format.
+- **Story editor** shows/hides and reorders sections, decisions, experiments,
+  and lessons; sets a custom problem statement; and records a current-state
+  summary. Hiding a decision hides its experiments.
+- **Export correctness & performance.** A decision's chosen option is matched
+  by its ID (not its label), the parent/child relationship is enforced, and
+  collection is done with bulk project-level queries behind a single
+  consistent database snapshot instead of per-entity N+1 queries.
+- **Hardened export boundary.** Archive and presentation builders return
+  `Result` instead of panicking; failures surface to the HTTP/CLI layer.
+
+### Packaging
+
+- Prebuilt **Linux x86_64** binary is published with each release to GitHub
+  Releases, so you can download and run Causelog without installing Rust.
 
 ## 0.1.0 — 2026-08-20
 

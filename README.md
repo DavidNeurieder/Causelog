@@ -39,6 +39,20 @@ The golden path is: **goal → decision → experiment → lesson → timeline &
 
 ## Quickstart (local)
 
+### Install from a prebuilt binary
+
+Prebuilt **Linux x86_64** releases are published on the
+[Releases page](https://github.com/DavidNeurieder/causelog/releases). Download
+the archive, unpack, and run — no Rust toolchain required:
+
+```sh
+tar -xzf causelog-v0.2.0-x86_64-linux.tar.gz
+./causelog serve
+# → http://127.0.0.1:8080/setup — create the admin account
+```
+
+### Build from source
+
 ```sh
 cargo run -- serve
 # → http://127.0.0.1:8080/setup — create the admin account

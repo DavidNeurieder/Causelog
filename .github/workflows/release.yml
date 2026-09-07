@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  guard:
+    name: fmt · clippy · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: sqlite-bundled
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests (unit, integration, e2e)
+        run: cargo test --workspace
+
+  build:
+    name: build-release-binary
+    runs-on: ubuntu-latest
+    needs: guard
+    outputs:
+      asset: ${{ steps.package.outputs.asset }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: sqlite-bundled
+
+      - name: Build release binary
+        run: cargo build --release --bin causelog
+
+      - name: Package archive
+        id: package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          asset="causelog-v${version}-x86_64-linux.tar.gz"
+          tar -C target/release -czf "${asset}" causelog
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: causelog-v*.tar.gz
+
+  publish:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+
+      - name: Build release notes
+        run: |
+          {
+            echo "## Causelog ${GITHUB_REF_NAME}"
+            echo ""
+            sed -n '/^## 0\./,$p' CHANGELOG.md | sed -n '1,/^## /p'
+          } > RELEASE_NOTES.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: causelog-v*.tar.gz
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: false

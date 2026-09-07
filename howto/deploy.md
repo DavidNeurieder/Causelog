@@ -2,8 +2,27 @@
 
 ## Prerequisites
 
-- **Rust 1.85+** (for building from source), or **Docker** (for containers)
+- **Rust 1.85+** (for building from source), **Docker** (for containers), or a
+  **prebuilt Linux x86_64 binary** (no toolchain needed)
 - **SQLite** — embedded, no separate database server needed
+
+## Option 0: Download a prebuilt binary (Linux x86_64)
+
+Each release publishes a ready-to-run binary on the
+[GitHub Releases](https://github.com/DavidNeurieder/causelog/releases) page:
+
+```sh
+tar -xzf causelog-v0.2.0-x86_64-linux.tar.gz
+./causelog serve
+# → http://127.0.0.1:8080
+```
+
+Visit `/setup` to create the admin account, or seed the demo:
+
+```sh
+./causelog seed-demo
+./causelog serve
+```
 
 ## Option A: Build and Run Directly
 

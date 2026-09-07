@@ -519,14 +519,14 @@ dependencies = [
 
 [[package]]
 name = "causelog-content"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pulldown-cmark",
 ]
 
 [[package]]
 name = "causelog-export"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -542,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "causelog-model"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "causelog-search"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "causelog-model",
  "serde",
@@ -562,7 +562,7 @@ dependencies = [
 
 [[package]]
 name = "causelog-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argon2",
