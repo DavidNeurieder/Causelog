@@ -30,6 +30,12 @@ The golden path is: **goal → decision → experiment → lesson → timeline &
   JSON (the reference/backup format), a Git-friendly Markdown tree, an
   offline static HTML site, a single Archive bundle of all three, and an
   Impress/LibreOffice-compatible ODP slideshow built from the project story.
+  
+  
+
+## Screenshots
+
+<img src="pictures/Screenshot1.png"  alt="Screenshot 1">
 
 ## Quickstart (local)
 
