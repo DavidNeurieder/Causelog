@@ -1852,7 +1852,7 @@ pub(crate) async fn project_page(
             format!("/notes/{}", n.id),
         ));
     }
-    activity.sort_by(|a, b| b.0.cmp(&a.0));
+    activity.sort_by_key(|a| std::cmp::Reverse(a.0));
     activity.truncate(5);
     let recent_activity: Vec<RecentActivityView> = activity
         .into_iter()
@@ -2806,6 +2806,7 @@ pub(crate) async fn slides_page(
 
 /// Check that the user is an admin or a member of the project.
 /// Returns `Ok(())` if authorized, or a redirect response if not.
+#[allow(clippy::result_large_err)]
 async fn require_member_or_admin(
     state: &AppState,
     user: &causelog_model::User,
@@ -4333,7 +4334,7 @@ pub(crate) async fn timeline_page(
             false,
         ));
     }
-    feed.sort_by(|a, b| b.0.cmp(&a.0));
+    feed.sort_by_key(|a| std::cmp::Reverse(a.0));
 
     // Group newest-first into month → day buckets.
     let mut months: Vec<TimelineMonthView> = Vec::new();
@@ -4451,7 +4452,7 @@ pub(crate) async fn activity_page(
             format!("/notes/{}", n.id),
         ));
     }
-    feed.sort_by(|a, b| b.0.cmp(&a.0));
+    feed.sort_by_key(|a| std::cmp::Reverse(a.0));
 
     // ── Counts for the "since your last visit" summary ───────────────────
     let decisions_changed = feed

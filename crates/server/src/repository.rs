@@ -1502,10 +1502,8 @@ impl Repository for SqliteRepository {
                 }
                 ended = None;
             }
-            "done" | "abandoned" => {
-                if ended.is_none() {
-                    ended = Some(now);
-                }
+            "done" | "abandoned" if ended.is_none() => {
+                ended = Some(now);
             }
             _ => {}
         }
@@ -1689,7 +1687,7 @@ impl Repository for SqliteRepository {
                 experiment_title: r.get("experiment_title"),
             });
         }
-        entries.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
+        entries.sort_by_key(|a| std::cmp::Reverse(a.at_ms));
         Ok(entries)
     }
 
