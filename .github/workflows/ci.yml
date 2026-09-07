@@ -63,3 +63,22 @@ jobs:
         env:
           CAUSELOG_BIN: ${{ github.workspace }}/target/debug/causelog
         run: npm run test:e2e
+
+  audit:
+    name: Security (cargo audit)
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # RUSTSEC-2023-0071 (rsa Marvin attack) is ignored because it comes from
+      # sqlx-mysql's caching_sha2_password path, which Causelog never uses
+      # (SQLite is bundled), and no fixed upgrade is available for rsa 0.9.x.
+      # Revisit after sqlx updates its rsa pin.
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ignore: RUSTSEC-2023-0071
