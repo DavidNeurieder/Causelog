@@ -472,6 +472,7 @@ mod tests {
             }],
             experiments: vec![crate::StoryExperiment {
                 id: uuid::Uuid::new_v4(),
+                decision_id: None,
                 title: "Batch pilot".to_string(),
                 status: "done".to_string(),
                 hypothesis: "Batching cuts the call count.".to_string(),

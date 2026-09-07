@@ -5,11 +5,13 @@
 //! The pipeline is deliberately one-way:
 //!
 //! ```text
-//! Repository (ExportSource) ─▶ ExportProject ─▶ JSON / Markdown / HTML
+//! Repository (ExportSource) ─▶ ExportProject ─▶ ProjectStory ─▶ JSON / Markdown / HTML / ODP
+//!                                              └─ apply StoryConfig ──▶ configured ProjectStory ─ Everywhere
 //! ```
 //!
 //! Renderers never touch storage; they consume a fully populated
-//! [`ExportProject`]. Collection (the only code that talks to a
+//! [`ExportProject`] (and a configured [`ProjectStory`] where the human-facing
+//! narrative is involved). Collection (the only code that talks to an
 //! [`ExportSource`]) is kept separate so the export format stays stable even
 //! when the database schema changes.
 
@@ -25,15 +27,19 @@ pub mod story;
 pub mod story_config;
 pub mod timeline;
 
-pub use archive::{Manifest, ManifestFile, ManifestProject, archive};
+pub use archive::{
+    ARCHIVE_FORMAT, ARCHIVE_SCHEMA_VERSION, ARCHIVE_VERSION, ArchiveError, Manifest, ManifestFile,
+    ManifestProject, archive, zip_files,
+};
 pub use collect::{ExportSource, collect, resolve_project};
 pub use model::{
     EXPORT_FORMAT, EXPORT_VERSION, ExportDecision, ExportFormat, ExportProject, ExportRevision,
     TimelineEvent, slugify,
 };
-pub use odp::{Presentation, Slide, build_presentation, render_odp};
+pub use odp::{OdfError, Presentation, Slide, build_presentation, render_odp};
 pub use story::{
-    ProjectStory, StoryDecision, StoryExperiment, StoryGoal, StoryLesson, StoryState, build_story,
+    ProjectStory, StoryChainEntry, StoryDecision, StoryExperiment, StoryGoal, StoryLesson,
+    StoryState, build_story, story_chain,
 };
 pub use story_config::{
     DEFAULT_SECTION_ORDER, StoryConfig, StoryConfigItem, apply_config, build_story_with_config,

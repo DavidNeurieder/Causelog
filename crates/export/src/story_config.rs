@@ -2,8 +2,37 @@
 //! in what order, and with which summaries. The UI's story editor writes
 //! this; the story page and export renderers read it. Underlying records are
 //! never modified.
+//!
+//! # Semantics
+//!
+//! `build_story_with_config` produces the **final** story every renderer and
+//! the web story show; nothing downstream re-derives selection or ordering.
+//! The rules are:
+//!
+//! * **Section visibility** — `sections[key] == false` hides a section;
+//!   a missing key means visible (`section_on`).
+//! * **Section ordering** — `order` lists the canonical section keys
+//!   (`problem | decisions | lessons | current_state`) in display order;
+//!   missing keys trail in canonical order (`effective_order`).
+//! * **Entity selection** — a `decisions`/`experiments`/`lessons` entry with
+//!   `on == false` hides that entity. Entities the editor has never seen
+//!   (new records) default to visible.
+//! * **Parent rule** — an experiment whose parent decision is excluded is
+//!   excluded too, regardless of its own `on` flag, because an experiment
+//!   only makes sense under the decision it resolves. Experiments without a
+//!   parent decision are governed by their own flag.
+//! * **Ordering** — `order` inside each list is respected; unlisted entities
+//!   keep their canonical (build) position.
+//! * **Custom problem** — `problem` replaces the derived problem statement
+//!   verbatim (falling back to the derived one when empty).
+//! * **Current state** — only decisions still visible after selection appear
+//!   in `current_state`, so a hidden decision's chip never leaks into the
+//!   story.
+//! * **Stale ids** — entries whose id no longer exists in the story are
+//!   ignored.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use uuid::Uuid;
 
@@ -114,8 +143,10 @@ fn order_ids(story_ids: &[Uuid], configured: &[StoryConfigItem]) -> Vec<Uuid> {
 }
 
 /// Apply a saved presentation config to a derived story: hide deselected
-/// entities, apply summary overrides, and honor the saved ordering. The
-/// source records never change.
+/// entities, apply summary overrides, honor the saved ordering, enforce the
+/// parent rule, and drop hidden decisions from the current-state list. The
+/// source records never change. The returned story IS the final story that
+/// every renderer shows.
 pub fn apply_config(
     mut story: crate::story::ProjectStory,
     config: &StoryConfig,
@@ -133,6 +164,7 @@ pub fn apply_config(
         .filter(|id| config.on(&config.decisions, *id))
         .filter_map(|id| story.key_decisions.iter().find(|d| d.id == id).cloned())
         .collect();
+    let visible_decisions: HashSet<Uuid> = story.key_decisions.iter().map(|d| d.id).collect();
 
     let experiment_ids = order_ids(
         &story.experiments.iter().map(|e| e.id).collect::<Vec<_>>(),
@@ -140,7 +172,18 @@ pub fn apply_config(
     );
     story.experiments = experiment_ids
         .into_iter()
-        .filter(|id| config.on(&config.experiments, *id))
+        .filter_map(|id| {
+            let e = story.experiments.iter().find(|e| e.id == id)?;
+            if !config.on(&config.experiments, id) {
+                return None;
+            }
+            // Parent rule: an experiment cannot appear if its parent decision
+            // is excluded, whatever its own flag says.
+            match e.decision_id {
+                Some(did) if !visible_decisions.contains(&did) => None,
+                _ => Some(id),
+            }
+        })
         .filter_map(|id| story.experiments.iter().find(|e| e.id == id).cloned())
         .collect();
 
@@ -162,6 +205,13 @@ pub fn apply_config(
             }
             l
         })
+        .collect();
+
+    story.current_state = story
+        .current_state
+        .iter()
+        .filter(|s| visible_decisions.contains(&s.decision_id))
+        .cloned()
         .collect();
 
     story

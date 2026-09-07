@@ -1,6 +1,10 @@
 //! `causelog export project <ref> --format json|markdown|html|archive|odp` —
 //! export one project from a local database. No sessions here: this is the
 //! self-hosted, single-admin CLI, so any resolvable project can be exported.
+//!
+//! Every format consumes the project's saved `StoryConfig` (via a single
+//! snapshot) so the CLI and the web export are byte-for-byte identical in
+//! story content.
 
 use std::fs;
 use std::path::PathBuf;
@@ -9,15 +13,14 @@ use causelog_content::now_ms;
 use causelog_export::ExportFormat;
 use causelog_export::archive::archive;
 use causelog_export::build_presentation;
-use causelog_export::collect;
 use causelog_export::html::render_html;
 use causelog_export::json::render_json;
 use causelog_export::markdown::render_markdown;
 use causelog_export::model::file_stem;
 use causelog_export::odp::render_odp;
 use causelog_export::resolve_project;
-use causelog_export::story::build_story;
-use causelog_server::repository::SqliteRepository;
+use causelog_export::story_config::{StoryConfig, build_story_with_config};
+use causelog_server::repository::{Repository, SqliteRepository};
 use clap::Args;
 
 #[derive(Args)]
@@ -46,19 +49,27 @@ pub async fn run(args: &ExportArgs) -> anyhow::Result<()> {
     let repo = std::sync::Arc::new(repo);
 
     let project = resolve_project(repo.as_ref(), &args.project).await?;
-    let export = collect(repo.as_ref(), project.id).await?;
+    let export = repo
+        .collect_project_snapshot(project.id)
+        .await
+        .map_err(|e| anyhow::anyhow!("collecting export failed: {e}"))?;
+    let saved_config = repo
+        .get_story_config(project.id)
+        .await?
+        .and_then(|json| serde_json::from_str::<StoryConfig>(&json).ok());
+    let story = build_story_with_config(&export, saved_config.as_ref());
 
     let format = args.format.unwrap_or(ExportFormat::Json);
     match format {
         ExportFormat::Json => write_json(&export, args.output.as_deref()).await?,
         ExportFormat::Markdown => {
             let dir = args.output.clone().unwrap_or_else(|| default_dir(&export));
-            write_tree(&dir, &render_markdown(&export)).await?;
+            write_tree(&dir, &render_markdown(&export, &story)).await?;
             tracing::info!(dir = %dir.display(), "markdown export written");
         }
         ExportFormat::Html => {
             let dir = args.output.clone().unwrap_or_else(|| default_dir(&export));
-            write_tree(&dir, &render_html(&export)).await?;
+            write_tree(&dir, &render_html(&export, &story)).await?;
             tracing::info!(dir = %dir.display(), "html export written");
         }
         ExportFormat::Archive => {
@@ -66,7 +77,12 @@ pub async fn run(args: &ExportArgs) -> anyhow::Result<()> {
                 .output
                 .clone()
                 .unwrap_or_else(|| default_dir(&export).with_extension("zip"));
-            let bytes = archive(&export, &render_markdown(&export), &render_html(&export));
+            let bytes = archive(
+                &export,
+                &render_markdown(&export, &story),
+                &render_html(&export, &story),
+            )
+            .map_err(|e| anyhow::anyhow!("packaging archive failed: {e}"))?;
             fs::write(&path, bytes)?;
             tracing::info!(path = %path.display(), "archive export written");
         }
@@ -75,9 +91,9 @@ pub async fn run(args: &ExportArgs) -> anyhow::Result<()> {
                 .output
                 .clone()
                 .unwrap_or_else(|| default_dir(&export).with_extension("odp"));
-            let story = build_story(&export);
             let presentation = build_presentation(&story);
-            let bytes = render_odp(&presentation, &export.causelog_version);
+            let bytes = render_odp(&presentation, &export.causelog_version)
+                .map_err(|e| anyhow::anyhow!("packaging odp failed: {e}"))?;
             fs::write(&path, bytes)?;
             tracing::info!(path = %path.display(), "odp export written");
         }

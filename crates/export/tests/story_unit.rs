@@ -381,3 +381,113 @@ fn story_config_applies_selection_ordering_and_summaries() {
         Some("Reduce grinder failures, for real.")
     );
 }
+
+/// Plan §4: sections toggle off, section reorder, stale/removed config ids are
+/// ignored, and the parent rule drops an experiment whose decision is excluded
+/// even when the experiment itself is `on`.
+#[test]
+fn story_config_hides_sections_ignores_stale_ids_and_enforces_the_parent_rule() {
+    use causelog_export::story_config::StoryConfigItem;
+
+    let story = build_story(&fixture());
+    let lesson_id = story.lessons[0].id;
+
+    let buried = id("33333333-3333-3333-3333-333333333333");
+    assert_eq!(
+        story.experiments[0].decision_id,
+        Some(buried),
+        "fixture must parent the experiment under the decision we hide"
+    );
+
+    let stale = [
+        id("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+        id("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+    ];
+
+    let config = causelog_export::story_config::StoryConfig {
+        problem: None,
+        sections: {
+            let mut m = std::collections::HashMap::new();
+            m.insert("problem".into(), false);
+            m.insert("current_state".into(), false);
+            m
+        },
+        order: vec![
+            "current_state".into(),
+            "problem".into(),
+            "decisions".into(),
+            "lessons".into(),
+        ],
+        decisions: vec![
+            StoryConfigItem {
+                id: id("44444444-4444-4444-4444-444444444444"),
+                on: true,
+                summary: None,
+            },
+            StoryConfigItem {
+                id: stale[0],
+                on: true,
+                summary: None,
+            },
+            StoryConfigItem {
+                id: buried,
+                on: false,
+                summary: None,
+            },
+            StoryConfigItem {
+                id: stale[1],
+                on: false,
+                summary: None,
+            },
+        ],
+        experiments: vec![StoryConfigItem {
+            id: id("66666666-6666-6666-6666-666666666666"),
+            on: true,
+            summary: None,
+        }],
+        lessons: vec![
+            StoryConfigItem {
+                id: lesson_id,
+                on: true,
+                summary: None,
+            },
+            StoryConfigItem {
+                id: id("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                on: true,
+                summary: None,
+            },
+        ],
+    };
+
+    // Toggling the problem and current-state sections off hides them.
+    assert!(!config.section_on("problem"));
+    assert!(!config.section_on("current_state"));
+    assert!(config.section_on("decisions"));
+    // Reordering is honored verbatim (all four keys present).
+    assert_eq!(
+        config.effective_order(),
+        vec!["current_state", "problem", "decisions", "lessons"]
+    );
+
+    let applied = causelog_export::story_config::apply_config(story, &config);
+
+    // Stale ids are ignored; the buried decision and its experiment disappear,
+    // unlisted open decision 5555 stays visible at its canonical position.
+    let decided: Vec<&str> = applied
+        .key_decisions
+        .iter()
+        .map(|d| d.title.as_str())
+        .collect();
+    assert_eq!(decided, vec!["Open a second queue", "Replay the software"]);
+
+    // Parent rule: 6666 is `on`, but its decision is excluded, so it goes.
+    assert!(applied.experiments.is_empty());
+    assert_eq!(applied.lessons.len(), 1);
+    // Hidden decision's chip never leaks into the current-state summary.
+    assert!(
+        applied
+            .current_state
+            .iter()
+            .all(|s| !s.title.contains("heavier grinder"))
+    );
+}

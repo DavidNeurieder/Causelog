@@ -208,6 +208,11 @@ pub trait Repository: Send + Sync {
         entity_type: &str,
         entity_id: Uuid,
     ) -> Result<Vec<Revision>, RepositoryError>;
+    /// All decision+note revisions belonging to a project, in one query.
+    async fn list_revisions_for_project(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Vec<Revision>, RepositoryError>;
 
     // -----------------------------------------------------------------------
     // Experiments & events (the timeline)
@@ -247,6 +252,11 @@ pub trait Repository: Send + Sync {
     async fn list_events(
         &self,
         experiment_id: Uuid,
+    ) -> Result<Vec<ExperimentEvent>, RepositoryError>;
+    /// All experiment events belonging to a project, in one query.
+    async fn list_events_for_project(
+        &self,
+        project_id: Uuid,
     ) -> Result<Vec<ExperimentEvent>, RepositoryError>;
     async fn create_event(
         &self,
@@ -321,6 +331,14 @@ pub trait Repository: Send + Sync {
         &self,
         project_id: Uuid,
     ) -> Result<HashMap<Uuid, String>, RepositoryError>;
+
+    /// Collect the complete export of one project from a single read
+    /// transaction, so one export always represents one logical state of the
+    /// project.
+    async fn collect_project_snapshot(
+        &self,
+        project_id: Uuid,
+    ) -> Result<causelog_export::ExportProject, RepositoryError>;
 
     /// Full-text search over every entity, most relevant first.
     /// `None` for project_ids means admin (search everything);
@@ -1341,6 +1359,38 @@ impl Repository for SqliteRepository {
             .collect())
     }
 
+    async fn list_revisions_for_project(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Vec<Revision>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT r.id, r.entity_type, r.entity_id, r.snapshot, r.created_by, r.created_at_ms
+             FROM revisions r
+             WHERE (r.entity_type = 'decision'
+                    AND r.entity_id IN (SELECT id FROM decisions WHERE project_id = ?))
+                OR (r.entity_type = 'note'
+                    AND r.entity_id IN (SELECT id FROM notes WHERE project_id = ?))
+             ORDER BY r.created_at_ms ASC",
+        )
+        .bind(project_id.to_string())
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| Revision {
+                id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+                entity_type: r.get("entity_type"),
+                entity_id: Uuid::from_str(&r.get::<String, _>("entity_id")).unwrap_or_default(),
+                snapshot: r.get("snapshot"),
+                created_by: r
+                    .get::<Option<String>, _>("created_by")
+                    .and_then(|s| Uuid::from_str(&s).ok()),
+                created_at_ms: r.get("created_at_ms"),
+            })
+            .collect())
+    }
+
     // -----------------------------------------------------------------------
     // Experiments & events (the timeline)
     // -----------------------------------------------------------------------
@@ -1513,6 +1563,34 @@ impl Repository for SqliteRepository {
              FROM events WHERE experiment_id = ? ORDER BY at_ms ASC",
         )
         .bind(experiment_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| ExperimentEvent {
+                id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+                experiment_id: Uuid::from_str(&r.get::<String, _>("experiment_id"))
+                    .unwrap_or_default(),
+                kind: r.get("kind"),
+                at_ms: r.get("at_ms"),
+                note: r.get("note"),
+                created_at_ms: r.get("created_at_ms"),
+            })
+            .collect())
+    }
+
+    async fn list_events_for_project(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Vec<ExperimentEvent>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT e.id, e.experiment_id, e.kind, e.at_ms, e.note, e.created_at_ms
+             FROM events e
+             JOIN experiments x ON x.id = e.experiment_id
+             WHERE x.project_id = ?
+             ORDER BY e.at_ms ASC",
+        )
+        .bind(project_id.to_string())
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
@@ -2016,7 +2094,6 @@ impl Repository for SqliteRepository {
         &self,
         project_id: Uuid,
     ) -> Result<HashMap<Uuid, String>, RepositoryError> {
-        let mut states = HashMap::new();
         let rows = sqlx::query(
             "SELECT d.id,
                     (SELECT COUNT(*) FROM links l
@@ -2032,25 +2109,139 @@ impl Repository for SqliteRepository {
         .bind(project_id.to_string())
         .fetch_all(&self.pool)
         .await?;
-        for row in rows {
-            let id: String = row.get("id");
-            let followed_by: i64 = row.get("followed_by");
-            let abandoned_cnt: i64 = row.get("abandoned_cnt");
-            let has_lesson: Option<i64> = row.get("has_lesson");
-            let state = if followed_by > 0 {
-                "superseded"
-            } else if abandoned_cnt > 0 {
-                "invalidated"
-            } else if has_lesson.unwrap_or(0) > 0 {
-                "validated"
-            } else {
-                "unvalidated"
-            };
-            if let Ok(uuid) = Uuid::parse_str(&id) {
-                states.insert(uuid, state.to_string());
-            }
-        }
-        Ok(states)
+        Ok(knowledge_states_from_rows(&rows))
+    }
+
+    async fn collect_project_snapshot(
+        &self,
+        project_id: Uuid,
+    ) -> Result<causelog_export::ExportProject, RepositoryError> {
+        // One read transaction: every query sees the same state, so one export
+        // is one logical snapshot of the project. Queries use the same SQL and
+        // row mappers as the single-entity list_*; associations happen here.
+        let mut tx = self.pool.begin().await?;
+
+        let project = sqlx::query(Q_PROJECT)
+            .bind(project_id.to_string())
+            .fetch_optional(&mut *tx)
+            .await?
+            .map(|r| row_to_project(&r))
+            .ok_or_else(|| RepositoryError::NotFound("project".into()))?;
+
+        let exported_at_ms = causelog_content::now_ms();
+        let mut out =
+            causelog_export::ExportProject::new(project, exported_at_ms, env!("CARGO_PKG_VERSION"));
+
+        out.goals = sorted_by(
+            sqlx::query(Q_GOALS)
+                .bind(project_id.to_string())
+                .fetch_all(&mut *tx)
+                .await?,
+            row_to_goal,
+            |g: &Goal| (g.created_at_ms, g.id),
+        );
+
+        let decisions: Vec<Decision> = sqlx::query(Q_DECISIONS)
+            .bind(project_id.to_string())
+            .fetch_all(&mut *tx)
+            .await?
+            .iter()
+            .map(row_to_decision)
+            .collect();
+        let states = knowledge_states_from_rows(
+            &sqlx::query(Q_KNOWLEDGE_STATES)
+                .bind(project_id.to_string())
+                .fetch_all(&mut *tx)
+                .await?,
+        );
+        out.decisions = by_stable_order(decisions, |d: &Decision| (d.created_at_ms, d.id))
+            .into_iter()
+            .map(|d| causelog_export::ExportDecision {
+                id: d.id,
+                project_id: d.project_id,
+                goal_id: d.goal_id,
+                title: d.title,
+                context: d.context,
+                options: d.options,
+                status: d.status,
+                decided_option: d.decided_option,
+                rationale: d.rationale,
+                decided_at_ms: d.decided_at_ms,
+                review_at_ms: d.review_at_ms,
+                created_by: d.created_by,
+                created_at_ms: d.created_at_ms,
+                updated_at_ms: d.updated_at_ms,
+                state: states.get(&d.id).cloned(),
+            })
+            .collect();
+
+        out.experiments = sorted_by(
+            sqlx::query(Q_EXPERIMENTS)
+                .bind(project_id.to_string())
+                .fetch_all(&mut *tx)
+                .await?,
+            row_to_experiment,
+            |e: &Experiment| (e.created_at_ms, e.id),
+        );
+
+        out.notes = sorted_by(
+            sqlx::query(Q_NOTES)
+                .bind(project_id.to_string())
+                .fetch_all(&mut *tx)
+                .await?,
+            row_to_note,
+            |n: &Note| (n.created_at_ms, n.id),
+        );
+
+        out.links = sorted_by(
+            sqlx::query(Q_LINKS)
+                .bind(project_id.to_string())
+                .fetch_all(&mut *tx)
+                .await?,
+            row_to_link,
+            |l: &Link| (l.created_at_ms, l.id),
+        );
+
+        out.revisions = sqlx::query(Q_REVISIONS_FOR_PROJECT)
+            .bind(project_id.to_string())
+            .bind(project_id.to_string())
+            .fetch_all(&mut *tx)
+            .await?
+            .iter()
+            .map(|r| causelog_export::ExportRevision {
+                id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+                entity_type: r.get("entity_type"),
+                entity_id: Uuid::from_str(&r.get::<String, _>("entity_id")).unwrap_or_default(),
+                snapshot: r.get("snapshot"),
+                created_by: r
+                    .get::<Option<String>, _>("created_by")
+                    .and_then(|s| Uuid::from_str(&s).ok()),
+                created_at_ms: r.get("created_at_ms"),
+            })
+            .collect();
+        out.revisions = by_stable_order(out.revisions, |r: &causelog_export::ExportRevision| {
+            (r.created_at_ms, r.id)
+        });
+
+        out.events = sqlx::query(Q_EVENTS_FOR_PROJECT)
+            .bind(project_id.to_string())
+            .fetch_all(&mut *tx)
+            .await?
+            .iter()
+            .map(|r| ExperimentEvent {
+                id: Uuid::from_str(&r.get::<String, _>("id")).unwrap_or_default(),
+                experiment_id: Uuid::from_str(&r.get::<String, _>("experiment_id"))
+                    .unwrap_or_default(),
+                kind: r.get("kind"),
+                at_ms: r.get("at_ms"),
+                note: r.get("note"),
+                created_at_ms: r.get("created_at_ms"),
+            })
+            .collect();
+        out.events = by_stable_order(out.events, |e: &ExperimentEvent| (e.at_ms, e.id));
+
+        tx.commit().await?;
+        Ok(out)
     }
 
     async fn search(
@@ -2351,6 +2542,92 @@ fn row_to_link(r: &sqlx::sqlite::SqliteRow) -> Link {
         kind: r.get("kind"),
         created_at_ms: r.get("created_at_ms"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Consistent export snapshot
+// ---------------------------------------------------------------------------
+//
+// `collect_project_snapshot` runs these queries against one read transaction so
+// an export is one logical state of the project. They are kept here (rather
+// than embedded in the methods) so snapshot and `list_*` stay in step; row
+// mapping is shared through the `row_to_*` helpers above.
+
+const Q_PROJECT: &str =
+    "SELECT id, title, summary, status, created_by, created_at_ms, updated_at_ms
+         FROM projects WHERE id = ?";
+const Q_GOALS: &str = "SELECT id, project_id, title, body, status, created_by, assigned_to, created_at_ms, updated_at_ms
+         FROM goals WHERE project_id = ?";
+const Q_DECISIONS: &str = "SELECT id, project_id, goal_id, title, context, options, status,
+                    decided_option, rationale, decided_at_ms, review_at_ms,
+                    created_by, created_at_ms, updated_at_ms
+             FROM decisions WHERE project_id = ?";
+const Q_EXPERIMENTS: &str = "SELECT id, project_id, goal_id, decision_id, title, hypothesis, status,
+                    started_at_ms, ended_at_ms, result, lesson, created_by, created_at_ms, updated_at_ms
+             FROM experiments WHERE project_id = ?";
+const Q_NOTES: &str = "SELECT id, project_id, title, body, source_type, source_id, created_by, created_at_ms, updated_at_ms
+             FROM notes WHERE project_id = ?";
+const Q_LINKS: &str =
+    "SELECT id, project_id, from_type, from_id, to_type, to_id, kind, created_at_ms
+             FROM links WHERE project_id = ?";
+const Q_REVISIONS_FOR_PROJECT: &str = "SELECT r.id, r.entity_type, r.entity_id, r.snapshot, r.created_by, r.created_at_ms
+             FROM revisions r
+             WHERE (r.entity_type = 'decision' AND r.entity_id IN (SELECT id FROM decisions WHERE project_id = ?))
+                OR (r.entity_type = 'note' AND r.entity_id IN (SELECT id FROM notes WHERE project_id = ?))";
+const Q_EVENTS_FOR_PROJECT: &str =
+    "SELECT e.id, e.experiment_id, e.kind, e.at_ms, e.note, e.created_at_ms
+             FROM events e JOIN experiments x ON x.id = e.experiment_id WHERE x.project_id = ?";
+const Q_KNOWLEDGE_STATES: &str = "SELECT d.id,
+                    (SELECT COUNT(*) FROM links l
+                      WHERE l.to_type = 'decision' AND l.to_id = d.id
+                        AND l.from_type = 'decision' AND l.kind = 'follows') AS followed_by,
+                    (SELECT COUNT(*) FROM experiments e
+                      WHERE e.decision_id = d.id AND e.status = 'abandoned') AS abandoned_cnt,
+                    (SELECT MAX(CASE WHEN length(trim(e.lesson)) > 0 THEN 1 ELSE 0 END)
+                       FROM experiments e WHERE e.decision_id = d.id AND e.status = 'done') AS has_lesson
+             FROM decisions d WHERE d.project_id = ? AND d.status = 'decided'";
+
+/// Map `row_to_*` over rows and sort by `(ms, uuid)` for deterministic export
+/// order (matches the exporter's `by_stable_order`).
+fn sorted_by<T>(
+    rows: Vec<sqlx::sqlite::SqliteRow>,
+    map: fn(&sqlx::sqlite::SqliteRow) -> T,
+    key: impl Fn(&T) -> (i64, Uuid),
+) -> Vec<T> {
+    let mut items: Vec<T> = rows.iter().map(map).collect();
+    items.sort_by_key(key);
+    items
+}
+
+fn by_stable_order<T>(items: Vec<T>, key: impl Fn(&T) -> (i64, Uuid)) -> Vec<T> {
+    let mut items = items;
+    items.sort_by_key(key);
+    items
+}
+
+/// Derived knowledge state per decided decision, from the Q_KNOWLEDGE_STATES
+/// row shape: superseded → invalidated → validated → unvalidated.
+fn knowledge_states_from_rows(rows: &[sqlx::sqlite::SqliteRow]) -> HashMap<Uuid, String> {
+    let mut states = HashMap::new();
+    for row in rows {
+        let id: String = row.get("id");
+        let followed_by: i64 = row.get("followed_by");
+        let abandoned_cnt: i64 = row.get("abandoned_cnt");
+        let has_lesson: Option<i64> = row.get("has_lesson");
+        let state = if followed_by > 0 {
+            "superseded"
+        } else if abandoned_cnt > 0 {
+            "invalidated"
+        } else if has_lesson.unwrap_or(0) > 0 {
+            "validated"
+        } else {
+            "unvalidated"
+        };
+        if let Ok(uuid) = Uuid::parse_str(&id) {
+            states.insert(uuid, state.to_string());
+        }
+    }
+    states
 }
 
 /// Convenience wrapper so handlers can hold `Arc<dyn Repository>` without

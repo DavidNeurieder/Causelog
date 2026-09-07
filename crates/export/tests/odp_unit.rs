@@ -144,7 +144,7 @@ fn read_entry(bytes: &[u8], name: &str) -> String {
 #[test]
 fn bundle_is_a_zip_with_mimetype_manifest_and_content() {
     let (p, _) = stock();
-    let bytes = render_odp(&p, "test-version");
+    let bytes = render_odp(&p, "test-version").unwrap();
 
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
     assert_eq!(archive.len(), 5);
@@ -167,7 +167,7 @@ fn bundle_is_a_zip_with_mimetype_manifest_and_content() {
 #[test]
 fn bundle_entries_and_first_mimetype_stored() {
     let (p, _) = stock();
-    let bytes = render_odp(&p, "test-version");
+    let bytes = render_odp(&p, "test-version").unwrap();
 
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
     let first_name = {
@@ -200,7 +200,7 @@ fn bundle_entries_and_first_mimetype_stored() {
 #[test]
 fn content_xml_has_one_page_per_slide_with_headings() {
     let (p, expected) = stock();
-    let bytes = render_odp(&p, "test-version");
+    let bytes = render_odp(&p, "test-version").unwrap();
     let content = read_entry(&bytes, "content.xml");
 
     let pages = content.matches("<draw:page ").count();
@@ -255,8 +255,70 @@ fn minimal_presentation_still_renders_mimetype_first() {
     let p = build_presentation(&story);
     assert_eq!(p.slides.len(), 1, "title slide only");
 
-    let bytes = render_odp(&p, "test-version");
+    let bytes = render_odp(&p, "test-version").unwrap();
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
     let first = archive.by_index(0).unwrap();
     assert_eq!(first.name(), "mimetype");
+}
+
+/// Regression: the chosen option is matched by its stable *id*, never by
+/// label. Here the id ("opt-123") and label ("Use PostgreSQL") differ, so a
+/// label-comparison bug would silently fail to mark the decision.
+#[test]
+fn chosen_option_is_matched_by_id_not_label() {
+    let p = Project {
+        id: id("11111111-1111-1111-1111-111111111111"),
+        title: "DB Migration".into(),
+        summary: String::new(),
+        status: "active".into(),
+        created_by: None,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    };
+    let mut ep = causelog_export::ExportProject::new(p.clone(), 1_700_000_000_000, "test-version");
+    ep.decisions.push(causelog_export::ExportDecision {
+        id: id("22222222-2222-2222-2222-222222222222"),
+        project_id: p.id,
+        goal_id: None,
+        title: "Where should the ledger live?".into(),
+        context: String::new(),
+        options: vec![
+            DecisionOption {
+                id: "opt-123".into(),
+                label: "Use PostgreSQL".into(),
+                pros: "Fits the stack.".into(),
+                cons: String::new(),
+            },
+            DecisionOption {
+                id: "opt-456".into(),
+                label: "Stay on the spreadsheet".into(),
+                pros: String::new(),
+                cons: String::new(),
+            },
+        ],
+        status: "decided".into(),
+        decided_option: Some("opt-123".into()),
+        rationale: String::new(),
+        decided_at_ms: Some(1_700_000_001_000),
+        review_at_ms: None,
+        created_by: None,
+        created_at_ms: 1_700_000_000_000,
+        updated_at_ms: 1_700_000_001_000,
+        state: Some("decision".into()),
+    });
+
+    let story = build_story(&ep);
+    let p = build_presentation(&story);
+    let bytes = render_odp(&p, "test-version").unwrap();
+    let content = read_entry(&bytes, "content.xml");
+
+    assert!(content.contains("Chosen: Use PostgreSQL"));
+    assert!(
+        content.contains("→ Use PostgreSQL"),
+        "the id-matched chosen option must be marked in the alternatives list"
+    );
+    assert!(
+        !content.contains("→ Stay on the spreadsheet"),
+        "the unchosen option must not be marked"
+    );
 }

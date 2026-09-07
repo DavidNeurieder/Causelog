@@ -6,6 +6,7 @@ use causelog_content::format_date_ms;
 
 use crate::ExportFile;
 use crate::model::{ExportProject, file_stem};
+use crate::{ProjectStory, story_chain};
 
 pub const ENTITY_DIRS: &[(&str, &str)] = &[
     ("goal", "goals"),
@@ -37,11 +38,16 @@ fn href(root_dir: &str, entity_type: &str, title: &str, id: uuid::Uuid) -> Strin
 }
 
 /// Render the whole project as a tree of Markdown files.
-pub fn render_markdown(project: &ExportProject) -> Vec<ExportFile> {
+///
+/// `story` is the **configured** [`ProjectStory`] (see
+/// `build_story_with_config`): the README's story and current-state sections
+/// come from it, so excluded content is never resurrected. Entity files
+/// themselves stay lossless.
+pub fn render_markdown(project: &ExportProject, story: &ProjectStory) -> Vec<ExportFile> {
     let mut files = Vec::new();
     files.push(ExportFile {
         path: "README.md".into(),
-        content: readme(project),
+        content: readme(project, story),
     });
     files.push(ExportFile {
         path: "timeline.md".into(),
@@ -92,11 +98,11 @@ fn date(ms: i64) -> String {
     format_date_ms(ms)
 }
 
-fn readme(project: &ExportProject) -> String {
+fn readme(project: &ExportProject, story: &ProjectStory) -> String {
     let p = &project.project;
     let mut out = String::new();
 
-    let states = tally_states(project);
+    let states = story_state_tally(story);
     let state_line = if states.is_empty() {
         String::new()
     } else {
@@ -178,18 +184,30 @@ fn readme(project: &ExportProject) -> String {
     }
 
     out.push_str("\n## Story\n\n");
-    let story = story_chain(project);
-    if story.is_empty() {
+    let chain = story_chain(story);
+    if chain.is_empty() {
         out.push_str("_Nothing here yet._\n");
     } else {
-        for (kind, title, link, tag) in story {
-            let tag = if tag.is_empty() {
+        for entry in chain {
+            let link = href("", entry.kind, &entry.title, entry.id);
+            let tag = if entry.tag.is_empty() {
                 String::new()
             } else {
-                format!(" `{}`", tag)
+                format!(" `{}`", entry.tag)
             };
-            out.push_str(&format!("- `{kind}` **{title}**{tag} — [open]({link})\n"));
+            out.push_str(&format!(
+                "- `{kind}` **{title}**{tag} — [open]({link})\n",
+                kind = entry.kind,
+                title = entry.title,
+            ));
         }
+    }
+
+    out.push_str("\n## Problem\n\n");
+    let problem = story.problem.as_deref();
+    match problem {
+        Some(p) if !p.trim().is_empty() => out.push_str(&format!("{}\n", p)),
+        _ => out.push_str("_No problem statement yet._\n"),
     }
 
     out.push_str("\n## Timeline\n\n");
@@ -217,60 +235,13 @@ fn readme(project: &ExportProject) -> String {
     out
 }
 
-/// Flat, chronological story chain (a renderer-side approximation of the
-/// app's nested chain): every entity once, oldest first.
-fn story_chain(project: &ExportProject) -> Vec<(&'static str, String, String, String)> {
-    let mut all: Vec<(i64, &'static str, String, uuid::Uuid, String)> = Vec::new();
-    for g in &project.goals {
-        all.push((
-            g.created_at_ms,
-            "goal",
-            g.title.clone(),
-            g.id,
-            String::new(),
-        ));
-    }
-    for d in &project.decisions {
-        all.push((
-            d.created_at_ms,
-            "decision",
-            d.title.clone(),
-            d.id,
-            d.state.clone().unwrap_or_default(),
-        ));
-    }
-    for e in &project.experiments {
-        all.push((
-            e.created_at_ms,
-            "experiment",
-            e.title.clone(),
-            e.id,
-            String::new(),
-        ));
-    }
-    for n in &project.notes {
-        all.push((
-            n.created_at_ms,
-            "note",
-            n.title.clone(),
-            n.id,
-            String::new(),
-        ));
-    }
-    all.sort_by_key(|(t, kind, title, id, _)| (*t, *kind, title.clone(), *id));
-    all.into_iter()
-        .map(|(_, kind, title, id, tag)| {
-            let link = href("", kind, &title, id);
-            (kind, title, link, tag)
-        })
-        .collect()
-}
-
-fn tally_states(project: &ExportProject) -> Vec<(String, usize)> {
+/// Knowledge-state tally of the decisions in the **configured** story, sorted
+/// ascending by state label. Only decisions that survived configuration appear.
+fn story_state_tally(story: &ProjectStory) -> Vec<(String, usize)> {
     let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for d in &project.decisions {
-        if let Some(state) = d.state.as_deref() {
-            *counts.entry(state).or_insert(0) += 1;
+    for d in &story.key_decisions {
+        if !d.state.is_empty() {
+            *counts.entry(d.state.as_str()).or_insert(0) += 1;
         }
     }
     let mut out: Vec<(String, usize)> = counts

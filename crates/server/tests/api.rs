@@ -4306,3 +4306,218 @@ async fn first_run_welcome_and_explore_example() {
         "example on dashboard"
     );
 }
+
+/// The plan's merge criterion for the web story: the project page must show
+/// exactly the saved `StoryConfig` story (selection, order, parent rule,
+/// custom problem, current-state), matching what the export renderers emit.
+#[tokio::test]
+async fn web_story_renders_the_saved_story_config() {
+    use causelog_export::story_config::{StoryConfig, StoryConfigItem, build_story_with_config};
+
+    let (app, repo) = test_app_with_repo().await;
+    let cookie = create_approved_user(&repo, "webdev", "Web Dev", "longenough1").await;
+
+    let project_url = create_project(&app, &cookie, "Story web project", "active").await;
+    let pid: Uuid = project_url
+        .trim_start_matches("/projects/")
+        .parse()
+        .unwrap();
+    let goal = repo
+        .create_goal(pid, "Aim high", "Body.", None, None)
+        .await
+        .unwrap();
+
+    let d1 = repo
+        .create_decision(
+            pid,
+            Some(goal.id),
+            "Pick a database",
+            "We outgrew the CSV.",
+            &[
+                causelog_model::DecisionOption {
+                    id: "sqlite".into(),
+                    label: "SQLite".into(),
+                    pros: "Zero ops.".into(),
+                    cons: "Not distributed.".into(),
+                },
+                causelog_model::DecisionOption {
+                    id: "postgres".into(),
+                    label: "Postgres".into(),
+                    pros: "Real database.".into(),
+                    cons: "Cats to herd.".into(),
+                },
+            ],
+            None,
+        )
+        .await
+        .unwrap();
+    repo.resolve_decision(d1.id, "decided", Some("sqlite".into()), "Boring.", None)
+        .await
+        .unwrap();
+    let e1 = repo
+        .create_experiment(pid, Some(goal.id), Some(d1.id), "Volume probe", "H?", None)
+        .await
+        .unwrap();
+    repo.update_experiment(
+        e1.id,
+        "Volume probe",
+        "H?",
+        "done",
+        "Survived.",
+        "Lesson: measure first.",
+    )
+    .await
+    .unwrap();
+
+    let d2 = repo
+        .create_decision(
+            pid,
+            Some(goal.id),
+            "Switch grinder",
+            "The old one burned out.",
+            &[causelog_model::DecisionOption {
+                id: "burr".into(),
+                label: "Burr grinder".into(),
+                pros: "Survives the rush.".into(),
+                cons: "Costs more.".into(),
+            }],
+            None,
+        )
+        .await
+        .unwrap();
+    let e2 = repo
+        .create_experiment(
+            pid,
+            Some(goal.id),
+            None,
+            "Dark deploy",
+            "Ships invisibly?",
+            None,
+        )
+        .await
+        .unwrap();
+    repo.update_experiment(
+        e2.id,
+        "Dark deploy",
+        "Ships invisibly?",
+        "done",
+        "Deployed.",
+        "Lesson: dark first.",
+    )
+    .await
+    .unwrap();
+
+    // Saved config: d1 hidden (parent rule hides its experiment too), d2
+    // visible; reversed order; custom problem; all sections on.
+    let config = StoryConfig {
+        sections: [
+            ("problem".to_string(), true),
+            ("decisions".to_string(), true),
+            ("lessons".to_string(), true),
+            ("current_state".to_string(), true),
+        ]
+        .into_iter()
+        .collect(),
+        order: vec![
+            "problem".to_string(),
+            "decisions".to_string(),
+            "lessons".to_string(),
+            "current_state".to_string(),
+        ],
+        problem: Some("The real bottleneck is waking up.".to_string()),
+        decisions: vec![
+            StoryConfigItem {
+                id: d2.id,
+                on: true,
+                summary: None,
+            },
+            StoryConfigItem {
+                id: d1.id,
+                on: false,
+                summary: None,
+            },
+        ],
+        experiments: vec![
+            StoryConfigItem {
+                id: e2.id,
+                on: true,
+                summary: None,
+            },
+            StoryConfigItem {
+                id: e1.id,
+                on: true,
+                summary: None,
+            },
+        ],
+        lessons: vec![],
+    };
+    repo.set_story_config(pid, &serde_json::to_string(&config).unwrap())
+        .await
+        .unwrap();
+
+    // Canonical configured story: the exact same input the exports consume.
+    let snapshot = repo.collect_project_snapshot(pid).await.unwrap();
+    let story = build_story_with_config(&snapshot, Some(&config));
+    let canon_decisions: Vec<String> = story
+        .key_decisions
+        .iter()
+        .map(|d| d.title.clone())
+        .collect();
+    assert_eq!(canon_decisions, vec!["Switch grinder"]);
+    let canon_current: Vec<String> = story
+        .current_state
+        .iter()
+        .map(|s| s.title.clone())
+        .collect();
+
+    let page =
+        body_string(send(&app, with_cookie(get(&format!("/projects/{pid}")), &cookie)).await).await;
+
+    // Chain nodes, in configured order; the hidden decision is absent.
+    let mut chain_titles: Vec<String> = Vec::new();
+    for node in page.split("chain-decision-node").skip(1) {
+        let Some(start) = node.find("chain-title") else {
+            continue;
+        };
+        let rest = &node[start..];
+        let Some(gt) = rest.find('>') else { continue };
+        let title = rest[gt + 1..].split("</a>").next().unwrap_or("");
+        chain_titles.push(title.to_string());
+    }
+    assert_eq!(
+        chain_titles, canon_decisions,
+        "web story chain order must match the configured story: {page}"
+    );
+
+    // Custom problem lede, current-state section, and parent rule all render.
+    assert!(
+        page.contains("The real bottleneck is waking up."),
+        "config-driven problem missing: {page}"
+    );
+    assert!(
+        page.contains("Current belief"),
+        "current-state section missing"
+    );
+    for title in &canon_current {
+        assert!(page.contains(title), "current-state entry {title} missing");
+    }
+    assert!(
+        page.contains("Lesson: dark first."),
+        "lesson of a visible experiment must render"
+    );
+
+    // Everything-else (the editor and the lossless listings) still knows the
+    // hidden decision exists; only the story must not.
+    let edit = body_string(
+        send(
+            &app,
+            with_cookie(get(&format!("/projects/{pid}/story/edit")), &cookie),
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        edit.contains("Pick a database"),
+        "editor must still list hidden decision for future toggling: {edit}"
+    );
+}

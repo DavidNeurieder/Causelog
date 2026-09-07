@@ -46,9 +46,9 @@ impl causelog_export::ExportSource for SqliteRepository {
 
     async fn list_events(
         &self,
-        experiment_id: uuid::Uuid,
+        project_id: uuid::Uuid,
     ) -> anyhow::Result<Vec<causelog_model::ExperimentEvent>> {
-        Ok(Repository::list_events(self, experiment_id).await?)
+        Ok(Repository::list_events_for_project(self, project_id).await?)
     }
 
     async fn list_notes(
@@ -60,10 +60,9 @@ impl causelog_export::ExportSource for SqliteRepository {
 
     async fn list_revisions(
         &self,
-        entity_type: &str,
-        entity_id: uuid::Uuid,
+        project_id: uuid::Uuid,
     ) -> anyhow::Result<Vec<causelog_model::Revision>> {
-        Ok(Repository::list_revisions(self, entity_type, entity_id).await?)
+        Ok(Repository::list_revisions_for_project(self, project_id).await?)
     }
 
     async fn list_links(
@@ -122,9 +121,9 @@ impl causelog_export::ExportSource for &dyn Repository {
 
     async fn list_events(
         &self,
-        experiment_id: uuid::Uuid,
+        project_id: uuid::Uuid,
     ) -> anyhow::Result<Vec<causelog_model::ExperimentEvent>> {
-        Ok(Repository::list_events(*self, experiment_id).await?)
+        Ok(Repository::list_events_for_project(*self, project_id).await?)
     }
 
     async fn list_notes(
@@ -136,10 +135,9 @@ impl causelog_export::ExportSource for &dyn Repository {
 
     async fn list_revisions(
         &self,
-        entity_type: &str,
-        entity_id: uuid::Uuid,
+        project_id: uuid::Uuid,
     ) -> anyhow::Result<Vec<causelog_model::Revision>> {
-        Ok(Repository::list_revisions(*self, entity_type, entity_id).await?)
+        Ok(Repository::list_revisions_for_project(*self, project_id).await?)
     }
 
     async fn list_links(

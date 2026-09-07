@@ -163,7 +163,9 @@ fn json_round_trip_preserves_everything() {
 
 #[test]
 fn markdown_tree_has_frontmatter_and_files() {
-    let files = render_markdown(&fixture());
+    let ep = fixture();
+    let story = causelog_export::build_story_with_config(&ep, None);
+    let files = render_markdown(&ep, &story);
     let names: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
 
     assert!(names.contains(&"README.md"));
@@ -190,7 +192,9 @@ fn markdown_tree_has_frontmatter_and_files() {
 
 #[test]
 fn html_site_is_offline_and_complete() {
-    let files = causelog_export::html::render_html(&fixture());
+    let ep = fixture();
+    let story = causelog_export::build_story_with_config(&ep, None);
+    let files = causelog_export::html::render_html(&ep, &story);
     let names: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
     let mut all_content = String::new();
     for f in &files {

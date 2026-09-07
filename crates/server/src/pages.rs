@@ -394,7 +394,9 @@ struct RecentActivityView {
 }
 
 /// Order a list of entity ids per the editor's saved order; entities the
-/// editor has never seen keep their canonical (build) position.
+/// editor has never seen keep their canonical (build) position. Used by the
+/// story editor's preset checkboxes; the final rendering order comes from
+/// `causelog_export::build_story_with_config`.
 fn story_order(story_ids: Vec<Uuid>, configured: &[StoryConfigItem]) -> Vec<Uuid> {
     let asked: Vec<Uuid> = configured
         .iter()
@@ -410,22 +412,26 @@ fn story_order(story_ids: Vec<Uuid>, configured: &[StoryConfigItem]) -> Vec<Uuid
     ordered
 }
 
-/// Derive the landing-page story view from the canonical export, so the UI
-/// and the export renderers consume the same `ProjectStory` (UX contract:
-/// no presentation queries the database directly). A saved `StoryConfig`
-/// overrides selection, ordering, and summaries — the records themselves
-/// are never modified.
+/// Derive the landing-page story view from the canonical export and the saved
+/// `StoryConfig`, so the UI and the export renderers consume the **same
+/// configured `ProjectStory`** (UX contract: no presentation queries the
+/// database directly, and no renderer re-interprets the config). Selection,
+/// ordering, summaries, the parent rule, and the custom problem are all
+/// applied by `causelog_export::build_story_with_config`; this function only
+/// reshapes that final story into template views.
 fn story_view(
     export: &causelog_export::model::ExportProject,
     config: Option<&StoryConfig>,
 ) -> StoryView {
-    let story = causelog_export::build_story(export);
-    let no_config = StoryConfig::default();
-    let cfg = config.unwrap_or(&no_config);
+    // The final story: everything downstream (web, Markdown, HTML, ODP,
+    // one-pager, CLI) renders this exact content and ordering.
+    let story = causelog_export::build_story_with_config(export, config);
 
-    // Group raw experiments by the decision they resolve.
-    let by_decision = export.experiments.iter().fold(
-        std::collections::HashMap::<Uuid, Vec<&causelog_model::Experiment>>::new(),
+    // Group the (already configured) experiments under the decision they
+    // resolve. Experiments without a parent decision are governed by their own
+    // flag and only reachable via the full lists.
+    let by_decision = story.experiments.iter().fold(
+        std::collections::HashMap::<Uuid, Vec<&causelog_export::StoryExperiment>>::new(),
         |mut m, e| {
             if let Some(did) = e.decision_id {
                 m.entry(did).or_default().push(e);
@@ -434,42 +440,21 @@ fn story_view(
         },
     );
 
-    let decision_ids: Vec<Uuid> = story.key_decisions.iter().map(|d| d.id).collect();
-    let decision_ids = story_order(decision_ids, &cfg.decisions);
-    let visible_decisions: Vec<Uuid> = decision_ids
+    let decisions: Vec<StoryDecisionView> = story
+        .key_decisions
         .iter()
-        .copied()
-        .filter(|id| cfg.on(&cfg.decisions, *id))
-        .collect();
-
-    let decisions: Vec<StoryDecisionView> = decision_ids
-        .iter()
-        .filter_map(|id| {
-            if !cfg.on(&cfg.decisions, *id) {
-                return None;
-            }
-            let d = story.key_decisions.iter().find(|d| &d.id == id)?;
+        .map(|d| {
             let exps: Vec<StoryExperimentView> = by_decision
-                .get(id)
+                .get(&d.id)
                 .map(|list| {
-                    let exp_ids =
-                        story_order(list.iter().map(|e| e.id).collect(), &cfg.experiments);
-                    let exp_ids: Vec<Uuid> = exp_ids
-                        .iter()
-                        .copied()
-                        .filter(|eid| cfg.on(&cfg.experiments, *eid))
-                        .collect();
-                    exp_ids
-                        .iter()
-                        .filter_map(|eid| {
-                            let e = list.iter().find(|e| &e.id == eid)?;
-                            let events: Vec<causelog_model::ExperimentEvent> = export
+                    list.iter()
+                        .map(|e| StoryExperimentView {
+                            link: format!("/experiments/{}", e.id),
+                            title: e.title.clone(),
+                            status: e.status.clone(),
+                            result: e.result.clone(),
+                            evidence: e
                                 .events
-                                .iter()
-                                .filter(|ev| ev.experiment_id == e.id)
-                                .cloned()
-                                .collect();
-                            let evidence: Vec<String> = events
                                 .iter()
                                 .map(|ev| {
                                     if ev.note.trim().is_empty() {
@@ -478,14 +463,7 @@ fn story_view(
                                         ev.note.trim().to_string()
                                     }
                                 })
-                                .collect();
-                            Some(StoryExperimentView {
-                                link: format!("/experiments/{}", e.id),
-                                title: e.title.clone(),
-                                status: e.status.clone(),
-                                result: e.result.clone(),
-                                evidence,
-                            })
+                                .collect(),
                         })
                         .collect()
                 })
@@ -496,7 +474,7 @@ fn story_view(
                 .and_then(|oid| d.options.iter().find(|o| o.id == oid))
                 .map(|o| o.label.clone())
                 .unwrap_or_default();
-            Some(StoryDecisionView {
+            StoryDecisionView {
                 link: format!("/decisions/{}", d.id),
                 title: d.title.clone(),
                 state: d.state.clone(),
@@ -504,24 +482,15 @@ fn story_view(
                 context: d.context.clone(),
                 rationale: d.rationale.clone(),
                 experiments: exps,
-            })
+            }
         })
         .collect();
 
-    let lesson_ids: Vec<Uuid> = story.lessons.iter().map(|l| l.id).collect();
-    let lesson_ids = story_order(lesson_ids, &cfg.lessons);
-    let lessons: Vec<StoryLessonView> = lesson_ids
+    let lessons: Vec<StoryLessonView> = story
+        .lessons
         .iter()
-        .filter_map(|id| {
-            if !cfg.on(&cfg.lessons, *id) {
-                return None;
-            }
-            let l = story.lessons.iter().find(|l| &l.id == id)?;
-            Some(StoryLessonView {
-                text: cfg
-                    .summary(&cfg.lessons, *id)
-                    .unwrap_or_else(|| l.text.clone()),
-            })
+        .map(|l| StoryLessonView {
+            text: l.text.clone(),
         })
         .collect();
 
@@ -531,7 +500,6 @@ fn story_view(
             .current_state
             .iter()
             .filter(|s| s.state == key)
-            .filter(|s| visible_decisions.contains(&s.decision_id))
             .count() as i64;
         if n > 0 {
             tally.push(StateCountView {
@@ -544,7 +512,6 @@ fn story_view(
     let current_state: Vec<StoryStateView> = story
         .current_state
         .iter()
-        .filter(|s| visible_decisions.contains(&s.decision_id))
         .map(|s| StoryStateView {
             decision_link: format!("/decisions/{}", s.decision_id),
             title: s.title.clone(),
@@ -552,6 +519,8 @@ fn story_view(
         })
         .collect();
 
+    let no_cfg = StoryConfig::default();
+    let cfg = config.unwrap_or(&no_cfg);
     let sections = cfg
         .effective_order()
         .into_iter()
@@ -560,18 +529,13 @@ fn story_view(
             key,
         })
         .collect();
-    let problem = cfg
-        .problem
-        .clone()
-        .or_else(|| {
-            let s = story.problem.clone().unwrap_or_default();
-            if s.trim().is_empty() { None } else { Some(s) }
-        })
-        .unwrap_or_default();
+    let problem = story.problem.clone().unwrap_or_default();
 
     StoryView {
-        data_empty: story.key_decisions.is_empty()
-            && story.lessons.is_empty()
+        // Empty-state onboarding applies only when nothing has been recorded
+        // at all — config-driven hiding must not collapse a populated project
+        // into the "start here" hero.
+        data_empty: export.decisions.is_empty()
             && export.experiments.is_empty()
             && problem.is_empty(),
         sections,
@@ -2373,9 +2337,18 @@ pub(crate) async fn project_export_download(
     };
     let project = require_project_member(&state, &id, &auth_user.user).await?;
     let repo = &*state.repo;
-    let export = causelog_export::collect(&repo, project.id)
+    let export = repo
+        .collect_project_snapshot(project.id)
         .await
         .map_err(|e| ApiError::internal(format!("exporting this project failed: {e:#}")))?;
+
+    // One configured story drives every format, exactly as the web page shows it.
+    let saved_config = state
+        .repo
+        .get_story_config(project.id)
+        .await?
+        .and_then(|json| serde_json::from_str::<StoryConfig>(&json).ok());
+    let story = causelog_export::build_story_with_config(&export, saved_config.as_ref());
 
     let slug = causelog_export::slugify(&export.project.title);
     let now = now_ms() / 1000;
@@ -2389,35 +2362,35 @@ pub(crate) async fn project_export_download(
         ),
         "md" => (
             causelog_export::archive::zip_files(&causelog_export::markdown::render_markdown(
-                &export,
-            )),
+                &export, &story,
+            ))
+            .map_err(|e| ApiError::internal(e.to_string()))?,
             "application/zip".to_string(),
             format!("{slug}-{now}-markdown.zip"),
         ),
         "html" => (
-            causelog_export::archive::zip_files(&causelog_export::html::render_html(&export)),
+            causelog_export::archive::zip_files(&causelog_export::html::render_html(
+                &export, &story,
+            ))
+            .map_err(|e| ApiError::internal(e.to_string()))?,
             "application/zip".to_string(),
             format!("{slug}-{now}-html.zip"),
         ),
         "zip" => (
             causelog_export::archive::archive(
                 &export,
-                &causelog_export::markdown::render_markdown(&export),
-                &causelog_export::html::render_html(&export),
-            ),
+                &causelog_export::markdown::render_markdown(&export, &story),
+                &causelog_export::html::render_html(&export, &story),
+            )
+            .map_err(|e| ApiError::internal(e.to_string()))?,
             "application/zip".to_string(),
             format!("{slug}-{now}.zip"),
         ),
         "odp" => {
-            let saved_config = state
-                .repo
-                .get_story_config(project.id)
-                .await?
-                .and_then(|json| serde_json::from_str::<StoryConfig>(&json).ok());
-            let story = causelog_export::build_story_with_config(&export, saved_config.as_ref());
             let presentation = causelog_export::build_presentation(&story);
             (
-                causelog_export::render_odp(&presentation, &export.causelog_version),
+                causelog_export::render_odp(&presentation, &export.causelog_version)
+                    .map_err(|e| ApiError::internal(e.to_string()))?,
                 "application/vnd.oasis.opendocument.presentation".to_string(),
                 format!("{slug}-{now}.odp"),
             )
@@ -2543,7 +2516,9 @@ async fn load_story(
     PageError,
 > {
     let repo = &*state.repo;
-    let export = causelog_export::collect(&repo, project.id)
+    // Snapshot: the one-pager artifact reflects one consistent project state.
+    let export = repo
+        .collect_project_snapshot(project.id)
         .await
         .map_err(|e| ApiError::internal(format!("loading story failed: {e:#}")))?;
     let saved_config = state

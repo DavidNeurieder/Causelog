@@ -14,6 +14,12 @@ use crate::model::{ExportDecision, ExportProject, ExportRevision};
 /// Storage surface the exporter needs. Implemented for the server's SQLite
 /// repository in the `causelog-server` crate, so the exporter stays free of
 /// any particular backend.
+///
+/// Queries are deliberately project-scoped and bulk: revisions are listed for
+/// the whole project at once and events for the whole project at once, so a
+/// collection is a bounded number of queries instead of one per entity. The
+/// server implements these with a single read transaction for a consistent
+/// snapshot (see `collect_project_snapshot`).
 #[async_trait]
 pub trait ExportSource: Send + Sync {
     async fn find_project(&self, id: Uuid) -> anyhow::Result<Option<Project>>;
@@ -21,13 +27,11 @@ pub trait ExportSource: Send + Sync {
     async fn list_goals(&self, project_id: Uuid) -> anyhow::Result<Vec<Goal>>;
     async fn list_decisions(&self, project_id: Uuid) -> anyhow::Result<Vec<Decision>>;
     async fn list_experiments(&self, project_id: Uuid) -> anyhow::Result<Vec<Experiment>>;
-    async fn list_events(&self, experiment_id: Uuid) -> anyhow::Result<Vec<ExperimentEvent>>;
+    /// All events for every experiment in the project, in one query.
+    async fn list_events(&self, project_id: Uuid) -> anyhow::Result<Vec<ExperimentEvent>>;
     async fn list_notes(&self, project_id: Uuid) -> anyhow::Result<Vec<Note>>;
-    async fn list_revisions(
-        &self,
-        entity_type: &str,
-        entity_id: Uuid,
-    ) -> anyhow::Result<Vec<Revision>>;
+    /// All revisions (decisions + notes) for the project, in one query.
+    async fn list_revisions(&self, project_id: Uuid) -> anyhow::Result<Vec<Revision>>;
     async fn list_links(&self, project_id: Uuid) -> anyhow::Result<Vec<Link>>;
     async fn decision_knowledge_states(
         &self,
@@ -93,34 +97,18 @@ pub async fn collect(source: &dyn ExportSource, project_id: Uuid) -> anyhow::Res
         (l.created_at_ms, l.id)
     });
 
-    for d in &out.decisions {
-        out.revisions.extend(
-            source
-                .list_revisions("decision", d.id)
-                .await?
-                .into_iter()
-                .map(export_revision),
-        );
-    }
-    for n in &out.notes {
-        out.revisions.extend(
-            source
-                .list_revisions("note", n.id)
-                .await?
-                .into_iter()
-                .map(export_revision),
-        );
-    }
-    out.revisions = by_stable_order(std::mem::take(&mut out.revisions), |r: &ExportRevision| {
-        (r.created_at_ms, r.id)
-    });
+    out.revisions = source
+        .list_revisions(project_id)
+        .await?
+        .into_iter()
+        .map(export_revision)
+        .collect();
+    out.revisions = by_stable_order(out.revisions, |r: &ExportRevision| (r.created_at_ms, r.id));
 
-    for e in &out.experiments {
-        out.events.extend(source.list_events(e.id).await?);
-    }
-    out.events = by_stable_order(std::mem::take(&mut out.events), |ev: &ExperimentEvent| {
-        (ev.at_ms, ev.id)
-    });
+    out.events = by_stable_order(
+        source.list_events(project_id).await?,
+        |ev: &ExperimentEvent| (ev.at_ms, ev.id),
+    );
 
     Ok(out)
 }

@@ -24,6 +24,9 @@ pub enum Slide {
     Decision {
         title: String,
         state: String,
+        /// Id of the chosen option (`decided_option`), compared against
+        /// `DecisionOption.id`. The display label is derived from it.
+        decided_option: Option<String>,
         decided_label: Option<String>,
         context: String,
         rationale: String,
@@ -74,6 +77,7 @@ pub fn build_presentation(story: &ProjectStory) -> Presentation {
         slides.push(Slide::Decision {
             title: d.title.clone(),
             state: d.state.clone(),
+            decided_option: d.decided_option.clone(),
             decided_label,
             context: d.context.clone(),
             rationale: d.rationale.clone(),
@@ -171,6 +175,7 @@ fn page_xml(index: usize, slide: &Slide) -> String {
         } => body(&[("P-kicker", "Goal".into()), ("P-body", body_text.clone())]),
         Slide::Decision {
             state,
+            decided_option,
             decided_label,
             context,
             rationale,
@@ -196,8 +201,10 @@ fn page_xml(index: usize, slide: &Slide) -> String {
                     .iter()
                     .map(|o| format!("- {} — pro: {} con: {}", o.label, o.pros, o.cons))
                     .collect();
-                if let Some(label) = decided_label
-                    && let Some(o) = options.iter().find(|o| o.id == *label)
+                // Compare by option id (the stable key), never by label, and
+                // derive the display label from that same option.
+                if let Some(oid) = decided_option.as_deref()
+                    && let Some(o) = options.iter().find(|o| o.id == oid)
                 {
                     opts.push(format!("→ {}", o.label));
                 }
@@ -395,8 +402,21 @@ fn manifest_xml() -> String {
         .to_string()
 }
 
-/// Render a presentation to ODP bytes (a ZIP of ODF XML).
-pub fn render_odp(presentation: &Presentation, causelog_version: &str) -> Vec<u8> {
+/// Errors from packaging a presentation into ODP bytes.
+#[derive(Debug, thiserror::Error)]
+pub enum OdfError {
+    #[error("odp packaging failed: {0}")]
+    Zip(#[from] zip::result::ZipError),
+    #[error("odp part could not be written: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+/// Render a presentation to ODP bytes (a ZIP of ODF XML). Packaging failures
+/// are returned, never panicked on.
+pub fn render_odp(
+    presentation: &Presentation,
+    causelog_version: &str,
+) -> Result<Vec<u8>, OdfError> {
     use zip::write::SimpleFileOptions;
 
     let mut buf = std::io::Cursor::new(Vec::new());
@@ -405,17 +425,14 @@ pub fn render_odp(presentation: &Presentation, causelog_version: &str) -> Vec<u8
 
         // `mimetype` must be the first entry and stored uncompressed for a
         // valid OpenDocument package.
-        writer
-            .start_file(
-                "mimetype",
-                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
-            )
-            .expect("zip entry starts");
+        writer.start_file(
+            "mimetype",
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+        )?;
         std::io::Write::write_all(
             &mut writer,
             b"application/vnd.oasis.opendocument.presentation",
-        )
-        .expect("mimetype written");
+        )?;
 
         let stored = [
             ("content.xml", content_xml(presentation)),
@@ -426,10 +443,10 @@ pub fn render_odp(presentation: &Presentation, causelog_version: &str) -> Vec<u8
         let options =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         for (name, content) in stored {
-            writer.start_file(name, options).expect("zip entry starts");
-            std::io::Write::write_all(&mut writer, content.as_bytes()).expect("odp part written");
+            writer.start_file(name, options)?;
+            std::io::Write::write_all(&mut writer, content.as_bytes())?;
         }
-        writer.finish().expect("odp finished");
+        writer.finish()?;
     }
-    buf.into_inner()
+    Ok(buf.into_inner())
 }

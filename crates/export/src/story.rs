@@ -55,6 +55,11 @@ pub struct StoryDecision {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoryExperiment {
     pub id: Uuid,
+    /// The decision this experiment resolves, if any. Carried so configuration
+    /// can enforce the parent rule (an experiment cannot appear when its
+    /// parent decision is excluded) and so renderers can group it under the
+    /// right decision.
+    pub decision_id: Option<Uuid>,
     pub title: String,
     /// `planned` | `running` | `done` | `abandoned`
     pub status: String,
@@ -185,6 +190,7 @@ fn story_decision(d: &ExportDecision, links: &[causelog_model::Link]) -> StoryDe
 fn story_experiment(e: &Experiment, events: &[ExperimentEvent]) -> StoryExperiment {
     StoryExperiment {
         id: e.id,
+        decision_id: e.decision_id,
         title: e.title.clone(),
         status: e.status.clone(),
         hypothesis: e.hypothesis.clone(),
@@ -196,4 +202,56 @@ fn story_experiment(e: &Experiment, events: &[ExperimentEvent]) -> StoryExperime
             .cloned()
             .collect(),
     }
+}
+
+/// One entity of the flat, ordered narrative chain used by the Markdown/HTML
+/// renderers' "Story" sections. Derived exclusively from a (configured)
+/// [`ProjectStory`], so excluded content can never be resurrected.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoryChainEntry {
+    /// `goal` | `decision` | `experiment` | `lesson`
+    pub kind: &'static str,
+    pub title: String,
+    pub id: Uuid,
+    /// Knowledge-state / status tag, empty when not applicable.
+    pub tag: String,
+}
+
+/// The narrative chain in configured order: goal → key decisions → experiments
+/// → lessons. Mirrors exactly what the web story shows.
+pub fn story_chain(story: &ProjectStory) -> Vec<StoryChainEntry> {
+    let mut chain = Vec::new();
+    if let Some(g) = &story.goal {
+        chain.push(StoryChainEntry {
+            kind: "goal",
+            title: g.title.clone(),
+            id: g.id,
+            tag: g.status.clone(),
+        });
+    }
+    for d in &story.key_decisions {
+        chain.push(StoryChainEntry {
+            kind: "decision",
+            title: d.title.clone(),
+            id: d.id,
+            tag: d.state.clone(),
+        });
+    }
+    for e in &story.experiments {
+        chain.push(StoryChainEntry {
+            kind: "experiment",
+            title: e.title.clone(),
+            id: e.id,
+            tag: e.status.clone(),
+        });
+    }
+    for l in &story.lessons {
+        chain.push(StoryChainEntry {
+            kind: "lesson",
+            title: l.text.clone(),
+            id: l.id,
+            tag: String::new(),
+        });
+    }
+    chain
 }

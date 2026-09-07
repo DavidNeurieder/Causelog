@@ -61,7 +61,7 @@ fn read_zip_entry(bytes: &[u8], name: &str) -> String {
 #[test]
 fn archive_contains_manifest_project_json_and_tree() {
     let ep = export();
-    let bundle = archive(&ep, &sample_markdown(), &[]);
+    let bundle = archive(&ep, &sample_markdown(), &[]).unwrap();
     let names = zip_names(&bundle);
 
     for expected in ["manifest.json", "project.json", "README.md", "timeline.md"] {
@@ -79,12 +79,13 @@ fn archive_contains_manifest_project_json_and_tree() {
 
 #[test]
 fn manifest_lists_exact_file_paths() {
-    let bundle = archive(&export(), &sample_markdown(), &[]);
+    let bundle = archive(&export(), &sample_markdown(), &[]).unwrap();
     let manifest: Manifest =
         serde_json::from_str(&read_zip_entry(&bundle, "manifest.json")).unwrap();
 
     assert_eq!(manifest.format, "causelog-archive");
     assert_eq!(manifest.version, 1);
+    assert_eq!(manifest.schema_version, 1);
     assert_eq!(manifest.project.title, "Coffee Machine Uprising");
     assert_eq!(manifest.project.slug, "coffee-machine-uprising");
     let paths: Vec<&str> = manifest.files.iter().map(|f| f.path.as_str()).collect();
@@ -97,8 +98,8 @@ fn manifest_lists_exact_file_paths() {
 #[test]
 fn archive_is_deterministic_bytes() {
     let ep = export();
-    let a = archive(&ep, &sample_markdown(), &[]);
-    let b = archive(&ep, &sample_markdown(), &[]);
+    let a = archive(&ep, &sample_markdown(), &[]).unwrap();
+    let b = archive(&ep, &sample_markdown(), &[]).unwrap();
     assert_eq!(a, b, "same input must produce identical archive bytes");
 }
 
@@ -108,7 +109,7 @@ fn archive_includes_html_assets_when_present() {
         path: "assets/styles.css".into(),
         content: "body { color: #000; }\n".into(),
     }];
-    let bundle = archive(&export(), &sample_markdown(), &html);
+    let bundle = archive(&export(), &sample_markdown(), &html).unwrap();
     let names = zip_names(&bundle);
     assert!(
         names.iter().any(|n| n == "assets/styles.css"),

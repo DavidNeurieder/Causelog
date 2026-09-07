@@ -7,6 +7,7 @@ use causelog_content::render_markdown;
 use causelog_model::{Experiment, Goal, Note};
 
 use crate::ExportFile;
+use crate::ProjectStory;
 use crate::model::{ExportProject, file_stem};
 
 const CSS: &str = include_str!("../static/export.css");
@@ -49,7 +50,12 @@ fn date(ms: i64) -> String {
 }
 
 /// Render the whole project as an offline static site.
-pub fn render_html(project: &ExportProject) -> Vec<ExportFile> {
+///
+/// `story` is the **configured** [`ProjectStory`] (see
+/// `build_story_with_config`): the index's Story and Current-state sections
+/// come from it, so excluded content is never resurrected. Entity pages
+/// themselves stay lossless.
+pub fn render_html(project: &ExportProject, story: &ProjectStory) -> Vec<ExportFile> {
     let css_file = ExportFile {
         path: "assets/styles.css".into(),
         content: CSS.to_string(),
@@ -61,7 +67,7 @@ pub fn render_html(project: &ExportProject) -> Vec<ExportFile> {
     let nav = nav("", "");
     files.push(ExportFile {
         path: "index.html".into(),
-        content: page(&title, &nav, index_body(project), "index"),
+        content: page(&title, &nav, index_body(project, story), "index"),
     });
     files.push(ExportFile {
         path: "timeline.html".into(),
@@ -174,7 +180,7 @@ fn sections(blocks: Vec<(String, String)>) -> String {
     out
 }
 
-fn index_body(project: &ExportProject) -> String {
+fn index_body(project: &ExportProject, story: &ProjectStory) -> String {
     let p = &project.project;
     let mut blocks = Vec::new();
 
@@ -185,7 +191,16 @@ fn index_body(project: &ExportProject) -> String {
     };
     blocks.push(("Summary".into(), summary));
 
-    let states = tally_states(project);
+    if let Some(problem) = story.problem.as_deref()
+        && !problem.trim().is_empty()
+    {
+        blocks.push((
+            "Problem".into(),
+            format!("<p>{}</p>", render_markdown(problem)),
+        ));
+    }
+
+    let states = story_state_tally(story);
     let chips = if states.is_empty() {
         "<p class=\"muted\">No decided decisions yet.</p>".to_string()
     } else {
@@ -200,26 +215,7 @@ fn index_body(project: &ExportProject) -> String {
         format!("<div class=\"chips\">{chips}</div>"),
     ));
 
-    let story = story_chain_html(project, "");
-    let story_html = if story.is_empty() {
-        "<p class=\"muted\">Nothing here yet.</p>".to_string()
-    } else {
-        let mut out = String::from("<ol class=\"story\">\n");
-        for (kind, title, link, tag) in story {
-            let tag_html = if tag.is_empty() {
-                String::new()
-            } else {
-                format!(" <span class=\"tag state-{tag}\">{tag}</span>")
-            };
-            out.push_str(&format!(
-                "<li class=\"story-{kind}\"><span class=\"mark\">{kind}</span> <a href=\"{link}\">{}</a>{}</li>\n",
-                esc(&title),
-                tag_html
-            ));
-        }
-        out.push_str("</ol>\n");
-        out
-    };
+    let story_html = story_list_html(story, "");
     blocks.push(("Story".into(), story_html));
 
     blocks.push(("Goals".into(), list_goals(project, "")));
@@ -324,44 +320,44 @@ fn list_notes(project: &ExportProject, dir: &str) -> String {
     out
 }
 
-fn story_chain_html(project: &ExportProject, dir: &str) -> Vec<(String, String, String, String)> {
-    let mut all: Vec<(i64, String, String, uuid::Uuid)> = Vec::new();
-    for g in &project.goals {
-        all.push((g.created_at_ms, "goal".into(), g.title.clone(), g.id));
+/// The nested story as an `<ol class="story">`; entries come from the
+/// **configured** story so excluded content is never listed.
+fn story_list_html(story: &ProjectStory, dir: &str) -> String {
+    let chain = crate::story_chain(story);
+    if chain.is_empty() {
+        return "<p class=\"muted\">Nothing here yet.</p>".to_string();
     }
-    for d in &project.decisions {
-        all.push((d.created_at_ms, "decision".into(), d.title.clone(), d.id));
+    let mut out = String::from("<ol class=\"story\">\n");
+    for entry in chain {
+        let link = href(dir, entry.kind, &entry.title, entry.id);
+        let tag_html = if entry.tag.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " <span class=\"tag state-{}\">{}</span>",
+                esc(&entry.tag),
+                esc(&entry.tag)
+            )
+        };
+        out.push_str(&format!(
+            "<li class=\"story-{}\"><span class=\"mark\">{}</span> <a href=\"{link}\">{}</a>{}</li>\n",
+            entry.kind,
+            entry.kind,
+            esc(&entry.title),
+            tag_html
+        ));
     }
-    for e in &project.experiments {
-        all.push((e.created_at_ms, "experiment".into(), e.title.clone(), e.id));
-    }
-    for n in &project.notes {
-        all.push((n.created_at_ms, "note".into(), n.title.clone(), n.id));
-    }
-    all.sort_by_key(|(t, kind, title, id)| (*t, kind.clone(), title.clone(), *id));
-    all.into_iter()
-        .map(|(_, kind, title, id)| {
-            let link = href(dir, &kind, &title, id);
-            let tag = if kind == "decision" {
-                project
-                    .decisions
-                    .iter()
-                    .find(|d| d.id == id)
-                    .and_then(|d| d.state.clone())
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            (kind, title, link, tag)
-        })
-        .collect()
+    out.push_str("</ol>\n");
+    out
 }
 
-fn tally_states(project: &ExportProject) -> Vec<(String, usize)> {
+/// Knowledge-state tally of the decisions in the **configured** story, sorted
+/// ascending by state label. Only decisions that survived configuration appear.
+fn story_state_tally(story: &ProjectStory) -> Vec<(String, usize)> {
     let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for d in &project.decisions {
-        if let Some(state) = d.state.as_deref() {
-            *counts.entry(state).or_insert(0) += 1;
+    for d in &story.key_decisions {
+        if !d.state.is_empty() {
+            *counts.entry(d.state.as_str()).or_insert(0) += 1;
         }
     }
     let mut out: Vec<(String, usize)> = counts

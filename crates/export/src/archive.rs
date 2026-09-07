@@ -14,6 +14,14 @@
 //! ├── goals/ decisions/ experiments/ notes/
 //! └── assets/   (HTML site assets, when present)
 //! ```
+//!
+//! # Format stability
+//!
+//! Entry names and the `project.json` payload are versioned by
+//! [`ARCHIVE_FORMAT`] + [`ARCHIVE_VERSION`]; `manifest.json` records the
+//! archive format version, the app version that produced it, and identifies
+//! the originating project. Packaging errors are returned as [`ArchiveError`];
+//! the archive routines never panic.
 
 use serde::{Deserialize, Serialize};
 use zip::write::SimpleFileOptions;
@@ -25,13 +33,31 @@ use crate::model::{ExportProject, slugify};
 pub const ARCHIVE_FORMAT: &str = "causelog-archive";
 /// Current archive format version. Bump whenever the manifest changes.
 pub const ARCHIVE_VERSION: u32 = 1;
+/// Schema version of the bundled `project.json`/`manifest.json` payload.
+pub const ARCHIVE_SCHEMA_VERSION: u32 = 1;
+
+/// Errors from packaging an export archive.
+#[derive(Debug, thiserror::Error)]
+pub enum ArchiveError {
+    #[error("archive packaging failed: {0}")]
+    Zip(#[from] zip::result::ZipError),
+    #[error("archive part could not be written: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("archive manifest could not be serialized: {0}")]
+    Serialize(#[from] serde_json::Error),
+    #[error("export json could not be serialized: {0}")]
+    Snapshot(String),
+}
 
 /// The archive manifest: what is in the bundle and how to read it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Manifest {
     pub format: String,
     pub version: u32,
+    /// Schema version of the payload in this bundle ([`ARCHIVE_SCHEMA_VERSION`]).
+    pub schema_version: u32,
     pub exported_at_ms: i64,
+    /// App version that produced this archive.
     pub causelog_version: String,
     pub project: ManifestProject,
     /// Every entry in the archive, in insertion (deterministic) order.
@@ -58,8 +84,13 @@ pub struct ManifestFile {
 ///
 /// `markdown` and `html` are the renderers' output (use the _path_ as the ZIP
 /// entry name); only the JSON itself is added automatically.
-pub fn archive(export: &ExportProject, markdown: &[ExportFile], html: &[ExportFile]) -> Vec<u8> {
-    let json = crate::json::render_json(export).expect("serializing the export cannot fail");
+pub fn archive(
+    export: &ExportProject,
+    markdown: &[ExportFile],
+    html: &[ExportFile],
+) -> Result<Vec<u8>, ArchiveError> {
+    let json =
+        crate::json::render_json(export).map_err(|e| ArchiveError::Snapshot(e.to_string()))?;
     let slug = slugify(&export.project.title);
 
     let mut entries = vec![
@@ -78,6 +109,7 @@ pub fn archive(export: &ExportProject, markdown: &[ExportFile], html: &[ExportFi
     let manifest = Manifest {
         format: ARCHIVE_FORMAT.into(),
         version: ARCHIVE_VERSION,
+        schema_version: ARCHIVE_SCHEMA_VERSION,
         exported_at_ms: export.exported_at_ms,
         causelog_version: export.causelog_version.clone(),
         project: ManifestProject {
@@ -93,7 +125,7 @@ pub fn archive(export: &ExportProject, markdown: &[ExportFile], html: &[ExportFi
             })
             .collect(),
     };
-    entries[1].content = serde_json::to_string_pretty(&manifest).expect("manifest serializes");
+    entries[1].content = serde_json::to_string_pretty(&manifest)?;
 
     zip_files(&entries)
 }
@@ -113,7 +145,7 @@ fn manifest_format(path: &str) -> String {
 
 /// Pack an arbitrary set of files into one deterministic ZIP: entries written
 /// in input order, same options for every file, no timestamps.
-pub fn zip_files(files: &[ExportFile]) -> Vec<u8> {
+pub fn zip_files(files: &[ExportFile]) -> Result<Vec<u8>, ArchiveError> {
     let mut buf = std::io::Cursor::new(Vec::new());
     {
         let mut writer = zip::ZipWriter::new(&mut buf);
@@ -121,12 +153,10 @@ pub fn zip_files(files: &[ExportFile]) -> Vec<u8> {
             .compression_method(zip::CompressionMethod::Deflated)
             .unix_permissions(0o644);
         for file in files {
-            writer
-                .start_file(&file.path, options)
-                .expect("zip entry starts");
-            std::io::Write::write_all(&mut writer, file.content.as_bytes()).expect("file written");
+            writer.start_file(&file.path, options)?;
+            std::io::Write::write_all(&mut writer, file.content.as_bytes())?;
         }
-        writer.finish().expect("zip finished");
+        writer.finish()?;
     }
-    buf.into_inner()
+    Ok(buf.into_inner())
 }
