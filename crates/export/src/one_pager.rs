@@ -388,27 +388,25 @@ pub fn one_pager_svg(story: &crate::ProjectStory, sections: &[String]) -> String
                     }
                 }
             }
-            "timeline" => {
-                if !story.timeline.is_empty() {
-                    heading("Timeline", &mut lines, &mut y);
-                    for t in &story.timeline {
-                        let detail = if t.detail.is_empty() {
-                            &t.title
-                        } else {
-                            &t.detail
-                        };
-                        line!(
-                            lines,
-                            MARGIN,
-                            y,
-                            11.5,
-                            "#666666",
-                            "normal",
-                            format_day(t.at_ms)
-                        );
-                        line!(lines, MARGIN + 90.0, y, 11.5, "#1c1e21", "normal", detail);
-                        y += LINE;
-                    }
+            "timeline" if !story.timeline.is_empty() => {
+                heading("Timeline", &mut lines, &mut y);
+                for t in &story.timeline {
+                    let detail = if t.detail.is_empty() {
+                        &t.title
+                    } else {
+                        &t.detail
+                    };
+                    line!(
+                        lines,
+                        MARGIN,
+                        y,
+                        11.5,
+                        "#666666",
+                        "normal",
+                        format_day(t.at_ms)
+                    );
+                    line!(lines, MARGIN + 90.0, y, 11.5, "#1c1e21", "normal", detail);
+                    y += LINE;
                 }
             }
             _ => {}
