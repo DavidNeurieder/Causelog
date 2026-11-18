@@ -348,6 +348,33 @@ pub trait Repository: Send + Sync {
         query: &str,
         project_ids: Option<&[Uuid]>,
     ) -> Result<Vec<SearchRow>, RepositoryError>;
+
+    // -----------------------------------------------------------------------
+    // Idempotency (API v1 safe retries)
+    // -----------------------------------------------------------------------
+
+    async fn get_idempotency(
+        &self,
+        user_id: Uuid,
+        key: &str,
+    ) -> Result<Option<IdempotencyRecord>, RepositoryError>;
+    async fn save_idempotency(
+        &self,
+        user_id: Uuid,
+        key: &str,
+        method: &str,
+        path: &str,
+        request_hash: &str,
+        status_code: i64,
+        response_body: &str,
+    ) -> Result<(), RepositoryError>;
+}
+
+#[derive(Debug, Clone)]
+pub struct IdempotencyRecord {
+    pub status_code: i64,
+    pub response_body: String,
+    pub request_hash: String,
 }
 
 /// One full-text search hit.
@@ -2323,6 +2350,54 @@ impl Repository for SqliteRepository {
                 rank: r.try_get::<f64, _>("rank").unwrap_or(0.0),
             })
             .collect())
+    }
+
+    async fn get_idempotency(
+        &self,
+        user_id: Uuid,
+        key: &str,
+    ) -> Result<Option<IdempotencyRecord>, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT request_hash, status_code, response_body FROM idempotency_keys
+             WHERE user_id = ? AND idem_key = ?",
+        )
+        .bind(user_id.to_string())
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| IdempotencyRecord {
+            status_code: r.get::<i64, _>("status_code"),
+            response_body: r.get::<String, _>("response_body"),
+            request_hash: r.get::<String, _>("request_hash"),
+        }))
+    }
+
+    async fn save_idempotency(
+        &self,
+        user_id: Uuid,
+        key: &str,
+        method: &str,
+        path: &str,
+        request_hash: &str,
+        status_code: i64,
+        response_body: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO idempotency_keys
+             (user_id, idem_key, method, path, request_hash, status_code, response_body, created_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(user_id.to_string())
+        .bind(key)
+        .bind(method)
+        .bind(path)
+        .bind(request_hash)
+        .bind(status_code)
+        .bind(response_body)
+        .bind(causelog_content::now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }
 

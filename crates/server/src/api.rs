@@ -10,6 +10,7 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use causelog_model::{Decision, DecisionOption, Goal, Note, Project, User};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -228,6 +229,90 @@ struct Capabilities {
     export_formats: Vec<&'static str>,
 }
 
+#[derive(Debug)]
+struct IdempotencyPending {
+    key: String,
+    hash: String,
+}
+
+enum IdempotencyState {
+    NoKey,
+    Replay(Response),
+    Fresh(IdempotencyPending),
+}
+
+fn idempotency_key_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn idempotency_hash(method: &str, path: &str, body: &serde_json::Value) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(method.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(path.as_bytes());
+    hasher.update(b"\n");
+    let body_str = serde_json::to_string(body).unwrap_or_else(|_| "null".to_string());
+    hasher.update(body_str.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+async fn idempotency_check(
+    state: &AppState,
+    user_id: Uuid,
+    headers: &HeaderMap,
+    method: &'static str,
+    path: &str,
+    body: &serde_json::Value,
+) -> Result<IdempotencyState, ApiError> {
+    let Some(key) = idempotency_key_header(headers) else {
+        return Ok(IdempotencyState::NoKey);
+    };
+    let hash = idempotency_hash(method, path, body);
+    if let Some(rec) = state.repo.get_idempotency(user_id, &key).await? {
+        if rec.request_hash != hash {
+            return Err(ApiError::conflict(
+                "idempotency key reused with a different request payload",
+            ));
+        }
+        let status = StatusCode::from_u16(rec.status_code as u16).unwrap_or(StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_str(&rec.response_body)
+            .unwrap_or_else(|_| serde_json::json!({"error":"invalid stored response","code":"internal"}));
+        return Ok(IdempotencyState::Replay(
+            (status, Json(body)).into_response(),
+        ));
+    }
+    Ok(IdempotencyState::Fresh(IdempotencyPending { key, hash }))
+}
+
+async fn idempotency_save(
+    state: &AppState,
+    user_id: Uuid,
+    pending: &IdempotencyPending,
+    method: &'static str,
+    path: &str,
+    status: StatusCode,
+    body: &serde_json::Value,
+) -> Result<(), ApiError> {
+    let body_str = serde_json::to_string(body).unwrap_or_else(|_| "{}".to_string());
+    state
+        .repo
+        .save_idempotency(
+            user_id,
+            &pending.key,
+            method,
+            path,
+            &pending.hash,
+            status.as_u16() as i64,
+            &body_str,
+        )
+        .await?;
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 struct AuthCapabilities {
     mode: &'static str,
@@ -408,7 +493,7 @@ async fn session(
 // Projects
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ProjectCreateRequest {
     csrf_token: Option<String>,
     title: String,
@@ -416,7 +501,7 @@ struct ProjectCreateRequest {
     status: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ProjectUpdateRequest {
     csrf_token: Option<String>,
     title: Option<String>,
@@ -453,6 +538,19 @@ async fn create_project(
 ) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        "/api/v1/projects",
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let title = body.title.trim();
     if title.is_empty() {
         return Err(ApiError::bad_request("title is required"));
@@ -470,6 +568,19 @@ async fn create_project(
             Some(auth_user.user.id),
         )
         .await?;
+    let resp_val = serde_json::to_value(&project).unwrap_or(serde_json::Value::Null);
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            "/api/v1/projects",
+            StatusCode::CREATED,
+            &resp_val,
+        )
+        .await?;
+    }
     Ok((StatusCode::CREATED, Json(project)).into_response())
 }
 
@@ -619,7 +730,7 @@ async fn remove_project_member(
 // Goals
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct GoalCreateRequest {
     csrf_token: Option<String>,
     title: String,
@@ -679,6 +790,20 @@ async fn create_goal(
 ) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let idem_path = format!("/api/v1/projects/{project_id}/goals");
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let pid = parse_uuid_param(&project_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     let title = body.title.trim();
@@ -705,6 +830,19 @@ async fn create_goal(
         .find_goal(goal.id)
         .await?
         .ok_or_else(|| ApiError::not_found("goal not found"))?;
+    let resp_val = serde_json::to_value(&goal).unwrap_or(serde_json::Value::Null);
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            &idem_path,
+            StatusCode::CREATED,
+            &resp_val,
+        )
+        .await?;
+    }
     Ok((StatusCode::CREATED, Json(goal)).into_response())
 }
 
@@ -816,7 +954,7 @@ async fn get_decision(
     Ok(Json(decision))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct DecisionCreateRequest {
     csrf_token: Option<String>,
     title: String,
@@ -833,6 +971,20 @@ async fn create_decision(
 ) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let idem_path = format!("/api/v1/projects/{project_id}/decisions");
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let pid = parse_uuid_param(&project_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     let title = body.title.trim();
@@ -851,6 +1003,19 @@ async fn create_decision(
             Some(auth_user.user.id),
         )
         .await?;
+    let resp_val = serde_json::to_value(&decision).unwrap_or(serde_json::Value::Null);
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            &idem_path,
+            StatusCode::CREATED,
+            &resp_val,
+        )
+        .await?;
+    }
     Ok((StatusCode::CREATED, Json(decision)).into_response())
 }
 
@@ -906,7 +1071,7 @@ async fn delete_decision(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct DecisionResolveRequest {
     csrf_token: Option<String>,
     status: String,
@@ -920,11 +1085,29 @@ async fn resolve_decision(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<DecisionResolveRequest>,
-) -> Result<Json<Decision>, ApiError> {
+) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let idem_path = format!("/api/v1/decisions/{id}/resolve");
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let did = parse_uuid_param(&id)?;
-    let d = state.repo.find_decision(did).await?.ok_or_else(|| ApiError::not_found("decision not found"))?;
+    let d = state
+        .repo
+        .find_decision(did)
+        .await?
+        .ok_or_else(|| ApiError::not_found("decision not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, d.project_id).await?;
     if !matches!(body.status.as_str(), "decided" | "rejected") {
         return Err(ApiError::bad_request("invalid resolution status"));
@@ -939,7 +1122,20 @@ async fn resolve_decision(
             body.review_at_ms,
         )
         .await?;
-    Ok(Json(d))
+    let resp_val = serde_json::to_value(&d).unwrap_or(serde_json::Value::Null);
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            &idem_path,
+            StatusCode::OK,
+            &resp_val,
+        )
+        .await?;
+    }
+    Ok((StatusCode::OK, Json(d)).into_response())
 }
 
 async fn list_decision_revisions(
@@ -1053,7 +1249,7 @@ async fn compare_decision_revisions(
 // Experiments
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ExperimentCreateRequest {
     csrf_token: Option<String>,
     title: String,
@@ -1094,6 +1290,20 @@ async fn create_experiment(
 ) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let idem_path = format!("/api/v1/projects/{project_id}/experiments");
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let pid = parse_uuid_param(&project_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     let title = body.title.trim();
@@ -1111,6 +1321,19 @@ async fn create_experiment(
             Some(auth_user.user.id),
         )
         .await?;
+    let resp_val = serde_json::to_value(&exp).unwrap_or(serde_json::Value::Null);
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            &idem_path,
+            StatusCode::CREATED,
+            &resp_val,
+        )
+        .await?;
+    }
     Ok((StatusCode::CREATED, Json(exp)).into_response())
 }
 
@@ -1188,7 +1411,7 @@ async fn delete_experiment(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ExperimentEventCreateRequest {
     csrf_token: Option<String>,
     kind: String,
@@ -1204,6 +1427,20 @@ async fn create_experiment_event(
 ) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let idem_path = format!("/api/v1/experiments/{id}/events");
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let eid = parse_uuid_param(&id)?;
     let exp = state
         .repo
@@ -1220,6 +1457,19 @@ async fn create_experiment_event(
     }
     let at_ms = body.at_ms.unwrap_or_else(causelog_content::now_ms);
     let event = state.repo.create_event(eid, &body.kind, at_ms, note).await?;
+    let resp_val = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            &idem_path,
+            StatusCode::CREATED,
+            &resp_val,
+        )
+        .await?;
+    }
     Ok((StatusCode::CREATED, Json(event)).into_response())
 }
 
@@ -1249,7 +1499,7 @@ async fn delete_experiment_event(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ExtractLessonRequest {
     csrf_token: Option<String>,
     title: Option<String>,
@@ -1264,6 +1514,20 @@ async fn extract_lesson(
 ) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let idem_path = format!("/api/v1/experiments/{id}/extract");
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let eid = parse_uuid_param(&id)?;
     let exp = state
         .repo
@@ -1283,7 +1547,11 @@ async fn extract_lesson(
                 Some(lesson.to_string())
             } else {
                 let result = exp.result.trim();
-                if !result.is_empty() { Some(result.to_string()) } else { None }
+                if !result.is_empty() {
+                    Some(result.to_string())
+                } else {
+                    None
+                }
             }
         })
         .ok_or_else(|| ApiError::bad_request("no lesson/result to extract"))?;
@@ -1305,6 +1573,19 @@ async fn extract_lesson(
             Some(auth_user.user.id),
         )
         .await?;
+    let resp_val = serde_json::to_value(&note).unwrap_or(serde_json::Value::Null);
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            &idem_path,
+            StatusCode::CREATED,
+            &resp_val,
+        )
+        .await?;
+    }
     Ok((StatusCode::CREATED, Json(note)).into_response())
 }
 
@@ -1312,7 +1593,7 @@ async fn extract_lesson(
 // Notes
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct NoteCreateRequest {
     csrf_token: Option<String>,
     title: String,
@@ -1350,6 +1631,20 @@ async fn create_note(
 ) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let idem_path = format!("/api/v1/projects/{project_id}/notes");
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let pid = parse_uuid_param(&project_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     let title = body.title.trim();
@@ -1373,6 +1668,19 @@ async fn create_note(
             Some(auth_user.user.id),
         )
         .await?;
+    let resp_val = serde_json::to_value(&note).unwrap_or(serde_json::Value::Null);
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            &idem_path,
+            StatusCode::CREATED,
+            &resp_val,
+        )
+        .await?;
+    }
     Ok((StatusCode::CREATED, Json(note)).into_response())
 }
 
@@ -1492,7 +1800,7 @@ async fn compare_note_revisions(
 // Links, capture, search, timeline, activity, graph, stats, exports
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct LinkCreateRequest {
     csrf_token: Option<String>,
     from_type: String,
@@ -1510,6 +1818,20 @@ async fn create_link(
 ) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let idem_path = format!("/api/v1/projects/{project_id}/links");
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let pid = parse_uuid_param(&project_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     let valid_types = ["note", "decision", "experiment"];
@@ -1534,6 +1856,19 @@ async fn create_link(
             &body.kind,
         )
         .await?;
+    let resp_val = serde_json::to_value(&link).unwrap_or(serde_json::Value::Null);
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            &idem_path,
+            StatusCode::CREATED,
+            &resp_val,
+        )
+        .await?;
+    }
     Ok((StatusCode::CREATED, Json(link)).into_response())
 }
 
@@ -1558,7 +1893,7 @@ async fn delete_link(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct CaptureRequest {
     csrf_token: Option<String>,
     project_id: Uuid,
@@ -1575,19 +1910,33 @@ async fn capture(
 ) -> Result<Response, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let idem_path = "/api/v1/capture".to_string();
+    let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
+    let idem = idempotency_check(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
     let project = require_project_member_api(&state, &auth_user.user, body.project_id).await?;
     let title = body.title.trim();
     if title.is_empty() {
         return Err(ApiError::bad_request("title is required"));
     }
     let text = body.body.as_deref().unwrap_or("").trim().to_string();
-    match body.kind.as_str() {
+    let resp_val = match body.kind.as_str() {
         "note" => {
             let note = state
                 .repo
                 .create_note(project.id, title, &text, None, None, Some(auth_user.user.id))
                 .await?;
-            Ok((StatusCode::CREATED, Json(serde_json::json!({"kind":"note","id":note.id}))).into_response())
+            serde_json::json!({"kind":"note","id":note.id})
         }
         "observation" => {
             let eid = body
@@ -1601,28 +1950,35 @@ async fn capture(
             if exp.project_id != project.id {
                 return Err(ApiError::bad_request("experiment does not belong to project"));
             }
+            let note_text = if text.is_empty() { title } else { &text };
             let event = state
                 .repo
-                .create_event(eid, "observation", causelog_content::now_ms(), if text.is_empty() { title } else { &text })
+                .create_event(eid, "observation", causelog_content::now_ms(), note_text)
                 .await?;
-            Ok((StatusCode::CREATED, Json(serde_json::json!({"kind":"observation","id":event.id,"experiment_id":eid}))).into_response())
+            serde_json::json!({"kind":"observation","id":event.id,"experiment_id":eid})
         }
         "decision_draft" => {
             let decision = state
                 .repo
-                .create_decision(
-                    project.id,
-                    None,
-                    title,
-                    &text,
-                    &[],
-                    Some(auth_user.user.id),
-                )
+                .create_decision(project.id, None, title, &text, &[], Some(auth_user.user.id))
                 .await?;
-            Ok((StatusCode::CREATED, Json(serde_json::json!({"kind":"decision_draft","id":decision.id}))).into_response())
+            serde_json::json!({"kind":"decision_draft","id":decision.id})
         }
-        _ => Err(ApiError::bad_request("invalid capture kind")),
+        _ => return Err(ApiError::bad_request("invalid capture kind")),
+    };
+    if let IdempotencyState::Fresh(pending) = idem {
+        idempotency_save(
+            &state,
+            auth_user.user.id,
+            &pending,
+            "POST",
+            &idem_path,
+            StatusCode::CREATED,
+            &resp_val,
+        )
+        .await?;
     }
+    Ok((StatusCode::CREATED, Json(resp_val)).into_response())
 }
 
 #[derive(Debug, Deserialize, Default)]

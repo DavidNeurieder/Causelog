@@ -4730,3 +4730,73 @@ async fn api_v1_goal_and_decision_flow() {
     let revs = json_response(res).await;
     assert!(revs["items"].as_array().unwrap().len() >= 1);
 }
+
+#[tokio::test]
+async fn api_v1_idempotency_replays_and_conflicts() {
+    let app = test_app().await;
+    setup_via_form(&app).await;
+
+    let res = send(
+        &app,
+        post_json(
+            "/api/v1/auth/login",
+            &json!({"username": "dev", "password": "longenough1"}),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let cookie = format!("causelog_session={}", session_cookie_value(&res));
+    let body = json_response(res).await;
+    let csrf = body["csrf_token"].as_str().unwrap().to_string();
+
+    let payload = json!({
+        "csrf_token": csrf,
+        "title": "Idem Project",
+        "summary": "s",
+        "status": "active"
+    });
+
+    let make_req = |payload: &serde_json::Value, key: &str| {
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/projects")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+            .header("x-csrf-token", &csrf)
+            .header("idempotency-key", key)
+            .body(Body::from(serde_json::to_vec(payload).unwrap()))
+            .unwrap()
+    };
+
+    let res = send(&app, make_req(&payload, "proj-create-1")).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let first = json_response(res).await;
+    let pid = first["id"].as_str().unwrap().to_string();
+    assert_eq!(first["title"], "Idem Project");
+
+    // Same key + same payload replays the original response.
+    let res = send(&app, make_req(&payload, "proj-create-1")).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let second = json_response(res).await;
+    assert_eq!(second["id"], pid);
+    assert_eq!(second["title"], "Idem Project");
+
+    // Same key + different payload is a conflict.
+    let payload2 = json!({
+        "csrf_token": csrf,
+        "title": "Different",
+        "summary": "s",
+        "status": "active"
+    });
+    let res = send(&app, make_req(&payload2, "proj-create-1")).await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let err = json_response(res).await;
+    assert_eq!(err["code"], "conflict");
+
+    // Only one project should exist (replay did not create a duplicate).
+    let res = send(&app, with_cookie(get("/api/v1/projects"), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let list = json_response(res).await;
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.iter().filter(|p| p["title"] == "Idem Project").count(), 1);
+}
