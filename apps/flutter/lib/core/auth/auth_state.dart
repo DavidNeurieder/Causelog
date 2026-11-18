@@ -37,6 +37,10 @@ class AuthNeedsServer extends AuthState {
   const AuthNeedsServer();
 }
 
+class AuthNeedsSetup extends AuthState {
+  const AuthNeedsSetup();
+}
+
 class AuthUnauthenticated extends AuthState {
   const AuthUnauthenticated();
 }

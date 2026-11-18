@@ -19,7 +19,7 @@ class SessionController extends StateNotifier<AuthState> {
     }
     try {
       await api.configure(url);
-      await refreshSession();
+      await _routeAfterConnect();
     } catch (_) {
       state = const AuthUnauthenticated();
     }
@@ -29,7 +29,20 @@ class SessionController extends StateNotifier<AuthState> {
     await AppConfig.saveServerUrl(url);
     await api.configure(AppConfig.normalize(url));
     api.csrfToken = null;
-    state = const AuthUnauthenticated();
+    await _routeAfterConnect();
+  }
+
+  Future<void> _routeAfterConnect() async {
+    try {
+      final setup = await api.getJson('/api/v1/setup/status');
+      if (setup['setup_required'] == true) {
+        state = const AuthNeedsSetup();
+        return;
+      }
+    } catch (_) {
+      // if status check fails, fall through to session/login
+    }
+    await refreshSession();
   }
 
   Future<void> clearServer() async {
@@ -94,6 +107,22 @@ class SessionController extends StateNotifier<AuthState> {
       'display_name': displayName,
       'password': password,
     });
+  }
+
+  Future<void> setup(String username, String displayName, String password) async {
+    final data = await api.postJson('/api/v1/setup', data: {
+      'username': username,
+      'display_name': displayName,
+      'password': password,
+    });
+    if (data is Map<String, dynamic>) {
+      final user = ApiUser.fromJson(data['user'] as Map<String, dynamic>);
+      final csrf = data['csrf_token'] as String? ?? '';
+      api.csrfToken = csrf;
+      state = AuthAuthenticated(user: user, csrfToken: csrf);
+    } else {
+      await refreshSession();
+    }
   }
 
   Future<void> logout() async {

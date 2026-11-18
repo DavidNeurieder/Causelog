@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
 import '../../core/auth/auth_state.dart';
@@ -45,6 +46,10 @@ class ProjectsScreen extends ConsumerWidget {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showCreateProjectDialog(context, ref),
+        child: const Icon(Icons.add),
+      ),
       body: projects.when(
         data: (items) {
           if (items.isEmpty) {
@@ -72,35 +77,79 @@ class ProjectsScreen extends ConsumerWidget {
                       ? p['summary'] as String
                       : 'Status: ${p['status'] ?? 'active'}'),
                   trailing: Chip(label: Text(p['status'] as String? ?? 'active')),
-                  onTap: () {
-                    // M3/M4: navigate to project detail
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Project "${p['title']}" — detail view coming in M3/M4')),
-                    );
-                  },
+                  onTap: () => context.go('/projects/${p['id']}'),
                 ),
               );
             },
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(e is AppException ? e.message : 'Failed to load projects'),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: () => ref.invalidate(projectsProvider),
-                  child: const Text('Retry'),
-                ),
-              ],
+        error: (e, _) {
+          if (e is AppException && e.statusCode == 401) {
+            Future.microtask(
+              () => ref.read(sessionControllerProvider.notifier).logout(),
+            );
+            return const Center(child: CircularProgressIndicator());
+          }
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(e is AppException ? e.message : 'Failed to load projects'),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () => ref.invalidate(projectsProvider),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
+  }
+
+  Future<void> _showCreateProjectDialog(BuildContext context, WidgetRef ref) async {
+    final title = TextEditingController();
+    final summary = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New project'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: title, decoration: const InputDecoration(labelText: 'Title'), autofocus: true),
+            const SizedBox(height: 8),
+            TextField(controller: summary, decoration: const InputDecoration(labelText: 'Summary')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final t = title.text.trim();
+    if (t.isEmpty) return;
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.postJson('/api/v1/projects', data: {
+        'title': t,
+        'summary': summary.text.trim(),
+        'status': 'active',
+      });
+      ref.invalidate(projectsProvider);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is AppException ? e.message : 'Failed to create project')),
+        );
+      }
+    }
   }
 }

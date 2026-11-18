@@ -5,8 +5,11 @@ import 'package:go_router/go_router.dart';
 import '../core/auth/auth_state.dart';
 import '../features/authentication/login_screen.dart';
 import '../features/authentication/pending_screen.dart';
+import '../features/authentication/register_screen.dart';
 import '../features/authentication/server_config_screen.dart';
+import '../features/authentication/setup_screen.dart';
 import '../features/authentication/splash_screen.dart';
+import '../features/projects/project_detail_screen.dart';
 import '../features/projects/projects_screen.dart';
 import 'providers.dart';
 
@@ -33,14 +36,22 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (auth is AuthNeedsServer) {
         return loc == '/connect' ? null : '/connect';
       }
+      if (auth is AuthNeedsSetup) {
+        return loc == '/setup' ? null : '/setup';
+      }
       if (auth is AuthUnauthenticated) {
-        return loc == '/login' ? null : '/login';
+        return (loc == '/login' || loc == '/register') ? null : '/login';
       }
       if (auth is AuthUnapproved) {
         return loc == '/pending' ? null : '/pending';
       }
       if (auth is AuthAuthenticated) {
-        if (loc == '/' || loc == '/connect' || loc == '/login' || loc == '/pending') {
+        if (loc == '/' ||
+            loc == '/connect' ||
+            loc == '/setup' ||
+            loc == '/login' ||
+            loc == '/register' ||
+            loc == '/pending') {
           return '/projects';
         }
         return null;
@@ -50,9 +61,21 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/connect', builder: (context, state) => const ServerConfigScreen()),
+      GoRoute(path: '/setup', builder: (context, state) => const SetupScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
       GoRoute(path: '/pending', builder: (context, state) => const PendingApprovalScreen()),
-      GoRoute(path: '/projects', builder: (context, state) => const ProjectsScreen()),
+      GoRoute(
+        path: '/projects',
+        builder: (context, state) => const ProjectsScreen(),
+        routes: [
+          GoRoute(
+            path: ':id',
+            builder: (context, state) =>
+                ProjectDetailScreen(id: state.pathParameters['id']!),
+          ),
+        ],
+      ),
     ],
   );
 });
