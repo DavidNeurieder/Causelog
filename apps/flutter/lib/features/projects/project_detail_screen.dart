@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
@@ -75,10 +76,10 @@ class ProjectDetailScreen extends ConsumerWidget {
             const SizedBox(height: 24),
             Text('Sections', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
-            _SectionTile(title: 'Goals', subtitle: 'Track objectives', onTap: () => _comingSoon(context, 'Goals')),
-            _SectionTile(title: 'Decisions', subtitle: 'Options, rationale, revisions', onTap: () => _comingSoon(context, 'Decisions')),
-            _SectionTile(title: 'Experiments', subtitle: 'Hypotheses and observations', onTap: () => _comingSoon(context, 'Experiments')),
-            _SectionTile(title: 'Notes', subtitle: 'Lessons and knowledge', onTap: () => _comingSoon(context, 'Notes')),
+            _SectionTile(title: 'Goals', subtitle: 'Track objectives', onTap: () => context.go('/projects/$id/goals')),
+            _SectionTile(title: 'Decisions', subtitle: 'Options, rationale, revisions', onTap: () => context.go('/projects/$id/decisions')),
+            _SectionTile(title: 'Experiments', subtitle: 'Hypotheses and observations', onTap: () => context.go('/projects/$id/experiments')),
+            _SectionTile(title: 'Notes', subtitle: 'Lessons and knowledge', onTap: () => context.go('/projects/$id/notes')),
             _SectionTile(title: 'Timeline', subtitle: 'Chronological history', onTap: () => _comingSoon(context, 'Timeline')),
             _SectionTile(title: 'Graph', subtitle: 'Relationships', onTap: () => _comingSoon(context, 'Graph')),
             _SectionTile(title: 'Search', subtitle: 'Find knowledge', onTap: () => _comingSoon(context, 'Search')),

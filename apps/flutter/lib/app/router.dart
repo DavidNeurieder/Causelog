@@ -9,6 +9,10 @@ import '../features/authentication/register_screen.dart';
 import '../features/authentication/server_config_screen.dart';
 import '../features/authentication/setup_screen.dart';
 import '../features/authentication/splash_screen.dart';
+import '../features/decisions/decisions_screen.dart';
+import '../features/experiments/experiments_screen.dart';
+import '../features/goals/goals_screen.dart';
+import '../features/notes/notes_screen.dart';
 import '../features/projects/project_detail_screen.dart';
 import '../features/projects/projects_screen.dart';
 import 'providers.dart';
@@ -73,6 +77,28 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: ':id',
             builder: (context, state) =>
                 ProjectDetailScreen(id: state.pathParameters['id']!),
+            routes: [
+              GoRoute(
+                path: 'goals',
+                builder: (context, state) =>
+                    GoalsScreen(projectId: state.pathParameters['id']!),
+              ),
+              GoRoute(
+                path: 'decisions',
+                builder: (context, state) =>
+                    DecisionsScreen(projectId: state.pathParameters['id']!),
+              ),
+              GoRoute(
+                path: 'experiments',
+                builder: (context, state) =>
+                    ExperimentsScreen(projectId: state.pathParameters['id']!),
+              ),
+              GoRoute(
+                path: 'notes',
+                builder: (context, state) =>
+                    NotesScreen(projectId: state.pathParameters['id']!),
+              ),
+            ],
           ),
         ],
       ),
