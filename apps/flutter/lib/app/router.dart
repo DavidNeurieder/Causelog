@@ -9,6 +9,7 @@ import '../features/authentication/register_screen.dart';
 import '../features/authentication/server_config_screen.dart';
 import '../features/authentication/setup_screen.dart';
 import '../features/authentication/splash_screen.dart';
+import '../features/capture/quick_capture_screen.dart';
 import '../features/decisions/decision_detail_screen.dart';
 import '../features/decisions/decisions_screen.dart';
 import '../features/experiments/experiment_detail_screen.dart';
@@ -161,6 +162,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: 'exports',
                 builder: (context, state) =>
                     ProjectExportsScreen(projectId: state.pathParameters['id']!),
+              ),
+              GoRoute(
+                path: 'capture',
+                builder: (context, state) =>
+                    QuickCaptureScreen(projectId: state.pathParameters['id']!),
               ),
             ],
           ),

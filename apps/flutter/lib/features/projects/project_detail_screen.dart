@@ -38,6 +38,11 @@ class ProjectDetailScreen extends ConsumerWidget {
             ),
           ],
         ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () => context.go('/projects/$id/capture'),
+          icon: const Icon(Icons.bolt),
+          label: const Text('Quick capture'),
+        ),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
