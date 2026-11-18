@@ -80,10 +80,10 @@ class ProjectDetailScreen extends ConsumerWidget {
             _SectionTile(title: 'Decisions', subtitle: 'Options, rationale, revisions', onTap: () => context.go('/projects/$id/decisions')),
             _SectionTile(title: 'Experiments', subtitle: 'Hypotheses and observations', onTap: () => context.go('/projects/$id/experiments')),
             _SectionTile(title: 'Notes', subtitle: 'Lessons and knowledge', onTap: () => context.go('/projects/$id/notes')),
-            _SectionTile(title: 'Timeline', subtitle: 'Chronological history', onTap: () => _comingSoon(context, 'Timeline')),
-            _SectionTile(title: 'Graph', subtitle: 'Relationships', onTap: () => _comingSoon(context, 'Graph')),
-            _SectionTile(title: 'Search', subtitle: 'Find knowledge', onTap: () => _comingSoon(context, 'Search')),
-            _SectionTile(title: 'Exports', subtitle: 'Download project data', onTap: () => _comingSoon(context, 'Exports')),
+            _SectionTile(title: 'Timeline', subtitle: 'Chronological history', onTap: () => context.go('/projects/$id/timeline')),
+            _SectionTile(title: 'Graph', subtitle: 'Relationships', onTap: () => context.go('/projects/$id/graph')),
+            _SectionTile(title: 'Search', subtitle: 'Find knowledge', onTap: () => context.go('/projects/$id/search')),
+            _SectionTile(title: 'Exports', subtitle: 'Download project data', onTap: () => context.go('/projects/$id/exports')),
           ],
         ),
       ),
@@ -97,12 +97,6 @@ class ProjectDetailScreen extends ConsumerWidget {
           body: Center(child: Text(e is AppException ? e.message : 'Failed to load project')),
         );
       },
-    );
-  }
-
-  void _comingSoon(BuildContext context, String name) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$name view coming in M4/M5')),
     );
   }
 }

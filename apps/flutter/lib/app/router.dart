@@ -13,10 +13,14 @@ import '../features/decisions/decision_detail_screen.dart';
 import '../features/decisions/decisions_screen.dart';
 import '../features/experiments/experiment_detail_screen.dart';
 import '../features/experiments/experiments_screen.dart';
+import '../features/export/project_exports_screen.dart';
 import '../features/goals/goal_detail_screen.dart';
 import '../features/goals/goals_screen.dart';
+import '../features/graph/project_graph_screen.dart';
 import '../features/notes/note_detail_screen.dart';
 import '../features/notes/notes_screen.dart';
+import '../features/search/project_search_screen.dart';
+import '../features/timeline/project_timeline_screen.dart';
 import '../features/projects/project_detail_screen.dart';
 import '../features/projects/projects_screen.dart';
 import 'providers.dart';
@@ -137,6 +141,26 @@ final routerProvider = Provider<GoRouter>((ref) {
                     ),
                   ),
                 ],
+              ),
+              GoRoute(
+                path: 'search',
+                builder: (context, state) =>
+                    ProjectSearchScreen(projectId: state.pathParameters['id']!),
+              ),
+              GoRoute(
+                path: 'timeline',
+                builder: (context, state) =>
+                    ProjectTimelineScreen(projectId: state.pathParameters['id']!),
+              ),
+              GoRoute(
+                path: 'graph',
+                builder: (context, state) =>
+                    ProjectGraphScreen(projectId: state.pathParameters['id']!),
+              ),
+              GoRoute(
+                path: 'exports',
+                builder: (context, state) =>
+                    ProjectExportsScreen(projectId: state.pathParameters['id']!),
               ),
             ],
           ),
