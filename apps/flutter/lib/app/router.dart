@@ -18,9 +18,11 @@ import '../features/export/project_exports_screen.dart';
 import '../features/goals/goal_detail_screen.dart';
 import '../features/goals/goals_screen.dart';
 import '../features/graph/project_graph_screen.dart';
+import '../features/members/project_members_screen.dart';
 import '../features/notes/note_detail_screen.dart';
 import '../features/notes/notes_screen.dart';
 import '../features/search/project_search_screen.dart';
+import '../features/settings/settings_screen.dart';
 import '../features/timeline/project_timeline_screen.dart';
 import '../features/projects/project_detail_screen.dart';
 import '../features/projects/projects_screen.dart';
@@ -78,6 +80,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
       GoRoute(path: '/pending', builder: (context, state) => const PendingApprovalScreen()),
+      GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
       GoRoute(
         path: '/projects',
         builder: (context, state) => const ProjectsScreen(),
@@ -162,6 +165,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: 'exports',
                 builder: (context, state) =>
                     ProjectExportsScreen(projectId: state.pathParameters['id']!),
+              ),
+              GoRoute(
+                path: 'members',
+                builder: (context, state) =>
+                    ProjectMembersScreen(projectId: state.pathParameters['id']!),
               ),
               GoRoute(
                 path: 'capture',

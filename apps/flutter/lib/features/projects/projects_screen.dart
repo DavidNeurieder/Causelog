@@ -34,13 +34,16 @@ class ProjectsScreen extends ConsumerWidget {
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'logout') {
+              if (v == 'settings') {
+                context.push('/settings');
+              } else if (v == 'logout') {
                 ref.read(sessionControllerProvider.notifier).logout();
               } else if (v == 'server') {
                 ref.read(sessionControllerProvider.notifier).clearServer();
               }
             },
             itemBuilder: (context) => const [
+              PopupMenuItem(value: 'settings', child: Text('Settings')),
               PopupMenuItem(value: 'logout', child: Text('Sign out')),
               PopupMenuItem(value: 'server', child: Text('Change server')),
             ],

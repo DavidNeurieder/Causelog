@@ -98,6 +98,7 @@ class ProjectDetailScreen extends ConsumerWidget {
             _SectionTile(title: 'Timeline', subtitle: 'Chronological history', onTap: () => context.go('/projects/$id/timeline')),
             _SectionTile(title: 'Graph', subtitle: 'Relationships', onTap: () => context.go('/projects/$id/graph')),
             _SectionTile(title: 'Search', subtitle: 'Find knowledge', onTap: () => context.go('/projects/$id/search')),
+            _SectionTile(title: 'Members', subtitle: 'Project access', onTap: () => context.go('/projects/$id/members')),
             _SectionTile(title: 'Exports', subtitle: 'Download project data', onTap: () => context.go('/projects/$id/exports')),
           ],
         ),
