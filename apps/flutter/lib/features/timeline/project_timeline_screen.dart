@@ -28,10 +28,12 @@ class ProjectTimelineScreen extends ConsumerWidget {
             separatorBuilder: (_, _) => const SizedBox(height: 8),
             itemBuilder: (context, i) {
               final e = items[i] as Map<String, dynamic>;
+              final title = e['title'] as String? ?? e['note'] as String? ?? e['kind'] as String? ?? 'Event';
+              final description = e['description'] as String? ?? e['experiment_title'] as String? ?? '';
               return Card(
                 child: ListTile(
-                  title: Text(e['note'] as String? ?? e['kind'] as String? ?? 'Event'),
-                  subtitle: Text('${e['kind'] ?? ''} • ${e['experiment_title'] ?? ''}'),
+                  title: Text(title),
+                  subtitle: Text('${e['kind'] ?? ''}${description.isNotEmpty ? ' • $description' : ''}'),
                   trailing: Text('${e['at_ms'] ?? ''}', style: Theme.of(context).textTheme.bodySmall),
                 ),
               );

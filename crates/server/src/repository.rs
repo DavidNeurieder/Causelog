@@ -361,6 +361,8 @@ pub struct SearchRow {
     pub title: String,
     /// Plain-text excerpt from the indexed body, ready to be escaped.
     pub snippet: String,
+    /// FTS5 rank (lower is better match).
+    pub rank: f64,
 }
 
 /// One node of the project graph.
@@ -2277,7 +2279,8 @@ impl Repository for SqliteRepository {
                 let sql = format!(
                     "SELECT entity_type, entity_id, project_id, title,
                             (SELECT title FROM projects WHERE id = causelog_search.project_id) AS project_title,
-                            snippet(causelog_search, 4, char(1), char(2), '…', 12) AS snippet
+                            snippet(causelog_search, 4, char(1), char(2), '…', 12) AS snippet,
+                            rank
                      FROM causelog_search
                      WHERE causelog_search MATCH ?
                        AND project_id IN ({})
@@ -2290,7 +2293,8 @@ impl Repository for SqliteRepository {
             None => {
                 let sql = "SELECT entity_type, entity_id, project_id, title,
                             (SELECT title FROM projects WHERE id = causelog_search.project_id) AS project_title,
-                            snippet(causelog_search, 4, char(1), char(2), '…', 12) AS snippet
+                            snippet(causelog_search, 4, char(1), char(2), '…', 12) AS snippet,
+                            rank
                      FROM causelog_search
                      WHERE causelog_search MATCH ?
                      ORDER BY rank
@@ -2316,6 +2320,7 @@ impl Repository for SqliteRepository {
                     .unwrap_or_default(),
                 title: r.get("title"),
                 snippet: r.get::<Option<String>, _>("snippet").unwrap_or_default(),
+                rank: r.try_get::<f64, _>("rank").unwrap_or(0.0),
             })
             .collect())
     }

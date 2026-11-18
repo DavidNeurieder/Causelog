@@ -774,6 +774,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/RevisionPage'
 
+  /api/v1/notes/{noteId}/revisions/compare:
+    parameters:
+      - $ref: '#/components/parameters/NoteId'
+    get:
+      tags: [notes]
+      summary: Compare two note revisions (Markdown diff)
+      operationId: compareNoteRevisions
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Comparison
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionComparison'
+
   /api/v1/projects/{projectId}/links:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -1510,11 +1534,12 @@ components:
 
     SearchResult:
       type: object
-      required: [entity_type, entity_id, project_id, title, snippet, rank]
+      required: [entity_type, entity_id, project_id, project_title, title, snippet, rank]
       properties:
         entity_type: { type: string, enum: [project, goal, decision, experiment, note] }
         entity_id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
+        project_title: { type: string }
         title: { type: string }
         snippet: { type: string }
         rank: { type: number }
@@ -1575,10 +1600,12 @@ components:
 
     GraphEdge:
       type: object
-      required: [from_id, to_id, kind]
+      required: [from_id, to_id, from_type, to_type, kind, source]
       properties:
         from_id: { type: string, format: uuid }
         to_id: { type: string, format: uuid }
+        from_type: { type: string, enum: [goal, decision, experiment, note] }
+        to_type: { type: string, enum: [goal, decision, experiment, note] }
         kind: { type: string }
         source: { type: string, enum: [structural, explicit] }
 

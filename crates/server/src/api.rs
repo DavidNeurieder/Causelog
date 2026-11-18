@@ -87,6 +87,10 @@ pub fn router() -> Router<AppState> {
             get(get_note).patch(update_note).delete(delete_note),
         )
         .route("/notes/{id}/revisions", get(list_note_revisions))
+        .route(
+            "/notes/{id}/revisions/compare",
+            get(compare_note_revisions),
+        )
         .route("/projects/{id}/links", post(create_link))
         .route("/projects/{id}/links/{link_id}", delete(delete_link))
         .route("/capture", post(capture))
@@ -1124,7 +1128,11 @@ async fn get_experiment(
         .ok_or_else(|| ApiError::not_found("experiment not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, exp.project_id).await?;
     let events = state.repo.list_events(eid).await?;
-    Ok(Json(serde_json::json!({ "experiment": exp, "events": events })))
+    let mut value = serde_json::to_value(exp).map_err(|e| ApiError::internal(e.to_string()))?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("events".to_string(), serde_json::to_value(events).map_err(|e| ApiError::internal(e.to_string()))?);
+    }
+    Ok(Json(value))
 }
 
 async fn update_experiment(
@@ -1445,6 +1453,41 @@ async fn list_note_revisions(
     Ok(Json(serde_json::json!({ "items": items })))
 }
 
+async fn compare_note_revisions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<CompareQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let nid = parse_uuid_param(&id)?;
+    let from_id = parse_uuid_param(&q.from)?;
+    let to_id = parse_uuid_param(&q.to)?;
+    let note = state
+        .repo
+        .find_note(nid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("note not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, note.project_id).await?;
+    let revs = state.repo.list_revisions("note", nid).await?;
+    let from = revs
+        .iter()
+        .find(|r| r.id == from_id)
+        .cloned()
+        .ok_or_else(|| ApiError::not_found("from revision not found"))?;
+    let to = revs
+        .iter()
+        .find(|r| r.id == to_id)
+        .cloned()
+        .ok_or_else(|| ApiError::not_found("to revision not found"))?;
+    let unified_diff = simple_unified_diff(&from.snapshot, &to.snapshot);
+    Ok(Json(serde_json::json!({
+        "from": from,
+        "to": to,
+        "unified_diff": unified_diff
+    })))
+}
+
 // ---------------------------------------------------------------------------
 // Links, capture, search, timeline, activity, graph, stats, exports
 // ---------------------------------------------------------------------------
@@ -1598,6 +1641,7 @@ struct SearchResultDto {
     project_title: String,
     title: String,
     snippet: String,
+    rank: f64,
 }
 
 async fn search(
@@ -1634,6 +1678,7 @@ async fn search(
             project_title: r.project_title,
             title: r.title,
             snippet: r.snippet,
+            rank: r.rank,
         })
         .collect();
     let pq = PageQuery { page: q.page, per_page: q.per_page };
@@ -1643,11 +1688,14 @@ async fn search(
 
 #[derive(Debug, Serialize)]
 struct TimelineEventDto {
-    at_ms: i64,
     kind: String,
-    note: String,
-    experiment_id: Uuid,
-    experiment_title: String,
+    at_ms: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entity_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entity_id: Option<Uuid>,
+    title: String,
+    description: String,
 }
 
 async fn get_timeline(
@@ -1662,11 +1710,12 @@ async fn get_timeline(
     let items: Vec<TimelineEventDto> = entries
         .into_iter()
         .map(|e| TimelineEventDto {
+            kind: e.kind.clone(),
             at_ms: e.at_ms,
-            kind: e.kind,
-            note: e.note,
-            experiment_id: e.experiment_id,
-            experiment_title: e.experiment_title,
+            entity_type: Some("experiment".to_string()),
+            entity_id: Some(e.experiment_id),
+            title: e.experiment_title.clone(),
+            description: e.note,
         })
         .collect();
     Ok(Json(serde_json::json!({ "items": items })))
@@ -1757,6 +1806,7 @@ struct GraphEdgeDto {
     from_type: String,
     to_type: String,
     kind: String,
+    source: String,
 }
 
 async fn get_graph(
@@ -1780,12 +1830,20 @@ async fn get_graph(
     let edges: Vec<GraphEdgeDto> = graph
         .edges
         .into_iter()
-        .map(|e| GraphEdgeDto {
-            from_id: e.from_id,
-            to_id: e.to_id,
-            from_type: e.from_type,
-            to_type: e.to_type,
-            kind: e.kind,
+        .map(|e| {
+            let source = if matches!(e.kind.as_str(), "related" | "supports" | "rejects" | "follows") {
+                "explicit"
+            } else {
+                "structural"
+            };
+            GraphEdgeDto {
+                from_id: e.from_id,
+                to_id: e.to_id,
+                from_type: e.from_type,
+                to_type: e.to_type,
+                kind: e.kind,
+                source: source.to_string(),
+            }
         })
         .collect();
     Ok(Json(serde_json::json!({ "nodes": nodes, "edges": edges })))
