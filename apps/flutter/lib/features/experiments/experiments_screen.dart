@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
@@ -37,6 +38,7 @@ class ExperimentsScreen extends ConsumerWidget {
                 child: ListTile(
                   title: Text(e['title'] as String? ?? '(untitled)'),
                   subtitle: Text(e['status'] as String? ?? 'planned'),
+                  onTap: () => context.go('/projects/$projectId/experiments/${e['id']}'),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline),
                     onPressed: () => _delete(context, ref, e['id'] as String),
