@@ -59,6 +59,10 @@ pub fn router() -> Router<AppState> {
         .route("/decisions/{id}/resolve", post(resolve_decision))
         .route("/decisions/{id}/revisions", get(list_decision_revisions))
         .route(
+            "/decisions/{id}/revisions/compare",
+            get(compare_decision_revisions),
+        )
+        .route(
             "/projects/{id}/experiments",
             get(list_experiments).post(create_experiment),
         )
@@ -941,22 +945,135 @@ async fn list_decision_revisions(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     let did = parse_uuid_param(&id)?;
-    let d = state.repo.find_decision(did).await?.ok_or_else(|| ApiError::not_found("decision not found"))?;
+    let d = state
+        .repo
+        .find_decision(did)
+        .await?
+        .ok_or_else(|| ApiError::not_found("decision not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, d.project_id).await?;
     let items = state.repo.list_revisions("decision", did).await?;
     Ok(Json(serde_json::json!({ "items": items })))
 }
 
-// ---------------------------------------------------------------------------
-// Remaining endpoints: minimal placeholders returning 501 to make the surface
-// explicit; to be completed within M1 follow-up commits.
-// ---------------------------------------------------------------------------
-
-fn not_implemented(name: &str) -> ApiError {
-    ApiError::internal(format!("{name} not yet implemented in API v1"))
+#[derive(Debug, Deserialize)]
+struct CompareQuery {
+    from: String,
+    to: String,
 }
 
-async fn list_experiments(State(state): State<AppState>, headers: HeaderMap, Path(project_id): Path<String>, Query(q): Query<PageQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+fn simple_unified_diff(from: &str, to: &str) -> String {
+    // Minimal line diff: show removed/added blocks relative to common prefix/suffix.
+    let a: Vec<&str> = from.lines().collect();
+    let b: Vec<&str> = to.lines().collect();
+    let mut prefix = 0usize;
+    while prefix < a.len() && prefix < b.len() && a[prefix] == b[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0usize;
+    while prefix + suffix < a.len()
+        && prefix + suffix < b.len()
+        && a[a.len() - 1 - suffix] == b[b.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    let mut out = String::new();
+    out.push_str("--- from\n+++ to\n");
+    let ctx = 2usize;
+    let start = prefix.saturating_sub(ctx);
+    let end_a = a.len().saturating_sub(suffix);
+    let end_b = b.len().saturating_sub(suffix);
+    let ctx_end_a = (end_a + ctx).min(a.len());
+    let ctx_end_b = (end_b + ctx).min(b.len());
+    let _ = (ctx_end_a, ctx_end_b); // header kept simple
+    for line in &a[start..prefix] {
+        out.push(' ');
+        out.push_str(line);
+        out.push('\n');
+    }
+    for line in &a[prefix..end_a] {
+        out.push('-');
+        out.push_str(line);
+        out.push('\n');
+    }
+    for line in &b[prefix..end_b] {
+        out.push('+');
+        out.push_str(line);
+        out.push('\n');
+    }
+    let tail_start_a = end_a;
+    let tail_end = (tail_start_a + ctx).min(a.len());
+    for line in &a[tail_start_a..tail_end] {
+        out.push(' ');
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+async fn compare_decision_revisions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<CompareQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let did = parse_uuid_param(&id)?;
+    let from_id = parse_uuid_param(&q.from)?;
+    let to_id = parse_uuid_param(&q.to)?;
+    let d = state
+        .repo
+        .find_decision(did)
+        .await?
+        .ok_or_else(|| ApiError::not_found("decision not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, d.project_id).await?;
+    let revs = state.repo.list_revisions("decision", did).await?;
+    let from = revs
+        .iter()
+        .find(|r| r.id == from_id)
+        .cloned()
+        .ok_or_else(|| ApiError::not_found("from revision not found"))?;
+    let to = revs
+        .iter()
+        .find(|r| r.id == to_id)
+        .cloned()
+        .ok_or_else(|| ApiError::not_found("to revision not found"))?;
+    let unified_diff = simple_unified_diff(&from.snapshot, &to.snapshot);
+    Ok(Json(serde_json::json!({
+        "from": from,
+        "to": to,
+        "unified_diff": unified_diff
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// Experiments
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct ExperimentCreateRequest {
+    csrf_token: Option<String>,
+    title: String,
+    hypothesis: Option<String>,
+    goal_id: Option<Uuid>,
+    decision_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExperimentUpdateRequest {
+    csrf_token: Option<String>,
+    title: Option<String>,
+    hypothesis: Option<String>,
+    status: Option<String>,
+    result: Option<String>,
+    lesson: Option<String>,
+}
+
+async fn list_experiments(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project_id): Path<String>,
+    Query(q): Query<PageQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     let pid = parse_uuid_param(&project_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
@@ -964,22 +1081,251 @@ async fn list_experiments(State(state): State<AppState>, headers: HeaderMap, Pat
     let (items, page) = paginate(items, &q);
     Ok(Json(serde_json::json!({ "items": items, "page": page })))
 }
-async fn create_experiment(State(_state): State<AppState>, _headers: HeaderMap, Path(_project_id): Path<String>, Json(_body): Json<serde_json::Value>) -> Result<Response, ApiError> { Err(not_implemented("create_experiment")) }
-async fn get_experiment(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> {
+
+async fn create_experiment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project_id): Path<String>,
+    Json(body): Json<ExperimentCreateRequest>,
+) -> Result<Response, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let pid = parse_uuid_param(&project_id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let title = body.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    let exp = state
+        .repo
+        .create_experiment(
+            pid,
+            body.goal_id,
+            body.decision_id,
+            title,
+            body.hypothesis.as_deref().unwrap_or("").trim(),
+            Some(auth_user.user.id),
+        )
+        .await?;
+    Ok((StatusCode::CREATED, Json(exp)).into_response())
+}
+
+async fn get_experiment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     let eid = parse_uuid_param(&id)?;
-    let exp = state.repo.find_experiment(eid).await?.ok_or_else(|| ApiError::not_found("experiment not found"))?;
+    let exp = state
+        .repo
+        .find_experiment(eid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("experiment not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, exp.project_id).await?;
     let events = state.repo.list_events(eid).await?;
     Ok(Json(serde_json::json!({ "experiment": exp, "events": events })))
 }
-async fn update_experiment(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>, Json(_body): Json<serde_json::Value>) -> Result<Response, ApiError> { Err(not_implemented("update_experiment")) }
-async fn delete_experiment(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>, _body: Option<Json<CsrfBody>>) -> Result<StatusCode, ApiError> { Err(not_implemented("delete_experiment")) }
-async fn create_experiment_event(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>, Json(_body): Json<serde_json::Value>) -> Result<Response, ApiError> { Err(not_implemented("create_experiment_event")) }
-async fn delete_experiment_event(State(_state): State<AppState>, _headers: HeaderMap, Path((_id,_eid)): Path<(String,String)>, _body: Option<Json<CsrfBody>>) -> Result<StatusCode, ApiError> { Err(not_implemented("delete_experiment_event")) }
-async fn extract_lesson(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>, Json(_body): Json<serde_json::Value>) -> Result<Response, ApiError> { Err(not_implemented("extract_lesson")) }
 
-async fn list_notes(State(state): State<AppState>, headers: HeaderMap, Path(project_id): Path<String>, Query(q): Query<PageQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn update_experiment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ExperimentUpdateRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let eid = parse_uuid_param(&id)?;
+    let exp = state
+        .repo
+        .find_experiment(eid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("experiment not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, exp.project_id).await?;
+    let title = body.title.as_deref().unwrap_or(&exp.title).trim().to_string();
+    let hypothesis = body.hypothesis.as_deref().unwrap_or(&exp.hypothesis).to_string();
+    let status = body.status.as_deref().unwrap_or(&exp.status).to_string();
+    let result = body.result.as_deref().unwrap_or(&exp.result).to_string();
+    let lesson = body.lesson.as_deref().unwrap_or(&exp.lesson).to_string();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    if !matches!(status.as_str(), "planned" | "ongoing" | "done" | "abandoned") {
+        return Err(ApiError::bad_request("invalid experiment status"));
+    }
+    let exp = state
+        .repo
+        .update_experiment(eid, &title, &hypothesis, &status, &result, &lesson)
+        .await?;
+    Ok(Json(serde_json::json!(exp)))
+}
+
+async fn delete_experiment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Option<Json<CsrfBody>>,
+) -> Result<StatusCode, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let csrf = body.as_ref().and_then(|b| b.csrf_token.as_deref());
+    require_csrf(&headers, csrf, &auth_user)?;
+    let eid = parse_uuid_param(&id)?;
+    let exp = state
+        .repo
+        .find_experiment(eid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("experiment not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, exp.project_id).await?;
+    state.repo.delete_experiment(eid).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct ExperimentEventCreateRequest {
+    csrf_token: Option<String>,
+    kind: String,
+    note: String,
+    at_ms: Option<i64>,
+}
+
+async fn create_experiment_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ExperimentEventCreateRequest>,
+) -> Result<Response, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let eid = parse_uuid_param(&id)?;
+    let exp = state
+        .repo
+        .find_experiment(eid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("experiment not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, exp.project_id).await?;
+    if !matches!(body.kind.as_str(), "observation" | "measurement" | "milestone") {
+        return Err(ApiError::bad_request("invalid event kind"));
+    }
+    let note = body.note.trim();
+    if note.is_empty() {
+        return Err(ApiError::bad_request("note is required"));
+    }
+    let at_ms = body.at_ms.unwrap_or_else(causelog_content::now_ms);
+    let event = state.repo.create_event(eid, &body.kind, at_ms, note).await?;
+    Ok((StatusCode::CREATED, Json(event)).into_response())
+}
+
+async fn delete_experiment_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, event_id)): Path<(String, String)>,
+    body: Option<Json<CsrfBody>>,
+) -> Result<StatusCode, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let csrf = body.as_ref().and_then(|b| b.csrf_token.as_deref());
+    require_csrf(&headers, csrf, &auth_user)?;
+    let eid = parse_uuid_param(&id)?;
+    let ev_id = parse_uuid_param(&event_id)?;
+    let exp = state
+        .repo
+        .find_experiment(eid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("experiment not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, exp.project_id).await?;
+    // best-effort ownership: ensure event belongs to experiment
+    let events = state.repo.list_events(eid).await?;
+    if !events.iter().any(|e| e.id == ev_id) {
+        return Err(ApiError::not_found("event not found"));
+    }
+    state.repo.delete_event(ev_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct ExtractLessonRequest {
+    csrf_token: Option<String>,
+    title: Option<String>,
+    body: Option<String>,
+}
+
+async fn extract_lesson(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ExtractLessonRequest>,
+) -> Result<Response, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let eid = parse_uuid_param(&id)?;
+    let exp = state
+        .repo
+        .find_experiment(eid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("experiment not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, exp.project_id).await?;
+    let body_text = body
+        .body
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            let lesson = exp.lesson.trim();
+            if !lesson.is_empty() {
+                Some(lesson.to_string())
+            } else {
+                let result = exp.result.trim();
+                if !result.is_empty() { Some(result.to_string()) } else { None }
+            }
+        })
+        .ok_or_else(|| ApiError::bad_request("no lesson/result to extract"))?;
+    let title = body
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Lesson: {}", exp.title));
+    let note = state
+        .repo
+        .create_note(
+            exp.project_id,
+            &title,
+            &body_text,
+            Some("experiment"),
+            Some(exp.id),
+            Some(auth_user.user.id),
+        )
+        .await?;
+    Ok((StatusCode::CREATED, Json(note)).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct NoteCreateRequest {
+    csrf_token: Option<String>,
+    title: String,
+    body: Option<String>,
+    source_type: Option<String>,
+    source_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NoteUpdateRequest {
+    csrf_token: Option<String>,
+    title: Option<String>,
+    body: Option<String>,
+}
+
+async fn list_notes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project_id): Path<String>,
+    Query(q): Query<PageQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     let pid = parse_uuid_param(&project_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
@@ -987,36 +1333,518 @@ async fn list_notes(State(state): State<AppState>, headers: HeaderMap, Path(proj
     let (items, page) = paginate(items, &q);
     Ok(Json(serde_json::json!({ "items": items, "page": page })))
 }
-async fn create_note(State(_state): State<AppState>, _headers: HeaderMap, Path(_project_id): Path<String>, Json(_body): Json<serde_json::Value>) -> Result<Response, ApiError> { Err(not_implemented("create_note")) }
-async fn get_note(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Result<Json<Note>, ApiError> {
+
+async fn create_note(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project_id): Path<String>,
+    Json(body): Json<NoteCreateRequest>,
+) -> Result<Response, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let pid = parse_uuid_param(&project_id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let title = body.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    let source_type = body.source_type.as_deref();
+    if let Some(st) = source_type {
+        if !matches!(st, "experiment" | "decision") {
+            return Err(ApiError::bad_request("invalid source_type"));
+        }
+    }
+    let note = state
+        .repo
+        .create_note(
+            pid,
+            title,
+            body.body.as_deref().unwrap_or("").trim(),
+            source_type,
+            body.source_id,
+            Some(auth_user.user.id),
+        )
+        .await?;
+    Ok((StatusCode::CREATED, Json(note)).into_response())
+}
+
+async fn get_note(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Note>, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     let nid = parse_uuid_param(&id)?;
-    let note = state.repo.find_note(nid).await?.ok_or_else(|| ApiError::not_found("note not found"))?;
+    let note = state
+        .repo
+        .find_note(nid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("note not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, note.project_id).await?;
     Ok(Json(note))
 }
-async fn update_note(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>, Json(_body): Json<serde_json::Value>) -> Result<Response, ApiError> { Err(not_implemented("update_note")) }
-async fn delete_note(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>, _body: Option<Json<CsrfBody>>) -> Result<StatusCode, ApiError> { Err(not_implemented("delete_note")) }
-async fn list_note_revisions(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> {
+
+async fn update_note(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<NoteUpdateRequest>,
+) -> Result<Json<Note>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let nid = parse_uuid_param(&id)?;
+    let note = state
+        .repo
+        .find_note(nid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("note not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, note.project_id).await?;
+    let title = body.title.as_deref().unwrap_or(&note.title).trim();
+    let note_body = body.body.as_deref().unwrap_or(&note.body);
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    let note = state.repo.update_note(nid, title, note_body).await?;
+    Ok(Json(note))
+}
+
+async fn delete_note(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Option<Json<CsrfBody>>,
+) -> Result<StatusCode, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let csrf = body.as_ref().and_then(|b| b.csrf_token.as_deref());
+    require_csrf(&headers, csrf, &auth_user)?;
+    let nid = parse_uuid_param(&id)?;
+    let note = state
+        .repo
+        .find_note(nid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("note not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, note.project_id).await?;
+    state.repo.delete_note(nid).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_note_revisions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     let nid = parse_uuid_param(&id)?;
-    let note = state.repo.find_note(nid).await?.ok_or_else(|| ApiError::not_found("note not found"))?;
+    let note = state
+        .repo
+        .find_note(nid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("note not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, note.project_id).await?;
     let items = state.repo.list_revisions("note", nid).await?;
     Ok(Json(serde_json::json!({ "items": items })))
 }
 
-async fn create_link(State(_state): State<AppState>, _headers: HeaderMap, Path(_project_id): Path<String>, Json(_body): Json<serde_json::Value>) -> Result<Response, ApiError> { Err(not_implemented("create_link")) }
-async fn delete_link(State(_state): State<AppState>, _headers: HeaderMap, Path((_project_id,_link_id)): Path<(String,String)>, _body: Option<Json<CsrfBody>>) -> Result<StatusCode, ApiError> { Err(not_implemented("delete_link")) }
-async fn capture(State(_state): State<AppState>, _headers: HeaderMap, Json(_body): Json<serde_json::Value>) -> Result<Response, ApiError> { Err(not_implemented("capture")) }
+// ---------------------------------------------------------------------------
+// Links, capture, search, timeline, activity, graph, stats, exports
+// ---------------------------------------------------------------------------
 
-async fn search(State(_state): State<AppState>, _headers: HeaderMap, Query(_q): Query<serde_json::Value>) -> Result<Json<serde_json::Value>, ApiError> { Err(not_implemented("search")) }
-async fn get_timeline(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> { Err(not_implemented("timeline")) }
-async fn get_activity(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> { Err(not_implemented("activity")) }
-async fn get_graph(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> { Err(not_implemented("graph")) }
-async fn get_project_stats(State(_state): State<AppState>, _headers: HeaderMap, Path(_id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> { Err(not_implemented("stats")) }
-async fn get_exports_manifest(State(_state): State<AppState>, _headers: HeaderMap, Path(id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> {
+#[derive(Debug, Deserialize)]
+struct LinkCreateRequest {
+    csrf_token: Option<String>,
+    from_type: String,
+    from_id: Uuid,
+    to_type: String,
+    to_id: Uuid,
+    kind: String,
+}
+
+async fn create_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project_id): Path<String>,
+    Json(body): Json<LinkCreateRequest>,
+) -> Result<Response, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let pid = parse_uuid_param(&project_id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let valid_types = ["note", "decision", "experiment"];
+    let valid_kinds = ["related", "supports", "rejects", "follows"];
+    if !valid_types.contains(&body.from_type.as_str()) || !valid_types.contains(&body.to_type.as_str()) {
+        return Err(ApiError::bad_request("invalid link entity type"));
+    }
+    if !valid_kinds.contains(&body.kind.as_str()) {
+        return Err(ApiError::bad_request("invalid link kind"));
+    }
+    if body.from_type == body.to_type && body.from_id == body.to_id {
+        return Err(ApiError::bad_request("self-links are not allowed"));
+    }
+    let link = state
+        .repo
+        .create_link(
+            pid,
+            &body.from_type,
+            body.from_id,
+            &body.to_type,
+            body.to_id,
+            &body.kind,
+        )
+        .await?;
+    Ok((StatusCode::CREATED, Json(link)).into_response())
+}
+
+async fn delete_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((project_id, link_id)): Path<(String, String)>,
+    body: Option<Json<CsrfBody>>,
+) -> Result<StatusCode, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let csrf = body.as_ref().and_then(|b| b.csrf_token.as_deref());
+    require_csrf(&headers, csrf, &auth_user)?;
+    let pid = parse_uuid_param(&project_id)?;
+    let lid = parse_uuid_param(&link_id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    // ensure link belongs to project
+    let links = state.repo.list_links(pid).await?;
+    if !links.iter().any(|l| l.id == lid) {
+        return Err(ApiError::not_found("link not found"));
+    }
+    state.repo.delete_link(lid).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct CaptureRequest {
+    csrf_token: Option<String>,
+    project_id: Uuid,
+    kind: String,
+    title: String,
+    body: Option<String>,
+    experiment_id: Option<Uuid>,
+}
+
+async fn capture(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CaptureRequest>,
+) -> Result<Response, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
+    let project = require_project_member_api(&state, &auth_user.user, body.project_id).await?;
+    let title = body.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    let text = body.body.as_deref().unwrap_or("").trim().to_string();
+    match body.kind.as_str() {
+        "note" => {
+            let note = state
+                .repo
+                .create_note(project.id, title, &text, None, None, Some(auth_user.user.id))
+                .await?;
+            Ok((StatusCode::CREATED, Json(serde_json::json!({"kind":"note","id":note.id}))).into_response())
+        }
+        "observation" => {
+            let eid = body
+                .experiment_id
+                .ok_or_else(|| ApiError::bad_request("experiment_id required for observation"))?;
+            let exp = state
+                .repo
+                .find_experiment(eid)
+                .await?
+                .ok_or_else(|| ApiError::not_found("experiment not found"))?;
+            if exp.project_id != project.id {
+                return Err(ApiError::bad_request("experiment does not belong to project"));
+            }
+            let event = state
+                .repo
+                .create_event(eid, "observation", causelog_content::now_ms(), if text.is_empty() { title } else { &text })
+                .await?;
+            Ok((StatusCode::CREATED, Json(serde_json::json!({"kind":"observation","id":event.id,"experiment_id":eid}))).into_response())
+        }
+        "decision_draft" => {
+            let decision = state
+                .repo
+                .create_decision(
+                    project.id,
+                    None,
+                    title,
+                    &text,
+                    &[],
+                    Some(auth_user.user.id),
+                )
+                .await?;
+            Ok((StatusCode::CREATED, Json(serde_json::json!({"kind":"decision_draft","id":decision.id}))).into_response())
+        }
+        _ => Err(ApiError::bad_request("invalid capture kind")),
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SearchQuery {
+    q: Option<String>,
+    project_id: Option<String>,
+    page: Option<u32>,
+    per_page: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SearchResultDto {
+    entity_type: String,
+    entity_id: Uuid,
+    project_id: Uuid,
+    project_title: String,
+    title: String,
+    snippet: String,
+}
+
+async fn search(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<SearchQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let query = q.q.as_deref().unwrap_or("").trim();
+    if query.is_empty() {
+        return Ok(Json(serde_json::json!({"items":[],"page": PageInfo{page:1,per_page:q.per_page.unwrap_or(50).clamp(1,200),total:0,total_pages:1}})));
+    }
+    let rows = if let Some(pid) = q.project_id.as_deref().filter(|s| !s.is_empty()) {
+        let pid = parse_uuid_param(pid)?;
+        let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+        state.repo.search(query, Some(&[pid])).await?
+    } else if auth::is_admin(&auth_user.user) {
+        state.repo.search(query, None).await?
+    } else {
+        let projects = state.repo.list_projects_for_user(auth_user.user.id).await?;
+        let ids: Vec<Uuid> = projects.into_iter().map(|p| p.id).collect();
+        if ids.is_empty() {
+            Vec::new()
+        } else {
+            state.repo.search(query, Some(&ids)).await?
+        }
+    };
+    let dto: Vec<SearchResultDto> = rows
+        .into_iter()
+        .map(|r| SearchResultDto {
+            entity_type: r.entity_type,
+            entity_id: r.entity_id,
+            project_id: r.project_id,
+            project_title: r.project_title,
+            title: r.title,
+            snippet: r.snippet,
+        })
+        .collect();
+    let pq = PageQuery { page: q.page, per_page: q.per_page };
+    let (items, page) = paginate(dto, &pq);
+    Ok(Json(serde_json::json!({ "items": items, "page": page })))
+}
+
+#[derive(Debug, Serialize)]
+struct TimelineEventDto {
+    at_ms: i64,
+    kind: String,
+    note: String,
+    experiment_id: Uuid,
+    experiment_title: String,
+}
+
+async fn get_timeline(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
     let pid = parse_uuid_param(&id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let entries = state.repo.timeline(pid).await?;
+    let items: Vec<TimelineEventDto> = entries
+        .into_iter()
+        .map(|e| TimelineEventDto {
+            at_ms: e.at_ms,
+            kind: e.kind,
+            note: e.note,
+            experiment_id: e.experiment_id,
+            experiment_title: e.experiment_title,
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "items": items })))
+}
+
+#[derive(Debug, Serialize)]
+struct ActivityItemDto {
+    at_ms: i64,
+    kind: String,
+    title: String,
+    entity_type: String,
+    entity_id: Uuid,
+}
+
+async fn get_activity(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let pid = parse_uuid_param(&id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let mut feed: Vec<ActivityItemDto> = Vec::new();
+
+    if let Ok(timeline) = state.repo.timeline(pid).await {
+        for t in timeline {
+            feed.push(ActivityItemDto {
+                at_ms: t.at_ms,
+                kind: t.kind,
+                title: t.note,
+                entity_type: "experiment".to_string(),
+                entity_id: t.experiment_id,
+            });
+        }
+    }
+    for d in state.repo.list_decisions(pid).await? {
+        feed.push(ActivityItemDto {
+            at_ms: d.updated_at_ms,
+            kind: "decision".to_string(),
+            title: d.title,
+            entity_type: "decision".to_string(),
+            entity_id: d.id,
+        });
+    }
+    for e in state.repo.list_experiments(pid).await? {
+        feed.push(ActivityItemDto {
+            at_ms: e.updated_at_ms,
+            kind: "experiment".to_string(),
+            title: e.title,
+            entity_type: "experiment".to_string(),
+            entity_id: e.id,
+        });
+    }
+    for n in state.repo.list_notes(pid).await? {
+        feed.push(ActivityItemDto {
+            at_ms: n.updated_at_ms,
+            kind: "note".to_string(),
+            title: n.title,
+            entity_type: "note".to_string(),
+            entity_id: n.id,
+        });
+    }
+    for g in state.repo.list_goals(pid).await? {
+        feed.push(ActivityItemDto {
+            at_ms: g.updated_at_ms,
+            kind: "goal".to_string(),
+            title: g.title,
+            entity_type: "goal".to_string(),
+            entity_id: g.id,
+        });
+    }
+    feed.sort_by_key(|a| std::cmp::Reverse(a.at_ms));
+    feed.truncate(100);
+    Ok(Json(serde_json::json!({ "items": feed })))
+}
+
+#[derive(Debug, Serialize)]
+struct GraphNodeDto {
+    id: Uuid,
+    entity_type: String,
+    title: String,
+}
+
+#[derive(Debug, Serialize)]
+struct GraphEdgeDto {
+    from_id: Uuid,
+    to_id: Uuid,
+    from_type: String,
+    to_type: String,
+    kind: String,
+}
+
+async fn get_graph(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let pid = parse_uuid_param(&id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let graph = state.repo.graph(pid).await?;
+    let nodes: Vec<GraphNodeDto> = graph
+        .nodes
+        .into_iter()
+        .map(|n| GraphNodeDto {
+            id: n.id,
+            entity_type: n.node_type,
+            title: n.title,
+        })
+        .collect();
+    let edges: Vec<GraphEdgeDto> = graph
+        .edges
+        .into_iter()
+        .map(|e| GraphEdgeDto {
+            from_id: e.from_id,
+            to_id: e.to_id,
+            from_type: e.from_type,
+            to_type: e.to_type,
+            kind: e.kind,
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "nodes": nodes, "edges": edges })))
+}
+
+#[derive(Debug, Serialize)]
+struct ProjectStatsDto {
+    goals_total: i64,
+    goals_open: i64,
+    goals_done: i64,
+    goals_dropped: i64,
+    decisions_total: i64,
+    decisions_open: i64,
+    decisions_decided: i64,
+    decisions_rejected: i64,
+    experiments_total: i64,
+    experiments_planned: i64,
+    experiments_ongoing: i64,
+    experiments_done: i64,
+    experiments_abandoned: i64,
+    notes_total: i64,
+}
+
+async fn get_project_stats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let pid = parse_uuid_param(&id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let c = state.repo.project_counts(pid).await?;
+    let stats = ProjectStatsDto {
+        goals_total: c.goals_total,
+        goals_open: c.goals_open,
+        goals_done: c.goals_done,
+        goals_dropped: c.goals_dropped,
+        decisions_total: c.decisions_total,
+        decisions_open: c.decisions_open,
+        decisions_decided: c.decisions_decided,
+        decisions_rejected: c.decisions_rejected,
+        experiments_total: c.experiments_total,
+        experiments_planned: c.experiments_planned,
+        experiments_ongoing: c.experiments_ongoing,
+        experiments_done: c.experiments_done,
+        experiments_abandoned: c.experiments_abandoned,
+        notes_total: c.notes,
+    };
+    Ok(Json(serde_json::json!(stats)))
+}
+
+async fn get_exports_manifest(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let auth_user = require_approved_user(&state, &headers).await?;
+    let pid = parse_uuid_param(&id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     let base = format!("/projects/{pid}/export");
     Ok(Json(serde_json::json!({
         "items": [
