@@ -4521,3 +4521,212 @@ async fn web_story_renders_the_saved_story_config() {
         "editor must still list hidden decision for future toggling: {edit}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// API v1 (JSON) — M1 coverage
+// ---------------------------------------------------------------------------
+
+fn post_json(uri: &str, body: &serde_json::Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(serde_json::to_vec(body).unwrap()))
+        .unwrap()
+}
+
+fn patch_json_authed(uri: &str, body: &serde_json::Value, cookie: &str, csrf: &str) -> Request<Body> {
+    let mut payload = body.clone();
+    if let Some(obj) = payload.as_object_mut() {
+        obj.entry("csrf_token").or_insert(json!(csrf));
+    }
+    Request::builder()
+        .method("PATCH")
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, header::HeaderValue::from_str(cookie).unwrap())
+        .header("x-csrf-token", csrf)
+        .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+        .unwrap()
+}
+
+fn delete_authed(uri: &str, cookie: &str, csrf: &str) -> Request<Body> {
+    Request::builder()
+        .method("DELETE")
+        .uri(uri)
+        .header(header::COOKIE, header::HeaderValue::from_str(cookie).unwrap())
+        .header("x-csrf-token", csrf)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(serde_json::to_vec(&json!({"csrf_token": csrf})).unwrap()))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn api_v1_capabilities_and_setup_status() {
+    let app = test_app().await;
+
+    let res = send(&app, get("/api/v1/capabilities")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let caps = json_response(res).await;
+    assert_eq!(caps["api_version"], "v1");
+    assert_eq!(caps["auth"]["mode"], "cookie_csrf");
+
+    let res = send(&app, get("/api/v1/setup/status")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status = json_response(res).await;
+    assert_eq!(status["setup_required"], true);
+
+    setup_via_form(&app).await;
+    let res = send(&app, get("/api/v1/setup/status")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status = json_response(res).await;
+    assert_eq!(status["setup_required"], false);
+}
+
+#[tokio::test]
+async fn api_v1_session_requires_auth_and_returns_csrf() {
+    let app = test_app().await;
+    let res = send(&app, get("/api/v1/session")).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let body = json_response(res).await;
+    assert_eq!(body["code"], "unauthenticated");
+
+    let cookie = setup_via_form(&app).await;
+    let res = send(&app, with_cookie(get("/api/v1/session"), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = json_response(res).await;
+    assert!(body["csrf_token"].as_str().unwrap_or("").len() > 0);
+    assert_eq!(body["user"]["username"], "dev");
+}
+
+#[tokio::test]
+async fn api_v1_login_and_projects_crud() {
+    let app = test_app().await;
+    setup_via_form(&app).await;
+
+    let res = send(
+        &app,
+        post_json(
+            "/api/v1/auth/login",
+            &json!({"username": "dev", "password": "longenough1"}),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let cookie = format!("causelog_session={}", session_cookie_value(&res));
+    let login_body = json_response(res).await;
+    let csrf = login_body["csrf_token"].as_str().unwrap().to_string();
+    assert_eq!(login_body["user"]["username"], "dev");
+
+    // create project
+    let req = {
+        let mut payload = json!({"title":"Alpha","summary":"s","status":"active"});
+        payload["csrf_token"] = json!(csrf);
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/projects")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+            .header("x-csrf-token", &csrf)
+            .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+            .unwrap()
+    };
+    let res = send(&app, req).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let project = json_response(res).await;
+    let pid = project["id"].as_str().unwrap().to_string();
+    assert_eq!(project["title"], "Alpha");
+
+    // list
+    let res = send(&app, with_cookie(get("/api/v1/projects"), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let list = json_response(res).await;
+    assert!(list["items"].as_array().unwrap().iter().any(|p| p["id"] == pid));
+
+    // update
+    let res = send(
+        &app,
+        patch_json_authed(
+            &format!("/api/v1/projects/{pid}"),
+            &json!({"title":"Alpha 2","summary":"s2","status":"active"}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let updated = json_response(res).await;
+    assert_eq!(updated["title"], "Alpha 2");
+
+    // delete
+    let res = send(&app, delete_authed(&format!("/api/v1/projects/{pid}"), &cookie, &csrf)).await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn api_v1_goal_and_decision_flow() {
+    let app = test_app().await;
+    let cookie = setup_via_form(&app).await;
+    let csrf = csrf_from_page(&app, &cookie).await;
+
+    // create project
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/projects")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+        .header("x-csrf-token", &csrf)
+        .body(Body::from(serde_json::to_vec(&json!({"csrf_token":csrf,"title":"P","summary":"","status":"active"})).unwrap()))
+        .unwrap();
+    let res = send(&app, req).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let project = json_response(res).await;
+    let pid = project["id"].as_str().unwrap();
+
+    // goal
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1/projects/{pid}/goals"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+        .header("x-csrf-token", &csrf)
+        .body(Body::from(serde_json::to_vec(&json!({"csrf_token":csrf,"title":"G1","body":"b"})).unwrap()))
+        .unwrap();
+    let res = send(&app, req).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let goal = json_response(res).await;
+    assert_eq!(goal["title"], "G1");
+
+    // decision + resolve + revisions
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1/projects/{pid}/decisions"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+        .header("x-csrf-token", &csrf)
+        .body(Body::from(serde_json::to_vec(&json!({"csrf_token":csrf,"title":"D1","context":"ctx","options":[]})).unwrap()))
+        .unwrap();
+    let res = send(&app, req).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let decision = json_response(res).await;
+    let did = decision["id"].as_str().unwrap().to_string();
+
+    let res = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/decisions/{did}/resolve"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+            .header("x-csrf-token", &csrf)
+            .body(Body::from(serde_json::to_vec(&json!({"csrf_token":csrf,"status":"decided","rationale":"because"})).unwrap()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = send(&app, with_cookie(get(&format!("/api/v1/decisions/{did}/revisions")), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let revs = json_response(res).await;
+    assert!(revs["items"].as_array().unwrap().len() >= 1);
+}
