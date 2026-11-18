@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
@@ -12,6 +13,26 @@ final graphProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, St
 class ProjectGraphScreen extends ConsumerWidget {
   final String projectId;
   const ProjectGraphScreen({super.key, required this.projectId});
+
+  void _openNode(BuildContext context, Map n) {
+    final type = n['entity_type'] as String?;
+    final id = n['id'] as String?;
+    if (type == null || id == null) return;
+    switch (type) {
+      case 'goal':
+        context.go('/projects/$projectId/goals/$id');
+        break;
+      case 'decision':
+        context.go('/projects/$projectId/decisions/$id');
+        break;
+      case 'experiment':
+        context.go('/projects/$projectId/experiments/$id');
+        break;
+      case 'note':
+        context.go('/projects/$projectId/notes/$id');
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -34,6 +55,8 @@ class ProjectGraphScreen extends ConsumerWidget {
                   child: ListTile(
                     title: Text(n['title'] as String? ?? n['id'] as String? ?? ''),
                     subtitle: Text(n['entity_type'] as String? ?? ''),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _openNode(context, n),
                   ),
                 ),
               const SizedBox(height: 16),
@@ -43,8 +66,11 @@ class ProjectGraphScreen extends ConsumerWidget {
                 Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
-                    title: Text(e['kind'] as String? ?? 'edge'),
-                    subtitle: Text('${e['from_type']}:${e['from_id']} → ${e['to_type']}:${e['to_id']}'),
+                    title: Text('${e['kind'] ?? 'edge'} (${e['source'] ?? ''})'),
+                    subtitle: Text(
+                      '${e['from_type'] ?? ''}: ${e['from_id'] ?? ''}\n→ ${e['to_type'] ?? ''}: ${e['to_id'] ?? ''}',
+                    ),
+                    isThreeLine: true,
                   ),
                 ),
             ],
