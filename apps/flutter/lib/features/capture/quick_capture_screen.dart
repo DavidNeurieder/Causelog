@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
+import '../../core/api/api_client.dart';
 import '../../core/errors/app_exception.dart';
 
 class QuickCaptureScreen extends ConsumerStatefulWidget {
@@ -63,7 +64,7 @@ class _QuickCaptureScreenState extends ConsumerState<QuickCaptureScreen> {
     });
     try {
       final api = ref.read(apiClientProvider);
-      await api.postJson('/api/v1/capture', data: {
+      await api.postJson('/api/v1/capture', idempotencyKey: ApiClient.newIdempotencyKey('capture'), data: {
         'project_id': widget.projectId,
         'kind': _kind,
         'title': title,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
+import '../../core/api/api_client.dart';
 import '../../core/errors/app_exception.dart';
 
 final experimentDetailProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
@@ -151,7 +152,7 @@ class _ExperimentDetailScreenState extends ConsumerState<ExperimentDetailScreen>
     if (ok != true || note.text.trim().isEmpty) return;
     try {
       final api = ref.read(apiClientProvider);
-      await api.postJson('/api/v1/experiments/${widget.experimentId}/events', data: {
+      await api.postJson('/api/v1/experiments/${widget.experimentId}/events', idempotencyKey: ApiClient.newIdempotencyKey('create-event'), data: {
         'kind': kind,
         'note': note.text.trim(),
       });

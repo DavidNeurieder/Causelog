@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
+import '../../core/api/api_client.dart';
 import '../../core/errors/app_exception.dart';
 
 final decisionDetailProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
@@ -162,7 +163,7 @@ class _DecisionDetailScreenState extends ConsumerState<DecisionDetailScreen> wit
   Future<void> _resolve(String status) async {
     try {
       final api = ref.read(apiClientProvider);
-      await api.postJson('/api/v1/decisions/${widget.decisionId}/resolve', data: {
+      await api.postJson('/api/v1/decisions/${widget.decisionId}/resolve', idempotencyKey: ApiClient.newIdempotencyKey('resolve-decision'), data: {
         'status': status,
         'rationale': _rationale?.text.trim() ?? '',
       });

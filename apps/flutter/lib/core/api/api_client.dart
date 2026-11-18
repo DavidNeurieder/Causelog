@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
@@ -63,10 +64,26 @@ class ApiClient {
       code = data['code'] as String?;
     }
     final status = response.statusCode;
-    if (status == 401) throw AppException(message, code: code ?? 'unauthenticated', statusCode: 401);
-    if (status == 403) throw AppException(message, code: code ?? 'forbidden', statusCode: 403);
-    if (status == 404) throw AppException(message, code: code ?? 'not_found', statusCode: 404);
+    if (status == 401) {
+      throw AppException(message, code: code ?? 'unauthenticated', statusCode: 401);
+    }
+    if (status == 403) {
+      throw AppException(message, code: code ?? 'forbidden', statusCode: 403);
+    }
+    if (status == 404) {
+      throw AppException(message, code: code ?? 'not_found', statusCode: 404);
+    }
+    if (status == 409) {
+      throw AppException(message, code: code ?? 'conflict', statusCode: 409);
+    }
     throw AppException(message, code: code, statusCode: status);
+  }
+
+  static String newIdempotencyKey([String prefix = 'req']) {
+    final rand = Random();
+    final a = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    final b = rand.nextInt(1 << 32).toRadixString(36);
+    return '$prefix-$a-$b';
   }
 
   Future<Map<String, dynamic>> getJson(String path, {Map<String, dynamic>? query}) async {
@@ -80,9 +97,19 @@ class ApiClient {
     }
   }
 
-  Future<dynamic> postJson(String path, {Object? data}) async {
+  Future<dynamic> postJson(
+    String path, {
+    Object? data,
+    String? idempotencyKey,
+  }) async {
     try {
-      final res = await dio.post(path, data: data ?? <String, dynamic>{});
+      final res = await dio.post(
+        path,
+        data: data ?? <String, dynamic>{},
+        options: idempotencyKey == null
+            ? null
+            : Options(headers: {'Idempotency-Key': idempotencyKey}),
+      );
       if (res.statusCode != null && res.statusCode! >= 400) throwFor(res);
       return res.data;
     } on DioException catch (e) {
@@ -90,9 +117,19 @@ class ApiClient {
     }
   }
 
-  Future<dynamic> patchJson(String path, {Object? data}) async {
+  Future<dynamic> patchJson(
+    String path, {
+    Object? data,
+    String? idempotencyKey,
+  }) async {
     try {
-      final res = await dio.patch(path, data: data ?? <String, dynamic>{});
+      final res = await dio.patch(
+        path,
+        data: data ?? <String, dynamic>{},
+        options: idempotencyKey == null
+            ? null
+            : Options(headers: {'Idempotency-Key': idempotencyKey}),
+      );
       if (res.statusCode != null && res.statusCode! >= 400) throwFor(res);
       return res.data;
     } on DioException catch (e) {
@@ -100,9 +137,19 @@ class ApiClient {
     }
   }
 
-  Future<void> deleteJson(String path, {Object? data}) async {
+  Future<void> deleteJson(
+    String path, {
+    Object? data,
+    String? idempotencyKey,
+  }) async {
     try {
-      final res = await dio.delete(path, data: data);
+      final res = await dio.delete(
+        path,
+        data: data,
+        options: idempotencyKey == null
+            ? null
+            : Options(headers: {'Idempotency-Key': idempotencyKey}),
+      );
       if (res.statusCode != null && res.statusCode! >= 400) throwFor(res);
     } on DioException catch (e) {
       throw _mapDio(e);

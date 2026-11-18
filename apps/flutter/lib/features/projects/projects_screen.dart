@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
+import '../../core/api/api_client.dart';
 import '../../core/auth/auth_state.dart';
 import '../../core/errors/app_exception.dart';
 
@@ -138,7 +139,7 @@ class ProjectsScreen extends ConsumerWidget {
     if (t.isEmpty) return;
     try {
       final api = ref.read(apiClientProvider);
-      await api.postJson('/api/v1/projects', data: {
+      await api.postJson('/api/v1/projects', idempotencyKey: ApiClient.newIdempotencyKey('create-project'), data: {
         'title': t,
         'summary': summary.text.trim(),
         'status': 'active',

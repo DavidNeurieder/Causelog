@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
+import '../../core/api/api_client.dart';
 import '../../core/errors/app_exception.dart';
 
 final experimentsProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, projectId) async {
@@ -78,7 +79,7 @@ class ExperimentsScreen extends ConsumerWidget {
     if (ok != true || title.text.trim().isEmpty) return;
     try {
       final api = ref.read(apiClientProvider);
-      await api.postJson('/api/v1/projects/$projectId/experiments', data: {
+      await api.postJson('/api/v1/projects/$projectId/experiments', idempotencyKey: ApiClient.newIdempotencyKey('create-experiment'), data: {
         'title': title.text.trim(),
         'hypothesis': hypothesis.text.trim(),
       });
