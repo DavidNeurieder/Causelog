@@ -36,6 +36,16 @@ class ProjectDetailScreen extends ConsumerWidget {
                 ref.invalidate(projectStatsProvider(id));
               },
             ),
+            PopupMenuButton<String>(
+              onSelected: (v) {
+                if (v == 'edit') _editProject(context, ref, project);
+                if (v == 'delete') _deleteProject(context, ref);
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit project')),
+                PopupMenuItem(value: 'delete', child: Text('Delete project')),
+              ],
+            ),
           ],
         ),
         floatingActionButton: FloatingActionButton.extended(
@@ -103,6 +113,79 @@ class ProjectDetailScreen extends ConsumerWidget {
         );
       },
     );
+  }
+
+  Future<void> _editProject(BuildContext context, WidgetRef ref, Map<String, dynamic> project) async {
+    final title = TextEditingController(text: project['title'] as String? ?? '');
+    final summary = TextEditingController(text: project['summary'] as String? ?? '');
+    String status = project['status'] as String? ?? 'active';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit project'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: title, decoration: const InputDecoration(labelText: 'Title')),
+            const SizedBox(height: 8),
+            TextField(controller: summary, decoration: const InputDecoration(labelText: 'Summary')),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: ['active', 'paused', 'archived'].contains(status) ? status : 'active',
+              decoration: const InputDecoration(labelText: 'Status'),
+              items: const [
+                DropdownMenuItem(value: 'active', child: Text('Active')),
+                DropdownMenuItem(value: 'paused', child: Text('Paused')),
+                DropdownMenuItem(value: 'archived', child: Text('Archived')),
+              ],
+              onChanged: (v) => status = v ?? status,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.patchJson('/api/v1/projects/$id', data: {
+        'title': title.text.trim(),
+        'summary': summary.text.trim(),
+        'status': status,
+      });
+      ref.invalidate(projectProvider(id));
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppException ? e.message : '$e')));
+      }
+    }
+  }
+
+  Future<void> _deleteProject(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete project?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.deleteJson('/api/v1/projects/$id', data: {});
+      if (context.mounted) context.go('/projects');
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppException ? e.message : '$e')));
+      }
+    }
   }
 }
 
