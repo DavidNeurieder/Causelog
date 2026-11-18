@@ -4800,3 +4800,199 @@ async fn api_v1_idempotency_replays_and_conflicts() {
     let items = list["items"].as_array().unwrap();
     assert_eq!(items.iter().filter(|p| p["title"] == "Idem Project").count(), 1);
 }
+
+#[tokio::test]
+async fn api_v1_core_workflow_endpoints() {
+    let app = test_app().await;
+    setup_via_form(&app).await;
+
+    let res = send(
+        &app,
+        post_json(
+            "/api/v1/auth/login",
+            &json!({"username": "dev", "password": "longenough1"}),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let cookie = format!("causelog_session={}", session_cookie_value(&res));
+    let body = json_response(res).await;
+    let csrf = body["csrf_token"].as_str().unwrap().to_string();
+
+    let post = |uri: String, payload: serde_json::Value, cookie: &String, csrf: &String| {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, header::HeaderValue::from_str(cookie).unwrap())
+            .header("x-csrf-token", csrf)
+            .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+            .unwrap()
+    };
+
+    // project
+    let res = send(
+        &app,
+        post(
+            "/api/v1/projects".to_string(),
+            json!({"csrf_token": csrf, "title":"Workflow", "summary":"s", "status":"active"}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let project = json_response(res).await;
+    let pid = project["id"].as_str().unwrap().to_string();
+
+    // goal + decision
+    let res = send(
+        &app,
+        post(
+            format!("/api/v1/projects/{pid}/goals"),
+            json!({"csrf_token": csrf, "title":"Goal", "body":"b"}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let goal = json_response(res).await;
+    let gid = goal["id"].as_str().unwrap().to_string();
+
+    let res = send(
+        &app,
+        post(
+            format!("/api/v1/projects/{pid}/decisions"),
+            json!({"csrf_token": csrf, "title":"Decision", "context":"ctx", "goal_id": gid, "options":[{"id":"a","label":"A","pros":"","cons":""}]}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let decision = json_response(res).await;
+    let did = decision["id"].as_str().unwrap().to_string();
+
+    // experiment + event
+    let res = send(
+        &app,
+        post(
+            format!("/api/v1/projects/{pid}/experiments"),
+            json!({"csrf_token": csrf, "title":"Exp", "hypothesis":"h", "goal_id": gid, "decision_id": did}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let exp = json_response(res).await;
+    let eid = exp["id"].as_str().unwrap().to_string();
+
+    let res = send(
+        &app,
+        post(
+            format!("/api/v1/experiments/{eid}/events"),
+            json!({"csrf_token": csrf, "kind":"observation", "note":"saw something"}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let event = json_response(res).await;
+    assert_eq!(event["kind"], "observation");
+
+    let res = send(&app, with_cookie(get(&format!("/api/v1/experiments/{eid}")), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let exp_detail = json_response(res).await;
+    assert_eq!(exp_detail["id"], eid);
+    assert!(exp_detail["events"].as_array().unwrap().len() >= 1);
+
+    // note + revision history
+    let res = send(
+        &app,
+        post(
+            format!("/api/v1/projects/{pid}/notes"),
+            json!({"csrf_token": csrf, "title":"Note", "body":"v1"}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let note = json_response(res).await;
+    let nid = note["id"].as_str().unwrap().to_string();
+
+    let res = send(
+        &app,
+        patch_json_authed(
+            &format!("/api/v1/notes/{nid}"),
+            &json!({"title":"Note","body":"v2"}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = send(&app, with_cookie(get(&format!("/api/v1/notes/{nid}/revisions")), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let revs = json_response(res).await;
+    assert!(revs["items"].as_array().unwrap().len() >= 1);
+
+    // link
+    let res = send(
+        &app,
+        post(
+            format!("/api/v1/projects/{pid}/links"),
+            json!({"csrf_token": csrf, "from_type":"note", "from_id": nid, "to_type":"decision", "to_id": did, "kind":"supports"}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    // capture
+    let res = send(
+        &app,
+        post(
+            "/api/v1/capture".to_string(),
+            json!({"csrf_token": csrf, "project_id": pid, "kind":"note", "title":"Captured", "body":"quick"}),
+            &cookie,
+            &csrf,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let cap = json_response(res).await;
+    assert_eq!(cap["kind"], "note");
+
+    // search/timeline/activity/graph/stats/exports
+    let res = send(&app, with_cookie(get("/api/v1/search?q=Workflow"), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let search = json_response(res).await;
+    assert!(search["items"].as_array().unwrap().iter().any(|i| i["entity_type"] == "project"));
+
+    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/timeline")), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let timeline = json_response(res).await;
+    assert!(timeline["items"].is_array());
+
+    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/activity")), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/graph")), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let graph = json_response(res).await;
+    assert!(graph["nodes"].is_array() && graph["edges"].is_array());
+
+    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/stats")), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/exports")), &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let exports = json_response(res).await;
+    assert!(exports["items"].as_array().unwrap().len() >= 1);
+}
