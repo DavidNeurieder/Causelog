@@ -31,6 +31,24 @@ impl ApiError {
     pub fn internal(msg: impl Into<String>) -> Self {
         Self(RepositoryError::Internal(msg.into()))
     }
+    pub fn rate_limited() -> Self {
+        Self(RepositoryError::RateLimited)
+    }
+    pub fn code(&self) -> &'static str {
+        match &self.0 {
+            RepositoryError::NotFound(_) => "not_found",
+            RepositoryError::Unauthorized => "unauthenticated",
+            RepositoryError::Forbidden => "forbidden",
+            RepositoryError::InvalidInput(_) => "invalid_input",
+            RepositoryError::Conflict(_) => "conflict",
+            RepositoryError::RateLimited => "rate_limited",
+            RepositoryError::Uuid(_) => "invalid_id",
+            RepositoryError::Internal(_)
+            | RepositoryError::Io(_)
+            | RepositoryError::Database(_)
+            | RepositoryError::Migration(_) => "internal",
+        }
+    }
     pub fn status_and_message(&self) -> (StatusCode, String) {
         match &self.0 {
             RepositoryError::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
@@ -61,6 +79,7 @@ impl From<RepositoryError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = self.status_and_message();
-        (status, Json(serde_json::json!({ "error": message }))).into_response()
+        let code = self.code();
+        (status, Json(serde_json::json!({ "error": message, "code": code }))).into_response()
     }
 }

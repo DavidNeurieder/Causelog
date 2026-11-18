@@ -1,5 +1,6 @@
 //! Server library: application wiring and the repository layer.
 
+pub mod api;
 pub mod auth;
 pub mod error;
 pub mod example;
@@ -200,6 +201,7 @@ fn router(state: AppState) -> Router {
         .route("/search", get(pages::search_page))
         .route("/static/{name}", get(pages::static_file))
         .route("/health", get(routes::health))
+        .nest("/api/v1", api::router())
         .with_state(state)
 }
 

@@ -1701,11 +1701,17 @@ pub(crate) async fn welcome_page(
     })
 }
 
+#[derive(Deserialize)]
+pub(crate) struct CsrfOnlyForm {
+    csrf_token: Option<String>,
+}
+
 /// "Explore an example": create a small project that walks the whole golden
 /// path (goal → decision → experiment → lesson) and open it.
 pub(crate) async fn explore_example_post(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Form(form): Form<CsrfOnlyForm>,
 ) -> Result<Response, PageError> {
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
         return Ok(login_redirect());
@@ -1713,6 +1719,8 @@ pub(crate) async fn explore_example_post(
     if !auth::is_approved(&auth_user.user) {
         return Ok(Redirect::to("/login?flash=not_approved").into_response());
     }
+    auth::verify_csrf_form(&headers, form.csrf_token.as_deref(), &auth_user.csrf_token)
+        .map_err(PageError::from)?;
     let project = crate::example::seed_example_project(&*state.repo, auth_user.user.id)
         .await
         .map_err(|e| ApiError::internal(format!("seeding example failed: {e:#}")))?;
@@ -5522,6 +5530,7 @@ pub(crate) struct StatusChangeRequest {
     entity: String,
     id: String,
     status: String,
+    csrf_token: Option<String>,
 }
 
 pub(crate) async fn api_status_change(
@@ -5530,11 +5539,12 @@ pub(crate) async fn api_status_change(
     axum::extract::Json(body): axum::extract::Json<StatusChangeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let Some(auth_user) = auth::session_user(&state, &headers).await else {
-        return Err(ApiError::forbidden());
+        return Err(ApiError::unauthorized());
     };
     if !auth::is_approved(&auth_user.user) {
         return Err(ApiError::forbidden());
     }
+    auth::verify_csrf_form(&headers, body.csrf_token.as_deref(), &auth_user.csrf_token)?;
 
     let entity_id =
         Uuid::parse_str(&body.id).map_err(|_| ApiError::bad_request("invalid entity id"))?;

@@ -54,7 +54,7 @@ pub struct Goal {
     pub project_id: Uuid,
     pub title: String,
     pub body: String,
-    /// `open` | `done` | `dropped`
+    /// `open` | `ongoing` | `done` | `dropped`
     pub status: String,
     pub created_by: Option<Uuid>,
     pub assigned_to: Option<Uuid>,
@@ -119,7 +119,7 @@ pub struct Experiment {
     pub title: String,
     /// Markdown; the falsifiable claim being tested.
     pub hypothesis: String,
-    /// `planned` | `running` | `done` | `abandoned`
+    /// `planned` | `ongoing` | `done` | `abandoned`
     pub status: String,
     pub started_at_ms: Option<i64>,
     pub ended_at_ms: Option<i64>,
