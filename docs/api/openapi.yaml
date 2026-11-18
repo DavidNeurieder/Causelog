@@ -1,0 +1,1619 @@
+openapi: 3.0.3
+info:
+  title: Causelog API
+  version: 1.0.0-draft
+  description: |
+    Draft versioned JSON API contract for the Causelog Flutter client and future
+    web client migration. This contract is the source of truth for M1+ server
+    implementation and for generated Dart models.
+
+    **Status:** Draft (M0). Not yet fully implemented by the server.
+
+    **Authentication model (native clients):** cookie session + CSRF token.
+    - Login establishes the `causelog_session` HttpOnly cookie (SameSite=Lax; Secure in HTTPS mode; 30-day TTL).
+    - `GET /api/v1/session` returns the current user and the session `csrf_token`.
+    - Mutating requests must send `X-CSRF-Token: <csrf_token>` and, where a JSON body is accepted, also include `csrf_token` in the body for parity with existing inline-edit handlers.
+    - Unauthenticated requests return `401`; authenticated but unauthorized requests return `403`.
+servers:
+  - url: /
+    description: Same origin as the Causelog server
+
+tags:
+  - name: system
+  - name: auth
+  - name: projects
+  - name: goals
+  - name: decisions
+  - name: experiments
+  - name: notes
+  - name: links
+  - name: search
+  - name: timeline
+  - name: graph
+  - name: exports
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: Liveness probe (existing)
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+
+  /api/v1/capabilities:
+    get:
+      tags: [system]
+      summary: Server capabilities and version
+      operationId: getCapabilities
+      security: []
+      responses:
+        '200':
+          description: Capabilities
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+
+  /api/v1/setup/status:
+    get:
+      tags: [system]
+      summary: Whether initial setup is required
+      operationId: getSetupStatus
+      security: []
+      responses:
+        '200':
+          description: Setup status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupStatus'
+
+  /api/v1/setup:
+    post:
+      tags: [auth]
+      summary: Create the first admin user and session (idempotent semantics as today)
+      operationId: setup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '201':
+          description: Created and logged in (sets session cookie)
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new user (pending admin approval)
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registered, pending approval (no session)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pending_approval]
+                properties:
+                  pending_approval: { type: boolean, enum: [true] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Log in and create a session
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Logged in (sets session cookie)
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Log out and clear the session
+      operationId: logout
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrfBody'
+      responses:
+        '204': { description: Logged out (clears session cookie) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/session:
+    get:
+      tags: [auth]
+      summary: Current session, user, and CSRF token
+      operationId: getSession
+      responses:
+        '200':
+          description: Current session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/projects:
+    get:
+      tags: [projects]
+      summary: List projects accessible to the current user
+      operationId: listProjects
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Projects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectPage'
+    post:
+      tags: [projects]
+      summary: Create a project
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/projects/{projectId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [projects]
+      summary: Get a project
+      operationId: getProject
+      responses:
+        '200':
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [projects]
+      summary: Update a project
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectUpdateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+    delete:
+      tags: [projects]
+      summary: Delete a project
+      operationId: deleteProject
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrfBody'
+      responses:
+        '204': { description: Deleted }
+
+  /api/v1/projects/{projectId}/members:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [projects]
+      summary: List project members
+      operationId: listProjectMembers
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProjectMemberInfo'
+    post:
+      tags: [projects]
+      summary: Add a project member (admin or project owner)
+      operationId: addProjectMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectMemberAddRequest'
+      responses:
+        '204': { description: Added }
+
+  /api/v1/projects/{projectId}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [projects]
+      summary: Remove a project member
+      operationId: removeProjectMember
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrfBody'
+      responses:
+        '204': { description: Removed }
+
+  /api/v1/projects/{projectId}/goals:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [goals]
+      summary: List goals
+      operationId: listGoals
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/GoalStatus' }
+      responses:
+        '200':
+          description: Goals
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalPage'
+    post:
+      tags: [goals]
+      summary: Create a goal
+      operationId: createGoal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoalCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+
+  /api/v1/goals/{goalId}:
+    parameters:
+      - $ref: '#/components/parameters/GoalId'
+    get:
+      tags: [goals]
+      summary: Get a goal
+      operationId: getGoal
+      responses:
+        '200':
+          description: Goal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+    patch:
+      tags: [goals]
+      summary: Update a goal
+      operationId: updateGoal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoalUpdateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+    delete:
+      tags: [goals]
+      summary: Delete a goal
+      operationId: deleteGoal
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrfBody'
+      responses:
+        '204': { description: Deleted }
+
+  /api/v1/projects/{projectId}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [decisions]
+      summary: List decisions
+      operationId: listDecisions
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/DecisionStatus' }
+      responses:
+        '200':
+          description: Decisions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionPage'
+    post:
+      tags: [decisions]
+      summary: Create a decision (appends initial revision)
+      operationId: createDecision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+
+  /api/v1/decisions/{decisionId}:
+    parameters:
+      - $ref: '#/components/parameters/DecisionId'
+    get:
+      tags: [decisions]
+      summary: Get a decision
+      operationId: getDecision
+      responses:
+        '200':
+          description: Decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+    patch:
+      tags: [decisions]
+      summary: Update a decision (appends revision)
+      operationId: updateDecision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionUpdateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+    delete:
+      tags: [decisions]
+      summary: Delete a decision
+      operationId: deleteDecision
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrfBody'
+      responses:
+        '204': { description: Deleted }
+
+  /api/v1/decisions/{decisionId}/resolve:
+    parameters:
+      - $ref: '#/components/parameters/DecisionId'
+    post:
+      tags: [decisions]
+      summary: Resolve a decision (appends revision)
+      operationId: resolveDecision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionResolveRequest'
+      responses:
+        '200':
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+
+  /api/v1/decisions/{decisionId}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/DecisionId'
+    get:
+      tags: [decisions]
+      summary: List decision revisions (newest first)
+      operationId: listDecisionRevisions
+      responses:
+        '200':
+          description: Revisions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionPage'
+
+  /api/v1/decisions/{decisionId}/revisions/compare:
+    parameters:
+      - $ref: '#/components/parameters/DecisionId'
+    get:
+      tags: [decisions]
+      summary: Compare two decision revisions (Markdown diff)
+      operationId: compareDecisionRevisions
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Comparison
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionComparison'
+
+  /api/v1/projects/{projectId}/experiments:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [experiments]
+      summary: List experiments
+      operationId: listExperiments
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Experiments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentPage'
+    post:
+      tags: [experiments]
+      summary: Create an experiment
+      operationId: createExperiment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+
+  /api/v1/experiments/{experimentId}:
+    parameters:
+      - $ref: '#/components/parameters/ExperimentId'
+    get:
+      tags: [experiments]
+      summary: Get an experiment with events
+      operationId: getExperiment
+      responses:
+        '200':
+          description: Experiment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentDetail'
+    patch:
+      tags: [experiments]
+      summary: Update an experiment
+      operationId: updateExperiment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentUpdateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+    delete:
+      tags: [experiments]
+      summary: Delete an experiment
+      operationId: deleteExperiment
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrfBody'
+      responses:
+        '204': { description: Deleted }
+
+  /api/v1/experiments/{experimentId}/events:
+    parameters:
+      - $ref: '#/components/parameters/ExperimentId'
+    post:
+      tags: [experiments]
+      summary: Add an observation/measurement/milestone
+      operationId: createExperimentEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentEventCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentEvent'
+
+  /api/v1/experiments/{experimentId}/events/{eventId}:
+    parameters:
+      - $ref: '#/components/parameters/ExperimentId'
+      - name: eventId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [experiments]
+      summary: Delete an experiment event
+      operationId: deleteExperimentEvent
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrfBody'
+      responses:
+        '204': { description: Deleted }
+
+  /api/v1/experiments/{experimentId}/extract:
+    parameters:
+      - $ref: '#/components/parameters/ExperimentId'
+    post:
+      tags: [experiments]
+      summary: Extract a lesson into a note
+      operationId: extractExperimentLesson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtractLessonRequest'
+      responses:
+        '201':
+          description: Note created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+
+  /api/v1/projects/{projectId}/notes:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [notes]
+      summary: List notes
+      operationId: listNotes
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Notes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotePage'
+    post:
+      tags: [notes]
+      summary: Create a note (appends initial revision)
+      operationId: createNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+
+  /api/v1/notes/{noteId}:
+    parameters:
+      - $ref: '#/components/parameters/NoteId'
+    get:
+      tags: [notes]
+      summary: Get a note
+      operationId: getNote
+      responses:
+        '200':
+          description: Note
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+    patch:
+      tags: [notes]
+      summary: Update a note (appends revision)
+      operationId: updateNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteUpdateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+    delete:
+      tags: [notes]
+      summary: Delete a note
+      operationId: deleteNote
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrfBody'
+      responses:
+        '204': { description: Deleted }
+
+  /api/v1/notes/{noteId}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/NoteId'
+    get:
+      tags: [notes]
+      summary: List note revisions (newest first)
+      operationId: listNoteRevisions
+      responses:
+        '200':
+          description: Revisions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionPage'
+
+  /api/v1/projects/{projectId}/links:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [links]
+      summary: Create a typed link
+      operationId: createLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Link'
+
+  /api/v1/projects/{projectId}/links/{linkId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - name: linkId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [links]
+      summary: Delete a link
+      operationId: deleteLink
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsrfBody'
+      responses:
+        '204': { description: Deleted }
+
+  /api/v1/capture:
+    post:
+      tags: [notes]
+      summary: Quick capture (note, observation, or decision draft)
+      operationId: capture
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureRequest'
+      responses:
+        '201':
+          description: Captured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureResponse'
+
+  /api/v1/search:
+    get:
+      tags: [search]
+      summary: Full-text search (FTS5-backed)
+      operationId: search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchPage'
+
+  /api/v1/projects/{projectId}/timeline:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [timeline]
+      summary: Project timeline events
+      operationId: getTimeline
+      responses:
+        '200':
+          description: Timeline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineResponse'
+
+  /api/v1/projects/{projectId}/activity:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [timeline]
+      summary: Recent project activity
+      operationId: getActivity
+      responses:
+        '200':
+          description: Activity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityResponse'
+
+  /api/v1/projects/{projectId}/graph:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [graph]
+      summary: Project knowledge graph (nodes and typed edges)
+      operationId: getGraph
+      parameters:
+        - name: focus
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Graph
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphResponse'
+
+  /api/v1/projects/{projectId}/stats:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [projects]
+      summary: Project statistics
+      operationId: getProjectStats
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectStats'
+
+  /api/v1/projects/{projectId}/exports:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [exports]
+      summary: Export format manifest and download URLs
+      operationId: listExports
+      responses:
+        '200':
+          description: Exports
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportManifest'
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: causelog_session
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    GoalId:
+      name: goalId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DecisionId:
+      name: decisionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ExperimentId:
+      name: experimentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    NoteId:
+      name: noteId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      name: per_page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Unauthenticated
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Rate limited
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          description: Stable machine-readable error code (e.g. unauthenticated, forbidden, not_found, invalid_input, conflict, rate_limited, not_approved, setup_required).
+
+    CsrfBody:
+      type: object
+      properties:
+        csrf_token: { type: string }
+
+    Capabilities:
+      type: object
+      required: [api_version, server_version, auth, export_formats]
+      properties:
+        api_version: { type: string, example: v1 }
+        server_version: { type: string, example: 0.2.0 }
+        auth:
+          type: object
+          required: [mode, csrf_header, session_cookie]
+          properties:
+            mode: { type: string, enum: [cookie_csrf] }
+            csrf_header: { type: string, example: X-CSRF-Token }
+            session_cookie: { type: string, example: causelog_session }
+        export_formats:
+          type: array
+          items: { type: string, enum: [json, md, html, zip, odp] }
+
+    SetupStatus:
+      type: object
+      required: [setup_required]
+      properties:
+        setup_required: { type: boolean }
+
+    SetupRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        display_name: { type: string }
+        password: { type: string, format: password }
+
+    RegisterRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        display_name: { type: string }
+        password: { type: string, format: password }
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+
+    User:
+      type: object
+      required: [id, username, display_name, role, approved, created_at_ms]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        display_name: { type: string }
+        role: { type: string, enum: [admin, user] }
+        approved: { type: boolean }
+        created_at_ms: { type: integer, format: int64 }
+
+    SessionResponse:
+      type: object
+      required: [user, csrf_token]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        csrf_token: { type: string }
+
+    PageInfo:
+      type: object
+      required: [page, per_page, total, total_pages]
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        total_pages: { type: integer }
+
+    ProjectStatus:
+      type: string
+      enum: [active, paused, archived]
+
+    Project:
+      type: object
+      required: [id, title, summary, status, created_at_ms, updated_at_ms]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        summary: { type: string }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        created_by: { type: string, format: uuid, nullable: true }
+        created_at_ms: { type: integer, format: int64 }
+        updated_at_ms: { type: integer, format: int64 }
+
+    ProjectCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [title]
+          properties:
+            title: { type: string }
+            summary: { type: string }
+            status: { $ref: '#/components/schemas/ProjectStatus' }
+
+    ProjectUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          properties:
+            title: { type: string }
+            summary: { type: string }
+            status: { $ref: '#/components/schemas/ProjectStatus' }
+
+    ProjectPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Project' }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    ProjectMemberInfo:
+      type: object
+      required: [user, role]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        role: { type: string, enum: [owner, member] }
+
+    ProjectMemberAddRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [user_id]
+          properties:
+            user_id: { type: string, format: uuid }
+            role: { type: string, enum: [owner, member], default: member }
+
+    GoalStatus:
+      type: string
+      enum: [open, ongoing, done, dropped]
+
+    Goal:
+      type: object
+      required: [id, project_id, title, body, status, created_at_ms, updated_at_ms]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        status: { $ref: '#/components/schemas/GoalStatus' }
+        created_by: { type: string, format: uuid, nullable: true }
+        assigned_to: { type: string, format: uuid, nullable: true }
+        created_at_ms: { type: integer, format: int64 }
+        updated_at_ms: { type: integer, format: int64 }
+
+    GoalCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [title]
+          properties:
+            title: { type: string }
+            body: { type: string }
+            status: { $ref: '#/components/schemas/GoalStatus' }
+            assigned_to: { type: string, format: uuid, nullable: true }
+
+    GoalUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          properties:
+            title: { type: string }
+            body: { type: string }
+            status: { $ref: '#/components/schemas/GoalStatus' }
+            assigned_to: { type: string, format: uuid, nullable: true }
+
+    GoalPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Goal' }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    DecisionStatus:
+      type: string
+      enum: [open, decided, rejected]
+
+    DecisionOption:
+      type: object
+      required: [id, label, pros, cons]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        pros: { type: string }
+        cons: { type: string }
+
+    Decision:
+      type: object
+      required: [id, project_id, title, context, options, status, rationale, created_at_ms, updated_at_ms]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        goal_id: { type: string, format: uuid, nullable: true }
+        title: { type: string }
+        context: { type: string }
+        options:
+          type: array
+          items: { $ref: '#/components/schemas/DecisionOption' }
+        status: { $ref: '#/components/schemas/DecisionStatus' }
+        decided_option: { type: string, nullable: true }
+        rationale: { type: string }
+        decided_at_ms: { type: integer, format: int64, nullable: true }
+        review_at_ms: { type: integer, format: int64, nullable: true }
+        created_by: { type: string, format: uuid, nullable: true }
+        created_at_ms: { type: integer, format: int64 }
+        updated_at_ms: { type: integer, format: int64 }
+
+    DecisionCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [title]
+          properties:
+            goal_id: { type: string, format: uuid, nullable: true }
+            title: { type: string }
+            context: { type: string }
+            options:
+              type: array
+              items: { $ref: '#/components/schemas/DecisionOption' }
+            status: { $ref: '#/components/schemas/DecisionStatus' }
+            decided_option: { type: string, nullable: true }
+            rationale: { type: string }
+            review_at_ms: { type: integer, format: int64, nullable: true }
+
+    DecisionUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          properties:
+            goal_id: { type: string, format: uuid, nullable: true }
+            title: { type: string }
+            context: { type: string }
+            options:
+              type: array
+              items: { $ref: '#/components/schemas/DecisionOption' }
+            status: { $ref: '#/components/schemas/DecisionStatus' }
+            decided_option: { type: string, nullable: true }
+            rationale: { type: string }
+            review_at_ms: { type: integer, format: int64, nullable: true }
+
+    DecisionResolveRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [status, rationale]
+          properties:
+            status: { type: string, enum: [decided, rejected] }
+            decided_option: { type: string, nullable: true }
+            rationale: { type: string }
+            review_at_ms: { type: integer, format: int64, nullable: true }
+
+    DecisionPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Decision' }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    Revision:
+      type: object
+      required: [id, entity_type, entity_id, snapshot, created_at_ms]
+      properties:
+        id: { type: string, format: uuid }
+        entity_type: { type: string, enum: [decision, note] }
+        entity_id: { type: string, format: uuid }
+        snapshot: { type: string, description: Markdown snapshot }
+        created_by: { type: string, format: uuid, nullable: true }
+        created_at_ms: { type: integer, format: int64 }
+
+    RevisionPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Revision' }
+
+    RevisionComparison:
+      type: object
+      required: [from, to]
+      properties:
+        from: { $ref: '#/components/schemas/Revision' }
+        to: { $ref: '#/components/schemas/Revision' }
+        unified_diff: { type: string, description: Unified diff of Markdown snapshots (server-computed when available) }
+
+    ExperimentStatus:
+      type: string
+      enum: [planned, ongoing, done, abandoned]
+
+    Experiment:
+      type: object
+      required: [id, project_id, title, hypothesis, status, result, lesson, created_at_ms, updated_at_ms]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        goal_id: { type: string, format: uuid, nullable: true }
+        decision_id: { type: string, format: uuid, nullable: true }
+        title: { type: string }
+        hypothesis: { type: string }
+        status: { $ref: '#/components/schemas/ExperimentStatus' }
+        started_at_ms: { type: integer, format: int64, nullable: true }
+        ended_at_ms: { type: integer, format: int64, nullable: true }
+        result: { type: string }
+        lesson: { type: string }
+        created_by: { type: string, format: uuid, nullable: true }
+        created_at_ms: { type: integer, format: int64 }
+        updated_at_ms: { type: integer, format: int64 }
+
+    ExperimentEvent:
+      type: object
+      required: [id, experiment_id, kind, at_ms, note, created_at_ms]
+      properties:
+        id: { type: string, format: uuid }
+        experiment_id: { type: string, format: uuid }
+        kind: { type: string, enum: [observation, measurement, milestone] }
+        at_ms: { type: integer, format: int64 }
+        note: { type: string }
+        created_at_ms: { type: integer, format: int64 }
+
+    ExperimentDetail:
+      allOf:
+        - $ref: '#/components/schemas/Experiment'
+        - type: object
+          required: [events]
+          properties:
+            events:
+              type: array
+              items: { $ref: '#/components/schemas/ExperimentEvent' }
+
+    ExperimentCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [title]
+          properties:
+            goal_id: { type: string, format: uuid, nullable: true }
+            decision_id: { type: string, format: uuid, nullable: true }
+            title: { type: string }
+            hypothesis: { type: string }
+            status: { $ref: '#/components/schemas/ExperimentStatus' }
+
+    ExperimentUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          properties:
+            goal_id: { type: string, format: uuid, nullable: true }
+            decision_id: { type: string, format: uuid, nullable: true }
+            title: { type: string }
+            hypothesis: { type: string }
+            status: { $ref: '#/components/schemas/ExperimentStatus' }
+            result: { type: string }
+            lesson: { type: string }
+            started_at_ms: { type: integer, format: int64, nullable: true }
+            ended_at_ms: { type: integer, format: int64, nullable: true }
+
+    ExperimentEventCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [kind, note]
+          properties:
+            kind: { type: string, enum: [observation, measurement, milestone] }
+            at_ms: { type: integer, format: int64 }
+            note: { type: string }
+
+    ExtractLessonRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          properties:
+            title: { type: string }
+            body: { type: string }
+
+    ExperimentPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Experiment' }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    Note:
+      type: object
+      required: [id, project_id, title, body, created_at_ms, updated_at_ms]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        source_type: { type: string, enum: [experiment, decision], nullable: true }
+        source_id: { type: string, format: uuid, nullable: true }
+        created_by: { type: string, format: uuid, nullable: true }
+        created_at_ms: { type: integer, format: int64 }
+        updated_at_ms: { type: integer, format: int64 }
+
+    NoteCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [title]
+          properties:
+            title: { type: string }
+            body: { type: string }
+            source_type: { type: string, enum: [experiment, decision], nullable: true }
+            source_id: { type: string, format: uuid, nullable: true }
+
+    NoteUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          properties:
+            title: { type: string }
+            body: { type: string }
+
+    NotePage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Note' }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    Link:
+      type: object
+      required: [id, project_id, from_type, from_id, to_type, to_id, kind, created_at_ms]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        from_type: { type: string, enum: [note, decision, experiment] }
+        from_id: { type: string, format: uuid }
+        to_type: { type: string, enum: [note, decision, experiment] }
+        to_id: { type: string, format: uuid }
+        kind: { type: string, enum: [related, supports, rejects, follows] }
+        created_at_ms: { type: integer, format: int64 }
+
+    LinkCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [from_type, from_id, to_type, to_id, kind]
+          properties:
+            from_type: { type: string, enum: [note, decision, experiment] }
+            from_id: { type: string, format: uuid }
+            to_type: { type: string, enum: [note, decision, experiment] }
+            to_id: { type: string, format: uuid }
+            kind: { type: string, enum: [related, supports, rejects, follows] }
+
+    CaptureRequest:
+      allOf:
+        - $ref: '#/components/schemas/CsrfBody'
+        - type: object
+          required: [project_id, kind, title]
+          properties:
+            project_id: { type: string, format: uuid }
+            kind: { type: string, enum: [note, observation, decision_draft] }
+            title: { type: string }
+            body: { type: string }
+            experiment_id: { type: string, format: uuid, nullable: true, description: Required when kind=observation }
+
+    CaptureResponse:
+      type: object
+      required: [kind, id]
+      properties:
+        kind: { type: string, enum: [note, observation, decision_draft] }
+        id: { type: string, format: uuid }
+
+    SearchResult:
+      type: object
+      required: [entity_type, entity_id, project_id, title, snippet, rank]
+      properties:
+        entity_type: { type: string, enum: [project, goal, decision, experiment, note] }
+        entity_id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        title: { type: string }
+        snippet: { type: string }
+        rank: { type: number }
+
+    SearchPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SearchResult' }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    TimelineEvent:
+      type: object
+      required: [kind, at_ms, title, description]
+      properties:
+        kind: { type: string }
+        at_ms: { type: integer, format: int64 }
+        entity_type: { type: string, nullable: true }
+        entity_id: { type: string, format: uuid, nullable: true }
+        title: { type: string }
+        description: { type: string }
+
+    TimelineResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TimelineEvent' }
+
+    ActivityItem:
+      type: object
+      required: [kind, at_ms, title]
+      properties:
+        kind: { type: string }
+        at_ms: { type: integer, format: int64 }
+        entity_type: { type: string }
+        entity_id: { type: string, format: uuid }
+        title: { type: string }
+
+    ActivityResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityItem' }
+
+    GraphNode:
+      type: object
+      required: [id, entity_type, title]
+      properties:
+        id: { type: string, format: uuid }
+        entity_type: { type: string, enum: [goal, decision, experiment, note] }
+        title: { type: string }
+
+    GraphEdge:
+      type: object
+      required: [from_id, to_id, kind]
+      properties:
+        from_id: { type: string, format: uuid }
+        to_id: { type: string, format: uuid }
+        kind: { type: string }
+        source: { type: string, enum: [structural, explicit] }
+
+    GraphResponse:
+      type: object
+      required: [nodes, edges]
+      properties:
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/GraphNode' }
+        edges:
+          type: array
+          items: { $ref: '#/components/schemas/GraphEdge' }
+
+    ProjectStats:
+      type: object
+      description: Project-level counts and summary metrics (shape to be finalized during M1 implementation).
+
+    ExportItem:
+      type: object
+      required: [format, url, content_type]
+      properties:
+        format: { type: string, enum: [json, md, html, zip, odp] }
+        url: { type: string }
+        content_type: { type: string }
+        description: { type: string }
+
+    ExportManifest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ExportItem' }
+
+security:
+  - cookieAuth: []
+    csrfToken: []
