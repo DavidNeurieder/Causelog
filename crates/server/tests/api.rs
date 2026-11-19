@@ -4608,7 +4608,7 @@ async fn api_v1_session_requires_auth_and_returns_csrf() {
     let res = send(&app, with_cookie(get("/api/v1/session"), &cookie)).await;
     assert_eq!(res.status(), StatusCode::OK);
     let body = json_response(res).await;
-    assert!(body["csrf_token"].as_str().unwrap_or("").len() > 0);
+    assert!(!body["csrf_token"].as_str().unwrap_or("").is_empty());
     assert_eq!(body["user"]["username"], "dev");
 }
 
@@ -4787,7 +4787,7 @@ async fn api_v1_goal_and_decision_flow() {
     .await;
     assert_eq!(res.status(), StatusCode::OK);
     let revs = json_response(res).await;
-    assert!(revs["items"].as_array().unwrap().len() >= 1);
+    assert!(!revs["items"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -4982,7 +4982,7 @@ async fn api_v1_core_workflow_endpoints() {
     assert_eq!(res.status(), StatusCode::OK);
     let exp_detail = json_response(res).await;
     assert_eq!(exp_detail["id"], eid);
-    assert!(exp_detail["events"].as_array().unwrap().len() >= 1);
+    assert!(!exp_detail["events"].as_array().unwrap().is_empty());
 
     // note + revision history
     let res = send(
@@ -5018,7 +5018,7 @@ async fn api_v1_core_workflow_endpoints() {
     .await;
     assert_eq!(res.status(), StatusCode::OK);
     let revs = json_response(res).await;
-    assert!(revs["items"].as_array().unwrap().len() >= 1);
+    assert!(!revs["items"].as_array().unwrap().is_empty());
 
     // link
     let res = send(
@@ -5099,5 +5099,5 @@ async fn api_v1_core_workflow_endpoints() {
     .await;
     assert_eq!(res.status(), StatusCode::OK);
     let exports = json_response(res).await;
-    assert!(exports["items"].as_array().unwrap().len() >= 1);
+    assert!(!exports["items"].as_array().unwrap().is_empty());
 }

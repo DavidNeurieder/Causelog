@@ -358,6 +358,7 @@ pub trait Repository: Send + Sync {
         user_id: Uuid,
         key: &str,
     ) -> Result<Option<IdempotencyRecord>, RepositoryError>;
+    #[allow(clippy::too_many_arguments)]
     async fn save_idempotency(
         &self,
         user_id: Uuid,
@@ -2372,6 +2373,7 @@ impl Repository for SqliteRepository {
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn save_idempotency(
         &self,
         user_id: Uuid,

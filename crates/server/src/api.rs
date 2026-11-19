@@ -516,7 +516,7 @@ async fn list_projects(
     } else {
         state.repo.list_projects_for_user(auth_user.user.id).await?
     };
-    projects.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
+    projects.sort_by_key(|p| std::cmp::Reverse(p.updated_at_ms));
     let (items, page) = paginate(projects, &q);
     Ok(Json(ProjectPageResponse { items, page }))
 }
@@ -807,10 +807,11 @@ async fn create_goal(
             body.assigned_to,
         )
         .await?;
-    if let Some(status) = body.status.as_deref() {
-        if matches!(status, "open" | "ongoing" | "done" | "dropped") && status != "open" {
-            state.repo.update_goal_status(goal.id, status).await?;
-        }
+    if let Some(status) = body.status.as_deref()
+        && matches!(status, "open" | "ongoing" | "done" | "dropped")
+        && status != "open"
+    {
+        state.repo.update_goal_status(goal.id, status).await?;
     }
     let goal = state
         .repo
@@ -1671,10 +1672,10 @@ async fn create_note(
         return Err(ApiError::bad_request("title is required"));
     }
     let source_type = body.source_type.as_deref();
-    if let Some(st) = source_type {
-        if !matches!(st, "experiment" | "decision") {
-            return Err(ApiError::bad_request("invalid source_type"));
-        }
+    if let Some(st) = source_type
+        && !matches!(st, "experiment" | "decision")
+    {
+        return Err(ApiError::bad_request("invalid source_type"));
     }
     let note = state
         .repo
