@@ -40,7 +40,7 @@ class ApiClient {
         receiveTimeout: const Duration(seconds: 30),
         headers: const {'Accept': 'application/json'},
         // Let us inspect 4xx responses ourselves.
-        validateStatus: (s) => s != null && s < 500,
+        validateStatus: (s) => s != null,
       ),
     );
     dio.interceptors.add(CookieManager(_cookieJar!));

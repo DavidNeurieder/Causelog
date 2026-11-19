@@ -37,6 +37,8 @@ class _DecisionDetailScreenState extends ConsumerState<DecisionDetailScreen>
   late TabController _tabs;
   bool _saving = false;
   bool _comparing = false;
+  bool _resolving = false;
+  String? _resolveKey;
   String? _revFrom;
   String? _revTo;
   String? _diff;
@@ -342,13 +344,17 @@ class _DecisionDetailScreenState extends ConsumerState<DecisionDetailScreen>
   }
 
   Future<void> _resolve(String status) async {
+    if (_resolving) return;
+    setState(() => _resolving = true);
     try {
       final api = ref.read(apiClientProvider);
+      _resolveKey ??= ApiClient.newIdempotencyKey('resolve-decision');
       await api.postJson(
         '/api/v1/decisions/${widget.decisionId}/resolve',
-        idempotencyKey: ApiClient.newIdempotencyKey('resolve-decision'),
+        idempotencyKey: _resolveKey,
         data: {'status': status, 'rationale': _rationale?.text.trim() ?? ''},
       );
+      _resolveKey = null;
       ref.invalidate(decisionDetailProvider(widget.decisionId));
       ref.invalidate(decisionRevisionsProvider(widget.decisionId));
       if (mounted)
@@ -360,6 +366,8 @@ class _DecisionDetailScreenState extends ConsumerState<DecisionDetailScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e is AppException ? e.message : '$e')),
         );
+    } finally {
+      if (mounted) setState(() => _resolving = false);
     }
   }
 }

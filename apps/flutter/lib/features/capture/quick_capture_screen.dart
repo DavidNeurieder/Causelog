@@ -20,6 +20,7 @@ class _QuickCaptureScreenState extends ConsumerState<QuickCaptureScreen> {
   final _body = TextEditingController();
   bool _busy = false;
   String? _error;
+  String? _idempotencyKey;
   List<Map<String, dynamic>> _experiments = const [];
 
   @override
@@ -71,7 +72,9 @@ class _QuickCaptureScreenState extends ConsumerState<QuickCaptureScreen> {
       final api = ref.read(apiClientProvider);
       await api.postJson(
         '/api/v1/capture',
-        idempotencyKey: ApiClient.newIdempotencyKey('capture'),
+        idempotencyKey: (_idempotencyKey ??= ApiClient.newIdempotencyKey(
+          'capture',
+        )),
         data: {
           'project_id': widget.projectId,
           'kind': _kind,
@@ -81,6 +84,7 @@ class _QuickCaptureScreenState extends ConsumerState<QuickCaptureScreen> {
         },
       );
       if (mounted) {
+        _idempotencyKey = null;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Captured')));

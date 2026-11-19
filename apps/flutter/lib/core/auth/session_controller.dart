@@ -20,8 +20,12 @@ class SessionController extends StateNotifier<AuthState> {
     try {
       await api.configure(url);
       await _routeAfterConnect();
-    } catch (_) {
-      state = const AuthUnauthenticated();
+    } catch (e) {
+      if (e is AppException && e.code == 'no_server') {
+        state = const AuthNeedsServer();
+      } else {
+        state = const AuthUnauthenticated();
+      }
     }
   }
 

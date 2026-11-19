@@ -86,7 +86,13 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen>
             controller: _tabs,
             children: [
               _editTab(),
-              Markdown(data: _body?.text ?? ''),
+              _body == null
+                  ? const SizedBox.shrink()
+                  : ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _body!,
+                      builder: (context, value, _) =>
+                          Markdown(data: value.text),
+                    ),
               _historyTab(),
             ],
           ),

@@ -25,12 +25,34 @@ class GoalDetailScreen extends ConsumerStatefulWidget {
 
 class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
   bool _saving = false;
+  TextEditingController? _title;
+  TextEditingController? _body;
+  String _status = 'open';
+  bool _initialized = false;
+
+  @override
+  void dispose() {
+    _title?.dispose();
+    _body?.dispose();
+    super.dispose();
+  }
+
+  void _init(Map<String, dynamic> goal) {
+    if (_initialized) return;
+    _title = TextEditingController(text: goal['title'] as String? ?? '');
+    _body = TextEditingController(text: goal['body'] as String? ?? '');
+    _status = goal['status'] as String? ?? 'open';
+    _initialized = true;
+  }
 
   @override
   Widget build(BuildContext context) {
     final goalAsync = ref.watch(goalDetailProvider(widget.goalId));
     return goalAsync.when(
-      data: (goal) => _build(context, goal),
+      data: (goal) {
+        _init(goal);
+        return _build(context, goal);
+      },
       loading: () =>
           const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) => Scaffold(
@@ -41,9 +63,6 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
   }
 
   Widget _build(BuildContext context, Map<String, dynamic> goal) {
-    final title = TextEditingController(text: goal['title'] as String? ?? '');
-    final body = TextEditingController(text: goal['body'] as String? ?? '');
-    String status = goal['status'] as String? ?? 'open';
     return Scaffold(
       appBar: AppBar(
         title: const Text('Goal'),
@@ -59,9 +78,9 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
                       await api.patchJson(
                         '/api/v1/goals/${widget.goalId}',
                         data: {
-                          'title': title.text.trim(),
-                          'body': body.text.trim(),
-                          'status': status,
+                          'title': _title?.text.trim() ?? '',
+                          'body': _body?.text.trim() ?? '',
+                          'status': _status,
                         },
                       );
                       ref.invalidate(goalDetailProvider(widget.goalId));
@@ -89,14 +108,14 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           TextField(
-            controller: title,
+            controller: _title,
             decoration: const InputDecoration(labelText: 'Title'),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue:
-                ['open', 'ongoing', 'done', 'dropped'].contains(status)
-                ? status
+                ['open', 'ongoing', 'done', 'dropped'].contains(_status)
+                ? _status
                 : 'open',
             decoration: const InputDecoration(labelText: 'Status'),
             items: const [
@@ -105,11 +124,11 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
               DropdownMenuItem(value: 'done', child: Text('Done')),
               DropdownMenuItem(value: 'dropped', child: Text('Dropped')),
             ],
-            onChanged: (v) => status = v ?? status,
+            onChanged: (v) => setState(() => _status = v ?? _status),
           ),
           const SizedBox(height: 12),
           TextField(
-            controller: body,
+            controller: _body,
             decoration: const InputDecoration(labelText: 'Description'),
             maxLines: 8,
           ),
