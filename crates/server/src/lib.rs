@@ -57,8 +57,27 @@ pub struct AppState {
     pub(crate) login_limiter: Arc<RateLimiter>,
 }
 
+fn optional_cors() -> Option<tower_http::cors::CorsLayer> {
+    let origins = std::env::var("CAUSELOG_CORS_ORIGINS").ok()?;
+    let origins: Vec<axum::http::HeaderValue> = origins
+        .split(',')
+        .filter_map(|value| value.trim().parse().ok())
+        .collect();
+    if origins.is_empty() {
+        return None;
+    }
+    let allow_origin = tower_http::cors::AllowOrigin::list(origins);
+    Some(
+        tower_http::cors::CorsLayer::new()
+            .allow_origin(allow_origin)
+            .allow_methods(tower_http::cors::Any)
+            .allow_headers(tower_http::cors::Any)
+            .allow_credentials(true),
+    )
+}
+
 fn router(state: AppState) -> Router {
-    Router::new()
+    let base = Router::new()
         .route("/", get(pages::home_page))
         .route("/setup", get(pages::setup_page).post(pages::setup_form))
         .route(
@@ -201,8 +220,13 @@ fn router(state: AppState) -> Router {
         .route("/search", get(pages::search_page))
         .route("/static/{name}", get(pages::static_file))
         .route("/health", get(routes::health))
-        .nest("/api/v1", api::router())
-        .with_state(state)
+        .nest("/api/v1", api::router());
+
+    if let Some(cors) = optional_cors() {
+        base.layer(cors).with_state(state)
+    } else {
+        base.with_state(state)
+    }
 }
 
 /// Build the Axum router (plain HTTP; cookies without the `Secure` flag).
