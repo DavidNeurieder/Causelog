@@ -95,6 +95,13 @@ class SyncController extends StateNotifier<SyncStatus> {
         return;
       }
     }
+    try {
+      final projectsJson = await api.getJson('/api/v1/projects');
+      final items = (projectsJson['items'] as List?) ?? const [];
+      database.cacheProjects(items.whereType<Map<String, dynamic>>().toList());
+    } catch (_) {
+      // Keep offline cache best-effort.
+    }
     state = SyncStatus.idle(
       lastSyncedAt: DateTime.now(),
       pendingChanges: database.pendingCount(),
@@ -103,6 +110,8 @@ class SyncController extends StateNotifier<SyncStatus> {
   }
 
   List<Map<String, Object?>> get conflicts => database.conflicts();
+
+  List<Map<String, dynamic>> get cachedProjects => database.cachedProjects();
 
   void resolveConflict(int id) {
     database.resolveConflict(id);

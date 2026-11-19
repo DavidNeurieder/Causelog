@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -38,6 +39,16 @@ class LocalDatabase {
         payload TEXT NOT NULL,
         message TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL
+      )
+    ''');
+    _db!.execute('''
+      CREATE TABLE IF NOT EXISTS cache_projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        summary TEXT,
+        status TEXT,
+        updated_at_ms INTEGER NOT NULL,
+        payload TEXT NOT NULL
       )
     ''');
   }
@@ -100,6 +111,35 @@ class LocalDatabase {
 
   void resolveConflict(int id) {
     db.execute('DELETE FROM conflicts WHERE id = ?', [id]);
+  }
+
+  void cacheProjects(List<Map<String, dynamic>> projects) {
+    db.execute('DELETE FROM cache_projects');
+    for (final project in projects) {
+      db.execute(
+        'INSERT OR REPLACE INTO cache_projects (id, title, summary, status, updated_at_ms, payload) '
+        'VALUES (?, ?, ?, ?, ?, ?)',
+        [
+          project['id'],
+          project['title'] ?? '',
+          project['summary'],
+          project['status'],
+          project['updated_at_ms'] ?? 0,
+          jsonEncode(project),
+        ],
+      );
+    }
+  }
+
+  List<Map<String, dynamic>> cachedProjects() {
+    final result = db.select(
+      'SELECT payload FROM cache_projects ORDER BY updated_at_ms DESC',
+    );
+    return result
+        .map(
+          (row) => jsonDecode(row['payload'] as String) as Map<String, dynamic>,
+        )
+        .toList();
   }
 
   void dispose() {
