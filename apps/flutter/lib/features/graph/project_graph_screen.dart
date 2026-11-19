@@ -184,6 +184,10 @@ class _GraphEdgePainter extends CustomPainter {
       if (fromIndex < 0 || toIndex < 0) continue;
       final from = positionOf(nodes[fromIndex], fromIndex);
       final to = positionOf(nodes[toIndex], toIndex);
+      paint.color = (edge['source'] == 'explicit')
+          ? Colors.deepOrange
+          : Colors.black26;
+      paint.strokeWidth = (edge['source'] == 'explicit') ? 2.5 : 1.5;
       canvas.drawLine(from, to, paint);
     }
   }
