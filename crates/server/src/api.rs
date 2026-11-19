@@ -229,7 +229,7 @@ struct Capabilities {
     export_formats: Vec<&'static str>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct IdempotencyPending {
     key: String,
     hash: String,
@@ -241,26 +241,64 @@ enum IdempotencyState {
     Fresh(IdempotencyPending),
 }
 
+struct IdempotencyGuard {
+    state: AppState,
+    user_id: Uuid,
+    pending: Option<IdempotencyPending>,
+    committed: bool,
+}
+
+impl IdempotencyGuard {
+    fn new(state: AppState, user_id: Uuid, pending: IdempotencyPending) -> Self {
+        Self {
+            state,
+            user_id,
+            pending: Some(pending),
+            committed: false,
+        }
+    }
+}
+
+impl Drop for IdempotencyGuard {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        if let Some(pending) = self.pending.take() {
+            let state = self.state.clone();
+            let user_id = self.user_id;
+            let key = pending.key;
+            tokio::spawn(async move {
+                let _ = state.repo.abort_idempotency(user_id, &key).await;
+            });
+        }
+    }
+}
+
 fn idempotency_key_header(headers: &HeaderMap) -> Option<String> {
     headers
         .get("idempotency-key")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.is_empty() && s.len() <= 128)
 }
 
 fn idempotency_hash(method: &str, path: &str, body: &serde_json::Value) -> String {
+    let mut normalized = body.clone();
+    if let Some(obj) = normalized.as_object_mut() {
+        obj.remove("csrf_token");
+    }
     let mut hasher = Sha256::new();
     hasher.update(method.as_bytes());
     hasher.update(b"\n");
     hasher.update(path.as_bytes());
     hasher.update(b"\n");
-    let body_str = serde_json::to_string(body).unwrap_or_else(|_| "null".to_string());
+    let body_str = serde_json::to_string(&normalized).unwrap_or_else(|_| "null".to_string());
     hasher.update(body_str.as_bytes());
     hex::encode(hasher.finalize())
 }
 
-async fn idempotency_check(
+async fn idempotency_begin(
     state: &AppState,
     user_id: Uuid,
     headers: &HeaderMap,
@@ -272,44 +310,62 @@ async fn idempotency_check(
         return Ok(IdempotencyState::NoKey);
     };
     let hash = idempotency_hash(method, path, body);
+
     if let Some(rec) = state.repo.get_idempotency(user_id, &key).await? {
-        if rec.request_hash != hash {
-            return Err(ApiError::conflict(
-                "idempotency key reused with a different request payload",
-            ));
+        if rec.status == "pending"
+            && causelog_content::now_ms().saturating_sub(rec.created_at_ms) > 5 * 60 * 1000
+        {
+            state.repo.abort_idempotency(user_id, &key).await?;
         }
-        let status = StatusCode::from_u16(rec.status_code as u16).unwrap_or(StatusCode::OK);
-        let body: serde_json::Value = serde_json::from_str(&rec.response_body).unwrap_or_else(
-            |_| serde_json::json!({"error":"invalid stored response","code":"internal"}),
-        );
-        return Ok(IdempotencyState::Replay(
-            (status, Json(body)).into_response(),
+    }
+    let _ = state
+        .repo
+        .prune_idempotency(causelog_content::now_ms() - 24 * 60 * 60 * 1000)
+        .await;
+
+    if state
+        .repo
+        .claim_idempotency(user_id, &key, method, path, &hash)
+        .await?
+    {
+        return Ok(IdempotencyState::Fresh(IdempotencyPending { key, hash }));
+    }
+
+    let rec = state
+        .repo
+        .get_idempotency(user_id, &key)
+        .await?
+        .ok_or_else(|| ApiError::internal("idempotency record vanished"))?;
+    if rec.request_hash != hash {
+        return Err(ApiError::conflict(
+            "idempotency key reused with a different request payload",
         ));
     }
-    Ok(IdempotencyState::Fresh(IdempotencyPending { key, hash }))
+    if rec.status == "pending" {
+        return Err(ApiError::conflict(
+            "idempotency request is still in progress",
+        ));
+    }
+    let status = StatusCode::from_u16(rec.status_code as u16).unwrap_or(StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&rec.response_body).unwrap_or_else(
+        |_| serde_json::json!({"error":"invalid stored response","code":"internal"}),
+    );
+    Ok(IdempotencyState::Replay(
+        (status, Json(body)).into_response(),
+    ))
 }
 
-async fn idempotency_save(
+async fn idempotency_complete(
     state: &AppState,
     user_id: Uuid,
     pending: &IdempotencyPending,
-    method: &'static str,
-    path: &str,
     status: StatusCode,
     body: &serde_json::Value,
 ) -> Result<(), ApiError> {
     let body_str = serde_json::to_string(body).unwrap_or_else(|_| "{}".to_string());
     state
         .repo
-        .save_idempotency(
-            user_id,
-            &pending.key,
-            method,
-            path,
-            &pending.hash,
-            status.as_u16() as i64,
-            &body_str,
-        )
+        .complete_idempotency(user_id, &pending.key, status.as_u16() as i64, &body_str)
         .await?;
     Ok(())
 }
@@ -529,7 +585,15 @@ async fn create_project(
     let auth_user = require_approved_user(&state, &headers).await?;
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
+    let title = body.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    let status = body.status.as_deref().unwrap_or("active");
+    if !matches!(status, "active" | "paused" | "archived") {
+        return Err(ApiError::bad_request("invalid project status"));
+    }
+    let idem = idempotency_begin(
         &state,
         auth_user.user.id,
         &headers,
@@ -541,14 +605,14 @@ async fn create_project(
     if let IdempotencyState::Replay(resp) = idem {
         return Ok(resp);
     }
-    let title = body.title.trim();
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
-    let status = body.status.as_deref().unwrap_or("active");
-    if !matches!(status, "active" | "paused" | "archived") {
-        return Err(ApiError::bad_request("invalid project status"));
-    }
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let project = state
         .repo
         .create_project(
@@ -560,16 +624,17 @@ async fn create_project(
         .await?;
     let resp_val = serde_json::to_value(&project).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            "/api/v1/projects",
             StatusCode::CREATED,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::CREATED, Json(project)).into_response())
 }
@@ -779,7 +844,13 @@ async fn create_goal(
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let idem_path = format!("/api/v1/projects/{project_id}/goals");
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
+    let pid = parse_uuid_param(&project_id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let title = body.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    let idem = idempotency_begin(
         &state,
         auth_user.user.id,
         &headers,
@@ -791,12 +862,14 @@ async fn create_goal(
     if let IdempotencyState::Replay(resp) = idem {
         return Ok(resp);
     }
-    let pid = parse_uuid_param(&project_id)?;
-    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
-    let title = body.title.trim();
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let goal = state
         .repo
         .create_goal(
@@ -820,16 +893,17 @@ async fn create_goal(
         .ok_or_else(|| ApiError::not_found("goal not found"))?;
     let resp_val = serde_json::to_value(&goal).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            &idem_path,
             StatusCode::CREATED,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::CREATED, Json(goal)).into_response())
 }
@@ -968,7 +1042,14 @@ async fn create_decision(
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let idem_path = format!("/api/v1/projects/{project_id}/decisions");
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
+    let pid = parse_uuid_param(&project_id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let title = body.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    let options = body.options.unwrap_or_default();
+    let idem = idempotency_begin(
         &state,
         auth_user.user.id,
         &headers,
@@ -980,13 +1061,14 @@ async fn create_decision(
     if let IdempotencyState::Replay(resp) = idem {
         return Ok(resp);
     }
-    let pid = parse_uuid_param(&project_id)?;
-    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
-    let title = body.title.trim();
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
-    let options = body.options.unwrap_or_default();
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let decision = state
         .repo
         .create_decision(
@@ -1000,16 +1082,17 @@ async fn create_decision(
         .await?;
     let resp_val = serde_json::to_value(&decision).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            &idem_path,
             StatusCode::CREATED,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::CREATED, Json(decision)).into_response())
 }
@@ -1089,7 +1172,17 @@ async fn resolve_decision(
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let idem_path = format!("/api/v1/decisions/{id}/resolve");
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
+    let did = parse_uuid_param(&id)?;
+    let d = state
+        .repo
+        .find_decision(did)
+        .await?
+        .ok_or_else(|| ApiError::not_found("decision not found"))?;
+    let _ = require_project_member_api(&state, &auth_user.user, d.project_id).await?;
+    if !matches!(body.status.as_str(), "decided" | "rejected") {
+        return Err(ApiError::bad_request("invalid resolution status"));
+    }
+    let idem = idempotency_begin(
         &state,
         auth_user.user.id,
         &headers,
@@ -1101,16 +1194,14 @@ async fn resolve_decision(
     if let IdempotencyState::Replay(resp) = idem {
         return Ok(resp);
     }
-    let did = parse_uuid_param(&id)?;
-    let d = state
-        .repo
-        .find_decision(did)
-        .await?
-        .ok_or_else(|| ApiError::not_found("decision not found"))?;
-    let _ = require_project_member_api(&state, &auth_user.user, d.project_id).await?;
-    if !matches!(body.status.as_str(), "decided" | "rejected") {
-        return Err(ApiError::bad_request("invalid resolution status"));
-    }
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let d = state
         .repo
         .resolve_decision(
@@ -1123,16 +1214,17 @@ async fn resolve_decision(
         .await?;
     let resp_val = serde_json::to_value(&d).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            &idem_path,
             StatusCode::OK,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::OK, Json(d)).into_response())
 }
@@ -1291,7 +1383,13 @@ async fn create_experiment(
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let idem_path = format!("/api/v1/projects/{project_id}/experiments");
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
+    let pid = parse_uuid_param(&project_id)?;
+    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
+    let title = body.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    let idem = idempotency_begin(
         &state,
         auth_user.user.id,
         &headers,
@@ -1303,12 +1401,14 @@ async fn create_experiment(
     if let IdempotencyState::Replay(resp) = idem {
         return Ok(resp);
     }
-    let pid = parse_uuid_param(&project_id)?;
-    let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
-    let title = body.title.trim();
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let exp = state
         .repo
         .create_experiment(
@@ -1322,16 +1422,17 @@ async fn create_experiment(
         .await?;
     let resp_val = serde_json::to_value(&exp).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            &idem_path,
             StatusCode::CREATED,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::CREATED, Json(exp)).into_response())
 }
@@ -1443,18 +1544,6 @@ async fn create_experiment_event(
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let idem_path = format!("/api/v1/experiments/{id}/events");
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
-        &state,
-        auth_user.user.id,
-        &headers,
-        "POST",
-        &idem_path,
-        &body_val,
-    )
-    .await?;
-    if let IdempotencyState::Replay(resp) = idem {
-        return Ok(resp);
-    }
     let eid = parse_uuid_param(&id)?;
     let exp = state
         .repo
@@ -1473,22 +1562,43 @@ async fn create_experiment_event(
         return Err(ApiError::bad_request("note is required"));
     }
     let at_ms = body.at_ms.unwrap_or_else(causelog_content::now_ms);
+    let idem = idempotency_begin(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let event = state
         .repo
         .create_event(eid, &body.kind, at_ms, note)
         .await?;
     let resp_val = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            &idem_path,
             StatusCode::CREATED,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::CREATED, Json(event)).into_response())
 }
@@ -1536,18 +1646,6 @@ async fn extract_lesson(
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let idem_path = format!("/api/v1/experiments/{id}/extract");
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
-        &state,
-        auth_user.user.id,
-        &headers,
-        "POST",
-        &idem_path,
-        &body_val,
-    )
-    .await?;
-    if let IdempotencyState::Replay(resp) = idem {
-        return Ok(resp);
-    }
     let eid = parse_uuid_param(&id)?;
     let exp = state
         .repo
@@ -1582,6 +1680,26 @@ async fn extract_lesson(
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| format!("Lesson: {}", exp.title));
+    let idem = idempotency_begin(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let note = state
         .repo
         .create_note(
@@ -1595,16 +1713,17 @@ async fn extract_lesson(
         .await?;
     let resp_val = serde_json::to_value(&note).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            &idem_path,
             StatusCode::CREATED,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::CREATED, Json(note)).into_response())
 }
@@ -1653,18 +1772,6 @@ async fn create_note(
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let idem_path = format!("/api/v1/projects/{project_id}/notes");
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
-        &state,
-        auth_user.user.id,
-        &headers,
-        "POST",
-        &idem_path,
-        &body_val,
-    )
-    .await?;
-    if let IdempotencyState::Replay(resp) = idem {
-        return Ok(resp);
-    }
     let pid = parse_uuid_param(&project_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     let title = body.title.trim();
@@ -1677,6 +1784,26 @@ async fn create_note(
     {
         return Err(ApiError::bad_request("invalid source_type"));
     }
+    let idem = idempotency_begin(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let note = state
         .repo
         .create_note(
@@ -1690,16 +1817,17 @@ async fn create_note(
         .await?;
     let resp_val = serde_json::to_value(&note).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            &idem_path,
             StatusCode::CREATED,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::CREATED, Json(note)).into_response())
 }
@@ -1840,18 +1968,6 @@ async fn create_link(
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let idem_path = format!("/api/v1/projects/{project_id}/links");
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
-        &state,
-        auth_user.user.id,
-        &headers,
-        "POST",
-        &idem_path,
-        &body_val,
-    )
-    .await?;
-    if let IdempotencyState::Replay(resp) = idem {
-        return Ok(resp);
-    }
     let pid = parse_uuid_param(&project_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     let valid_types = ["note", "decision", "experiment"];
@@ -1867,6 +1983,26 @@ async fn create_link(
     if body.from_type == body.to_type && body.from_id == body.to_id {
         return Err(ApiError::bad_request("self-links are not allowed"));
     }
+    let idem = idempotency_begin(
+        &state,
+        auth_user.user.id,
+        &headers,
+        "POST",
+        &idem_path,
+        &body_val,
+    )
+    .await?;
+    if let IdempotencyState::Replay(resp) = idem {
+        return Ok(resp);
+    }
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let link = state
         .repo
         .create_link(
@@ -1880,16 +2016,17 @@ async fn create_link(
         .await?;
     let resp_val = serde_json::to_value(&link).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            &idem_path,
             StatusCode::CREATED,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::CREATED, Json(link)).into_response())
 }
@@ -1934,7 +2071,13 @@ async fn capture(
     require_csrf(&headers, body.csrf_token.as_deref(), &auth_user)?;
     let idem_path = "/api/v1/capture".to_string();
     let body_val = serde_json::to_value(&body).unwrap_or(serde_json::Value::Null);
-    let idem = idempotency_check(
+    let project = require_project_member_api(&state, &auth_user.user, body.project_id).await?;
+    let title = body.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("title is required"));
+    }
+    let text = body.body.as_deref().unwrap_or("").trim().to_string();
+    let idem = idempotency_begin(
         &state,
         auth_user.user.id,
         &headers,
@@ -1946,12 +2089,14 @@ async fn capture(
     if let IdempotencyState::Replay(resp) = idem {
         return Ok(resp);
     }
-    let project = require_project_member_api(&state, &auth_user.user, body.project_id).await?;
-    let title = body.title.trim();
-    if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
-    }
-    let text = body.body.as_deref().unwrap_or("").trim().to_string();
+    let mut idem_guard = match &idem {
+        IdempotencyState::Fresh(p) => Some(IdempotencyGuard::new(
+            state.clone(),
+            auth_user.user.id,
+            p.clone(),
+        )),
+        _ => None,
+    };
     let resp_val = match body.kind.as_str() {
         "note" => {
             let note = state
@@ -1998,16 +2143,17 @@ async fn capture(
         _ => return Err(ApiError::bad_request("invalid capture kind")),
     };
     if let IdempotencyState::Fresh(pending) = idem {
-        idempotency_save(
+        idempotency_complete(
             &state,
             auth_user.user.id,
             &pending,
-            "POST",
-            &idem_path,
             StatusCode::CREATED,
             &resp_val,
         )
         .await?;
+        if let Some(guard) = &mut idem_guard {
+            guard.committed = true;
+        }
     }
     Ok((StatusCode::CREATED, Json(resp_val)).into_response())
 }

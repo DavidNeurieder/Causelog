@@ -369,13 +369,41 @@ pub trait Repository: Send + Sync {
         status_code: i64,
         response_body: &str,
     ) -> Result<(), RepositoryError>;
+
+    /// Atomically claim an idempotency key for a pending request. Returns `true`
+    /// when this caller owns the key and may perform the mutation.
+    async fn claim_idempotency(
+        &self,
+        user_id: Uuid,
+        key: &str,
+        method: &str,
+        path: &str,
+        request_hash: &str,
+    ) -> Result<bool, RepositoryError>;
+
+    /// Mark a claimed idempotency key as completed with its response.
+    async fn complete_idempotency(
+        &self,
+        user_id: Uuid,
+        key: &str,
+        status_code: i64,
+        response_body: &str,
+    ) -> Result<(), RepositoryError>;
+
+    /// Remove a pending (uncompleted) idempotency claim, e.g. after an error.
+    async fn abort_idempotency(&self, user_id: Uuid, key: &str) -> Result<(), RepositoryError>;
+
+    /// Delete idempotency records older than the given timestamp.
+    async fn prune_idempotency(&self, older_than_ms: i64) -> Result<(), RepositoryError>;
 }
 
 #[derive(Debug, Clone)]
 pub struct IdempotencyRecord {
+    pub status: String,
     pub status_code: i64,
     pub response_body: String,
     pub request_hash: String,
+    pub created_at_ms: i64,
 }
 
 /// One full-text search hit.
@@ -2359,7 +2387,8 @@ impl Repository for SqliteRepository {
         key: &str,
     ) -> Result<Option<IdempotencyRecord>, RepositoryError> {
         let row = sqlx::query(
-            "SELECT request_hash, status_code, response_body FROM idempotency_keys
+            "SELECT status, request_hash, status_code, response_body, created_at_ms
+             FROM idempotency_keys
              WHERE user_id = ? AND idem_key = ?",
         )
         .bind(user_id.to_string())
@@ -2367,9 +2396,11 @@ impl Repository for SqliteRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|r| IdempotencyRecord {
+            status: r.get::<String, _>("status"),
+            request_hash: r.get::<String, _>("request_hash"),
             status_code: r.get::<i64, _>("status_code"),
             response_body: r.get::<String, _>("response_body"),
-            request_hash: r.get::<String, _>("request_hash"),
+            created_at_ms: r.get::<i64, _>("created_at_ms"),
         }))
     }
 
@@ -2384,10 +2415,19 @@ impl Repository for SqliteRepository {
         status_code: i64,
         response_body: &str,
     ) -> Result<(), RepositoryError> {
+        // Backwards-compatible completion path: ensure a completed row exists.
         sqlx::query(
-            "INSERT OR REPLACE INTO idempotency_keys
-             (user_id, idem_key, method, path, request_hash, status_code, response_body, created_at_ms)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO idempotency_keys
+             (user_id, idem_key, method, path, request_hash, status, status_code, response_body, created_at_ms)
+             VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?)
+             ON CONFLICT(user_id, idem_key) DO UPDATE SET
+               method=excluded.method,
+               path=excluded.path,
+               request_hash=excluded.request_hash,
+               status='completed',
+               status_code=excluded.status_code,
+               response_body=excluded.response_body,
+               created_at_ms=excluded.created_at_ms",
         )
         .bind(user_id.to_string())
         .bind(key)
@@ -2399,6 +2439,72 @@ impl Repository for SqliteRepository {
         .bind(causelog_content::now_ms())
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    async fn claim_idempotency(
+        &self,
+        user_id: Uuid,
+        key: &str,
+        method: &str,
+        path: &str,
+        request_hash: &str,
+    ) -> Result<bool, RepositoryError> {
+        let res = sqlx::query(
+            "INSERT OR IGNORE INTO idempotency_keys
+             (user_id, idem_key, method, path, request_hash, status, status_code, response_body, created_at_ms)
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, '', ?)",
+        )
+        .bind(user_id.to_string())
+        .bind(key)
+        .bind(method)
+        .bind(path)
+        .bind(request_hash)
+        .bind(causelog_content::now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    async fn complete_idempotency(
+        &self,
+        user_id: Uuid,
+        key: &str,
+        status_code: i64,
+        response_body: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "UPDATE idempotency_keys
+             SET status='completed', status_code=?, response_body=?, created_at_ms=?
+             WHERE user_id=? AND idem_key=?",
+        )
+        .bind(status_code)
+        .bind(response_body)
+        .bind(causelog_content::now_ms())
+        .bind(user_id.to_string())
+        .bind(key)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn abort_idempotency(&self, user_id: Uuid, key: &str) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "DELETE FROM idempotency_keys
+             WHERE user_id=? AND idem_key=? AND status='pending'",
+        )
+        .bind(user_id.to_string())
+        .bind(key)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn prune_idempotency(&self, older_than_ms: i64) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM idempotency_keys WHERE created_at_ms < ?")
+            .bind(older_than_ms)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }
