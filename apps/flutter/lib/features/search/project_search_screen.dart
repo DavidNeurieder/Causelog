@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
@@ -100,6 +101,30 @@ class _ProjectSearchScreenState extends ConsumerState<ProjectSearchScreen> {
                                 maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
                               ),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () {
+                                final type = r['entity_type'] as String?;
+                                final id = r['entity_id'] as String?;
+                                if (type == null || id == null) return;
+                                switch (type) {
+                                  case 'goal':
+                                    context.go(
+                                      '/projects/${widget.projectId}/goals/$id',
+                                    );
+                                  case 'decision':
+                                    context.go(
+                                      '/projects/${widget.projectId}/decisions/$id',
+                                    );
+                                  case 'experiment':
+                                    context.go(
+                                      '/projects/${widget.projectId}/experiments/$id',
+                                    );
+                                  case 'note':
+                                    context.go(
+                                      '/projects/${widget.projectId}/notes/$id',
+                                    );
+                                }
+                              },
                             ),
                           );
                         },
