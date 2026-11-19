@@ -232,7 +232,6 @@ struct Capabilities {
 #[derive(Debug, Clone)]
 struct IdempotencyPending {
     key: String,
-    hash: String,
 }
 
 enum IdempotencyState {
@@ -311,12 +310,11 @@ async fn idempotency_begin(
     };
     let hash = idempotency_hash(method, path, body);
 
-    if let Some(rec) = state.repo.get_idempotency(user_id, &key).await? {
-        if rec.status == "pending"
-            && causelog_content::now_ms().saturating_sub(rec.created_at_ms) > 5 * 60 * 1000
-        {
-            state.repo.abort_idempotency(user_id, &key).await?;
-        }
+    if let Some(rec) = state.repo.get_idempotency(user_id, &key).await?
+        && rec.status == "pending"
+        && causelog_content::now_ms().saturating_sub(rec.created_at_ms) > 5 * 60 * 1000
+    {
+        state.repo.abort_idempotency(user_id, &key).await?;
     }
     let _ = state
         .repo
@@ -328,7 +326,7 @@ async fn idempotency_begin(
         .claim_idempotency(user_id, &key, method, path, &hash)
         .await?
     {
-        return Ok(IdempotencyState::Fresh(IdempotencyPending { key, hash }));
+        return Ok(IdempotencyState::Fresh(IdempotencyPending { key }));
     }
 
     let rec = state
