@@ -91,7 +91,28 @@ class _QuickCaptureScreenState extends ConsumerState<QuickCaptureScreen> {
         Navigator.of(context).pop(true);
       }
     } catch (e) {
-      setState(() => _error = e is AppException ? e.message : '$e');
+      if (e is AppException && e.code == 'network') {
+        _idempotencyKey ??= ApiClient.newIdempotencyKey('capture');
+        await ref
+            .read(syncControllerProvider.notifier)
+            .enqueueCapture(
+              projectId: widget.projectId,
+              kind: _kind,
+              title: title,
+              body: _body.text.trim(),
+              experimentId: _kind == 'observation' ? _experimentId : null,
+              idempotencyKey: _idempotencyKey!,
+            );
+        if (mounted) {
+          _idempotencyKey = null;
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Queued for sync')));
+          Navigator.of(context).pop(true);
+        }
+      } else {
+        setState(() => _error = e is AppException ? e.message : '$e');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
 import '../../core/auth/auth_state.dart';
+import '../../core/sync/sync_status.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -11,6 +12,7 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(sessionControllerProvider);
     final api = ref.watch(apiClientProvider);
+    final sync = ref.watch(syncControllerProvider);
     final user = auth is AuthAuthenticated ? auth.user : null;
 
     return Scaffold(
@@ -51,6 +53,35 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(api.baseUrl ?? 'Not configured'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Offline sync',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Status: ${sync.state.name}'),
+                  Text('Pending changes: ${sync.pendingChanges}'),
+                  if (sync.message != null) Text(sync.message!),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: sync.state == SyncState.syncing
+                        ? null
+                        : () => ref
+                              .read(syncControllerProvider.notifier)
+                              .syncNow(),
+                    icon: const Icon(Icons.sync),
+                    label: const Text('Sync now'),
+                  ),
                 ],
               ),
             ),
