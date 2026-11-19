@@ -14,11 +14,15 @@ class SyncController extends StateNotifier<SyncStatus> {
   SyncController(this.api, this.database) : super(const SyncStatus.idle());
 
   Future<void> initialize() async {
-    await database.initialize();
-    state = SyncStatus.idle(
-      pendingChanges: database.pendingCount(),
-      pendingConflicts: database.conflicts().length,
-    );
+    try {
+      await database.initialize();
+      state = SyncStatus.idle(
+        pendingChanges: database.pendingCount(),
+        pendingConflicts: database.conflicts().length,
+      );
+    } catch (_) {
+      state = const SyncStatus.idle();
+    }
   }
 
   Future<void> enqueueCapture({

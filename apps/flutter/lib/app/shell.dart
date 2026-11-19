@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-class AppShell extends StatelessWidget {
+import 'providers.dart';
+import '../core/sync/sync_status.dart';
+
+class AppShell extends ConsumerWidget {
   final Widget child;
   const AppShell({super.key, required this.child});
 
@@ -26,10 +30,11 @@ class AppShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= 900;
     final selectedIndex = _selectedIndex(context);
+    final sync = ref.watch(syncControllerProvider);
 
     if (isDesktop) {
       return Scaffold(
@@ -39,6 +44,8 @@ class AppShell extends StatelessWidget {
               selectedIndex: selectedIndex,
               onDestinationSelected: (i) => _onSelect(context, i),
               labelType: NavigationRailLabelType.all,
+              trailing: _SyncRailIndicator(sync: sync),
+              trailingAtBottom: true,
               destinations: const [
                 NavigationRailDestination(
                   icon: Icon(Icons.folder_outlined),
@@ -60,7 +67,19 @@ class AppShell extends StatelessWidget {
     }
 
     return Scaffold(
-      body: child,
+      body: Column(
+        children: [
+          if (sync.pendingChanges > 0 || sync.pendingConflicts > 0)
+            MaterialBanner(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              content: Text(
+                'Sync: ${sync.pendingChanges} pending, ${sync.pendingConflicts} conflicts',
+              ),
+              actions: const [SizedBox.shrink()],
+            ),
+          Expanded(child: child),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
         onDestinationSelected: (i) => _onSelect(context, i),
@@ -78,5 +97,43 @@ class AppShell extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _SyncRailIndicator extends StatelessWidget {
+  final SyncStatus sync;
+  const _SyncRailIndicator({required this.sync});
+
+  @override
+  Widget build(BuildContext context) {
+    if (sync.state == SyncState.syncing) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    if (sync.pendingConflicts > 0 || sync.state == SyncState.error) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Icon(
+          Icons.sync_problem,
+          color: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+    if (sync.pendingChanges > 0) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Badge(
+          label: Text('${sync.pendingChanges}'),
+          child: const Icon(Icons.sync),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 }

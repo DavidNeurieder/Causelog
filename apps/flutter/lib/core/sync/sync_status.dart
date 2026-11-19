@@ -19,10 +19,12 @@ class SyncStatus {
     DateTime? lastSyncedAt,
     int pendingChanges = 0,
     int pendingConflicts = 0,
+    String? message,
   }) : this(
          state: SyncState.idle,
          lastSyncedAt: lastSyncedAt,
          pendingChanges: pendingChanges,
          pendingConflicts: pendingConflicts,
+         message: message,
        );
 }
