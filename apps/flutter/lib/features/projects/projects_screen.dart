@@ -6,6 +6,7 @@ import '../../app/providers.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/auth_state.dart';
 import '../../core/errors/app_exception.dart';
+import '../../core/sync/sync_service.dart';
 
 final projectsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>(
   (ref) async {
@@ -105,6 +106,58 @@ class ProjectsScreen extends ConsumerWidget {
               () => ref.read(sessionControllerProvider.notifier).logout(),
             );
             return const Center(child: CircularProgressIndicator());
+          }
+          final cached = ref
+              .read(syncControllerProvider.notifier)
+              .cachedProjects;
+          if (cached.isNotEmpty) {
+            return Column(
+              children: [
+                MaterialBanner(
+                  content: Text(
+                    e is AppException
+                        ? 'Showing cached projects (${e.message})'
+                        : 'Showing cached projects (offline)',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => ref.invalidate(projectsProvider),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: () async {
+                      ref.invalidate(projectsProvider);
+                    },
+                    child: ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: cached.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (context, i) {
+                        final p = cached[i];
+                        return Card(
+                          child: ListTile(
+                            title: Text(p['title'] as String? ?? '(untitled)'),
+                            subtitle: Text(
+                              (p['summary'] as String?)?.trim().isNotEmpty ==
+                                      true
+                                  ? p['summary'] as String
+                                  : 'Status: ${p['status'] ?? 'active'}',
+                            ),
+                            trailing: Chip(
+                              label: Text(p['status'] as String? ?? 'active'),
+                            ),
+                            onTap: () => context.go('/projects/${p['id']}'),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            );
           }
           return Center(
             child: Padding(

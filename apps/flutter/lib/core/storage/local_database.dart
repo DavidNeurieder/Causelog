@@ -132,7 +132,9 @@ class LocalDatabase {
   }
 
   List<Map<String, dynamic>> cachedProjects() {
-    final result = db.select(
+    final database = _db;
+    if (database == null) return const [];
+    final result = database.select(
       'SELECT payload FROM cache_projects ORDER BY updated_at_ms DESC',
     );
     return result
