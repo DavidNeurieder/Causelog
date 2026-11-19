@@ -71,6 +71,7 @@ class SettingsScreen extends ConsumerWidget {
                   const SizedBox(height: 8),
                   Text('Status: ${sync.state.name}'),
                   Text('Pending changes: ${sync.pendingChanges}'),
+                  Text('Pending conflicts: ${sync.pendingConflicts}'),
                   if (sync.message != null) Text(sync.message!),
                   const SizedBox(height: 8),
                   FilledButton.icon(

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
+import '../errors/app_exception.dart';
 import '../storage/local_database.dart';
 import 'sync_status.dart';
 
@@ -14,7 +15,10 @@ class SyncController extends StateNotifier<SyncStatus> {
 
   Future<void> initialize() async {
     await database.initialize();
-    state = SyncStatus.idle(pendingChanges: database.pendingCount());
+    state = SyncStatus.idle(
+      pendingChanges: database.pendingCount(),
+      pendingConflicts: database.conflicts().length,
+    );
   }
 
   Future<void> enqueueCapture({
@@ -41,6 +45,7 @@ class SyncController extends StateNotifier<SyncStatus> {
     );
     state = SyncStatus.idle(
       pendingChanges: database.pendingCount(),
+      pendingConflicts: database.conflicts().length,
       message: 'Queued for sync',
     );
   }
@@ -64,10 +69,27 @@ class SyncController extends StateNotifier<SyncStatus> {
         );
         database.remove(id);
       } catch (e) {
+        if (e is AppException && e.statusCode == 409) {
+          database.recordConflict(
+            kind: entry['kind'] as String,
+            payload: entry['payload'] as String,
+            message: e.message,
+            createdAtMs: DateTime.now().millisecondsSinceEpoch,
+          );
+          database.remove(id);
+          state = SyncStatus(
+            state: SyncState.error,
+            pendingChanges: database.pendingCount(),
+            pendingConflicts: database.conflicts().length,
+            message: 'Conflict requires resolution: ${e.message}',
+          );
+          return;
+        }
         database.markFailure(id, e.toString());
         state = SyncStatus(
           state: SyncState.error,
           pendingChanges: database.pendingCount(),
+          pendingConflicts: database.conflicts().length,
           message: e is Exception ? e.toString() : 'Sync failed',
         );
         return;
@@ -76,6 +98,17 @@ class SyncController extends StateNotifier<SyncStatus> {
     state = SyncStatus.idle(
       lastSyncedAt: DateTime.now(),
       pendingChanges: database.pendingCount(),
+      pendingConflicts: database.conflicts().length,
+    );
+  }
+
+  void resolveConflict(int id) {
+    database.resolveConflict(id);
+    state = SyncStatus.idle(
+      lastSyncedAt: state.lastSyncedAt,
+      pendingChanges: database.pendingCount(),
+      pendingConflicts: database.conflicts().length,
+      message: 'Conflict resolved',
     );
   }
 

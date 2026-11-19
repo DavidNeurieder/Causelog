@@ -31,6 +31,15 @@ class LocalDatabase {
         last_error TEXT
       )
     ''');
+    _db!.execute('''
+      CREATE TABLE IF NOT EXISTS conflicts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL
+      )
+    ''');
   }
 
   int pendingCount() {
@@ -68,6 +77,29 @@ class LocalDatabase {
       'UPDATE outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?',
       [error, id],
     );
+  }
+
+  void recordConflict({
+    required String kind,
+    required String payload,
+    required String message,
+    required int createdAtMs,
+  }) {
+    db.execute(
+      'INSERT INTO conflicts (kind, payload, message, created_at_ms) VALUES (?, ?, ?, ?)',
+      [kind, payload, message, createdAtMs],
+    );
+  }
+
+  List<Map<String, Object?>> conflicts() {
+    final result = db.select(
+      'SELECT id, kind, payload, message, created_at_ms FROM conflicts ORDER BY id ASC',
+    );
+    return result.map((row) => row).toList();
+  }
+
+  void resolveConflict(int id) {
+    db.execute('DELETE FROM conflicts WHERE id = ?', [id]);
   }
 
   void dispose() {
