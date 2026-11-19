@@ -1,6 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:dio/dio.dart' as dio;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
@@ -15,6 +20,33 @@ final exportsProvider = FutureProvider.autoDispose
 class ProjectExportsScreen extends ConsumerWidget {
   final String projectId;
   const ProjectExportsScreen({super.key, required this.projectId});
+
+  Future<void> _downloadExport(
+    BuildContext context,
+    WidgetRef ref,
+    String fullUrl,
+    String format,
+  ) async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final res = await api.dio.get<List<int>>(
+        fullUrl,
+        options: dio.Options(responseType: dio.ResponseType.bytes),
+      );
+      final bytes = res.data;
+      if (bytes == null) throw Exception('Empty response');
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/causelog-$format.bin');
+      await file.writeAsBytes(bytes, flush: true);
+      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is AppException ? e.message : '$e')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -43,17 +75,34 @@ class ProjectExportsScreen extends ConsumerWidget {
                   ),
                   subtitle: Text('${e['description'] ?? ''}\n$fullUrl'),
                   isThreeLine: true,
-                  trailing: IconButton(
-                    icon: const Icon(Icons.copy),
-                    tooltip: 'Copy URL',
-                    onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: fullUrl));
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Export URL copied')),
-                        );
-                      }
-                    },
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.copy),
+                        tooltip: 'Copy URL',
+                        onPressed: () async {
+                          await Clipboard.setData(ClipboardData(text: fullUrl));
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Export URL copied'),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.download),
+                        tooltip: 'Download/share',
+                        onPressed: () => _downloadExport(
+                          context,
+                          ref,
+                          fullUrl,
+                          e['format'] as String? ?? 'export',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               );
