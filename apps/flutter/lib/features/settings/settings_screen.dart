@@ -72,6 +72,23 @@ class SettingsScreen extends ConsumerWidget {
                   Text('Status: ${sync.state.name}'),
                   Text('Pending changes: ${sync.pendingChanges}'),
                   Text('Pending conflicts: ${sync.pendingConflicts}'),
+                  if (sync.pendingConflicts > 0) ...[
+                    const SizedBox(height: 8),
+                    for (final c
+                        in ref.read(syncControllerProvider.notifier).conflicts)
+                      Card(
+                        child: ListTile(
+                          title: Text(c['kind'] as String? ?? 'conflict'),
+                          subtitle: Text(c['message'] as String? ?? ''),
+                          trailing: TextButton(
+                            onPressed: () => ref
+                                .read(syncControllerProvider.notifier)
+                                .resolveConflict(c['id'] as int),
+                            child: const Text('Resolve'),
+                          ),
+                        ),
+                      ),
+                  ],
                   if (sync.message != null) Text(sync.message!),
                   const SizedBox(height: 8),
                   FilledButton.icon(

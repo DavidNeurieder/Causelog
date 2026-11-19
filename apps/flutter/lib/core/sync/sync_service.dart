@@ -102,6 +102,8 @@ class SyncController extends StateNotifier<SyncStatus> {
     );
   }
 
+  List<Map<String, Object?>> get conflicts => database.conflicts();
+
   void resolveConflict(int id) {
     database.resolveConflict(id);
     state = SyncStatus.idle(
