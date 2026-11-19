@@ -2,6 +2,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'shell.dart';
+
 import '../core/auth/auth_state.dart';
 import '../features/authentication/login_screen.dart';
 import '../features/authentication/pending_screen.dart';
@@ -92,107 +94,116 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/pending',
         builder: (context, state) => const PendingApprovalScreen(),
       ),
-      GoRoute(
-        path: '/settings',
-        builder: (context, state) => const SettingsScreen(),
-      ),
-      GoRoute(
-        path: '/projects',
-        builder: (context, state) => const ProjectsScreen(),
+      ShellRoute(
+        builder: (context, state, child) => AppShell(child: child),
         routes: [
           GoRoute(
-            path: ':id',
-            builder: (context, state) =>
-                ProjectDetailScreen(id: state.pathParameters['id']!),
+            path: '/settings',
+            builder: (context, state) => const SettingsScreen(),
+          ),
+          GoRoute(
+            path: '/projects',
+            builder: (context, state) => const ProjectsScreen(),
             routes: [
               GoRoute(
-                path: 'goals',
+                path: ':id',
                 builder: (context, state) =>
-                    GoalsScreen(projectId: state.pathParameters['id']!),
+                    ProjectDetailScreen(id: state.pathParameters['id']!),
                 routes: [
                   GoRoute(
-                    path: ':goalId',
-                    builder: (context, state) => GoalDetailScreen(
+                    path: 'goals',
+                    builder: (context, state) =>
+                        GoalsScreen(projectId: state.pathParameters['id']!),
+                    routes: [
+                      GoRoute(
+                        path: ':goalId',
+                        builder: (context, state) => GoalDetailScreen(
+                          projectId: state.pathParameters['id']!,
+                          goalId: state.pathParameters['goalId']!,
+                        ),
+                      ),
+                    ],
+                  ),
+                  GoRoute(
+                    path: 'decisions',
+                    builder: (context, state) =>
+                        DecisionsScreen(projectId: state.pathParameters['id']!),
+                    routes: [
+                      GoRoute(
+                        path: ':decisionId',
+                        builder: (context, state) => DecisionDetailScreen(
+                          projectId: state.pathParameters['id']!,
+                          decisionId: state.pathParameters['decisionId']!,
+                        ),
+                      ),
+                    ],
+                  ),
+                  GoRoute(
+                    path: 'experiments',
+                    builder: (context, state) => ExperimentsScreen(
                       projectId: state.pathParameters['id']!,
-                      goalId: state.pathParameters['goalId']!,
+                    ),
+                    routes: [
+                      GoRoute(
+                        path: ':experimentId',
+                        builder: (context, state) => ExperimentDetailScreen(
+                          projectId: state.pathParameters['id']!,
+                          experimentId: state.pathParameters['experimentId']!,
+                        ),
+                      ),
+                    ],
+                  ),
+                  GoRoute(
+                    path: 'notes',
+                    builder: (context, state) =>
+                        NotesScreen(projectId: state.pathParameters['id']!),
+                    routes: [
+                      GoRoute(
+                        path: ':noteId',
+                        builder: (context, state) => NoteDetailScreen(
+                          projectId: state.pathParameters['id']!,
+                          noteId: state.pathParameters['noteId']!,
+                        ),
+                      ),
+                    ],
+                  ),
+                  GoRoute(
+                    path: 'search',
+                    builder: (context, state) => ProjectSearchScreen(
+                      projectId: state.pathParameters['id']!,
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'timeline',
+                    builder: (context, state) => ProjectTimelineScreen(
+                      projectId: state.pathParameters['id']!,
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'graph',
+                    builder: (context, state) => ProjectGraphScreen(
+                      projectId: state.pathParameters['id']!,
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'exports',
+                    builder: (context, state) => ProjectExportsScreen(
+                      projectId: state.pathParameters['id']!,
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'members',
+                    builder: (context, state) => ProjectMembersScreen(
+                      projectId: state.pathParameters['id']!,
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'capture',
+                    builder: (context, state) => QuickCaptureScreen(
+                      projectId: state.pathParameters['id']!,
                     ),
                   ),
                 ],
-              ),
-              GoRoute(
-                path: 'decisions',
-                builder: (context, state) =>
-                    DecisionsScreen(projectId: state.pathParameters['id']!),
-                routes: [
-                  GoRoute(
-                    path: ':decisionId',
-                    builder: (context, state) => DecisionDetailScreen(
-                      projectId: state.pathParameters['id']!,
-                      decisionId: state.pathParameters['decisionId']!,
-                    ),
-                  ),
-                ],
-              ),
-              GoRoute(
-                path: 'experiments',
-                builder: (context, state) =>
-                    ExperimentsScreen(projectId: state.pathParameters['id']!),
-                routes: [
-                  GoRoute(
-                    path: ':experimentId',
-                    builder: (context, state) => ExperimentDetailScreen(
-                      projectId: state.pathParameters['id']!,
-                      experimentId: state.pathParameters['experimentId']!,
-                    ),
-                  ),
-                ],
-              ),
-              GoRoute(
-                path: 'notes',
-                builder: (context, state) =>
-                    NotesScreen(projectId: state.pathParameters['id']!),
-                routes: [
-                  GoRoute(
-                    path: ':noteId',
-                    builder: (context, state) => NoteDetailScreen(
-                      projectId: state.pathParameters['id']!,
-                      noteId: state.pathParameters['noteId']!,
-                    ),
-                  ),
-                ],
-              ),
-              GoRoute(
-                path: 'search',
-                builder: (context, state) =>
-                    ProjectSearchScreen(projectId: state.pathParameters['id']!),
-              ),
-              GoRoute(
-                path: 'timeline',
-                builder: (context, state) => ProjectTimelineScreen(
-                  projectId: state.pathParameters['id']!,
-                ),
-              ),
-              GoRoute(
-                path: 'graph',
-                builder: (context, state) =>
-                    ProjectGraphScreen(projectId: state.pathParameters['id']!),
-              ),
-              GoRoute(
-                path: 'exports',
-                builder: (context, state) => ProjectExportsScreen(
-                  projectId: state.pathParameters['id']!,
-                ),
-              ),
-              GoRoute(
-                path: 'members',
-                builder: (context, state) => ProjectMembersScreen(
-                  projectId: state.pathParameters['id']!,
-                ),
-              ),
-              GoRoute(
-                path: 'capture',
-                builder: (context, state) =>
-                    QuickCaptureScreen(projectId: state.pathParameters['id']!),
               ),
             ],
           ),
