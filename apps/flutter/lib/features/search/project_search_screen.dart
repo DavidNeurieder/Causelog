@@ -85,49 +85,57 @@ class _ProjectSearchScreenState extends ConsumerState<ProjectSearchScreen> {
                       final items = snap.data ?? const [];
                       if (items.isEmpty)
                         return const Center(child: Text('No results.'));
-                      return ListView.separated(
+                      return ListView(
                         padding: const EdgeInsets.all(16),
-                        itemCount: items.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (context, i) {
-                          final r = items[i];
-                          return Card(
-                            child: ListTile(
-                              title: Text(
-                                r['title'] as String? ?? '(untitled)',
+                        children: [
+                          for (final entry in _grouped(items).entries) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8, bottom: 4),
+                              child: Text(
+                                entry.key.toUpperCase(),
+                                style: Theme.of(context).textTheme.titleMedium,
                               ),
-                              subtitle: Text(
-                                '${r['entity_type'] ?? ''} • ${r['snippet'] ?? ''}',
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () {
-                                final type = r['entity_type'] as String?;
-                                final id = r['entity_id'] as String?;
-                                if (type == null || id == null) return;
-                                switch (type) {
-                                  case 'goal':
-                                    context.go(
-                                      '/projects/${widget.projectId}/goals/$id',
-                                    );
-                                  case 'decision':
-                                    context.go(
-                                      '/projects/${widget.projectId}/decisions/$id',
-                                    );
-                                  case 'experiment':
-                                    context.go(
-                                      '/projects/${widget.projectId}/experiments/$id',
-                                    );
-                                  case 'note':
-                                    context.go(
-                                      '/projects/${widget.projectId}/notes/$id',
-                                    );
-                                }
-                              },
                             ),
-                          );
-                        },
+                            for (final r in entry.value)
+                              Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  title: Text(
+                                    r['title'] as String? ?? '(untitled)',
+                                  ),
+                                  subtitle: Text(
+                                    r['snippet'] as String? ?? '',
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: () {
+                                    final type = r['entity_type'] as String?;
+                                    final id = r['entity_id'] as String?;
+                                    if (type == null || id == null) return;
+                                    switch (type) {
+                                      case 'goal':
+                                        context.go(
+                                          '/projects/${widget.projectId}/goals/$id',
+                                        );
+                                      case 'decision':
+                                        context.go(
+                                          '/projects/${widget.projectId}/decisions/$id',
+                                        );
+                                      case 'experiment':
+                                        context.go(
+                                          '/projects/${widget.projectId}/experiments/$id',
+                                        );
+                                      case 'note':
+                                        context.go(
+                                          '/projects/${widget.projectId}/notes/$id',
+                                        );
+                                    }
+                                  },
+                                ),
+                              ),
+                          ],
+                        ],
                       );
                     },
                   ),
@@ -136,4 +144,15 @@ class _ProjectSearchScreenState extends ConsumerState<ProjectSearchScreen> {
       ),
     );
   }
+}
+
+Map<String, List<Map<String, dynamic>>> _grouped(
+  List<Map<String, dynamic>> items,
+) {
+  final grouped = <String, List<Map<String, dynamic>>>{};
+  for (final r in items) {
+    final type = r['entity_type'] as String? ?? 'other';
+    grouped.putIfAbsent(type, () => []).add(r);
+  }
+  return grouped;
 }
