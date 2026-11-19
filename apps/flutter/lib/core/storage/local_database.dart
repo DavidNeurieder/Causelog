@@ -21,7 +21,17 @@ class LocalDatabase {
     final dir = await getApplicationSupportDirectory();
     final file = File(p.join(dir.path, 'causelog_local.sqlite'));
     _db = sqlite3.open(file.path);
-    _db!.execute('''
+    _ensureSchema();
+  }
+
+  void openInMemoryForTest() {
+    _db?.dispose();
+    _db = sqlite3.openInMemory();
+    _ensureSchema();
+  }
+
+  void _ensureSchema() {
+    db.execute('''
       CREATE TABLE IF NOT EXISTS outbox (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         kind TEXT NOT NULL,
@@ -32,7 +42,7 @@ class LocalDatabase {
         last_error TEXT
       )
     ''');
-    _db!.execute('''
+    db.execute('''
       CREATE TABLE IF NOT EXISTS conflicts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         kind TEXT NOT NULL,
@@ -41,7 +51,7 @@ class LocalDatabase {
         created_at_ms INTEGER NOT NULL
       )
     ''');
-    _db!.execute('''
+    db.execute('''
       CREATE TABLE IF NOT EXISTS cache_projects (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
