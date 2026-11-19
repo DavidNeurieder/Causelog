@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
+import '../../core/widgets/empty_state.dart';
 
 final graphProvider = FutureProvider.autoDispose
     .family<Map<String, dynamic>, String>((ref, projectId) async {
@@ -45,7 +46,7 @@ class ProjectGraphScreen extends ConsumerWidget {
           final edges =
               (data['edges'] as List?)?.whereType<Map>().toList() ?? const [];
           if (nodes.isEmpty) {
-            return const Center(child: Text('No graph data yet.'));
+            return const EmptyState(message: 'No graph data yet.');
           }
           return Column(
             children: [
