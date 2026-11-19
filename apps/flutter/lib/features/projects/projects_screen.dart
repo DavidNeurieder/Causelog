@@ -7,12 +7,14 @@ import '../../core/api/api_client.dart';
 import '../../core/auth/auth_state.dart';
 import '../../core/errors/app_exception.dart';
 
-final projectsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final api = ref.watch(apiClientProvider);
-  final json = await api.getJson('/api/v1/projects');
-  final items = (json['items'] as List?) ?? const [];
-  return items.whereType<Map<String, dynamic>>().toList();
-});
+final projectsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>(
+  (ref) async {
+    final api = ref.watch(apiClientProvider);
+    final json = await api.getJson('/api/v1/projects');
+    final items = (json['items'] as List?) ?? const [];
+    return items.whereType<Map<String, dynamic>>().toList();
+  },
+);
 
 class ProjectsScreen extends ConsumerWidget {
   const ProjectsScreen({super.key});
@@ -77,10 +79,14 @@ class ProjectsScreen extends ConsumerWidget {
               return Card(
                 child: ListTile(
                   title: Text(p['title'] as String? ?? '(untitled)'),
-                  subtitle: Text((p['summary'] as String?)?.trim().isNotEmpty == true
-                      ? p['summary'] as String
-                      : 'Status: ${p['status'] ?? 'active'}'),
-                  trailing: Chip(label: Text(p['status'] as String? ?? 'active')),
+                  subtitle: Text(
+                    (p['summary'] as String?)?.trim().isNotEmpty == true
+                        ? p['summary'] as String
+                        : 'Status: ${p['status'] ?? 'active'}',
+                  ),
+                  trailing: Chip(
+                    label: Text(p['status'] as String? ?? 'active'),
+                  ),
                   onTap: () => context.go('/projects/${p['id']}'),
                 ),
               );
@@ -101,7 +107,9 @@ class ProjectsScreen extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(e is AppException ? e.message : 'Failed to load projects'),
+                  Text(
+                    e is AppException ? e.message : 'Failed to load projects',
+                  ),
                   const SizedBox(height: 12),
                   FilledButton(
                     onPressed: () => ref.invalidate(projectsProvider),
@@ -116,7 +124,10 @@ class ProjectsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _showCreateProjectDialog(BuildContext context, WidgetRef ref) async {
+  Future<void> _showCreateProjectDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final title = TextEditingController();
     final summary = TextEditingController();
     final ok = await showDialog<bool>(
@@ -126,14 +137,27 @@ class ProjectsScreen extends ConsumerWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: title, decoration: const InputDecoration(labelText: 'Title'), autofocus: true),
+            TextField(
+              controller: title,
+              decoration: const InputDecoration(labelText: 'Title'),
+              autofocus: true,
+            ),
             const SizedBox(height: 8),
-            TextField(controller: summary, decoration: const InputDecoration(labelText: 'Summary')),
+            TextField(
+              controller: summary,
+              decoration: const InputDecoration(labelText: 'Summary'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Create'),
+          ),
         ],
       ),
     );
@@ -142,16 +166,20 @@ class ProjectsScreen extends ConsumerWidget {
     if (t.isEmpty) return;
     try {
       final api = ref.read(apiClientProvider);
-      await api.postJson('/api/v1/projects', idempotencyKey: ApiClient.newIdempotencyKey('create-project'), data: {
-        'title': t,
-        'summary': summary.text.trim(),
-        'status': 'active',
-      });
+      await api.postJson(
+        '/api/v1/projects',
+        idempotencyKey: ApiClient.newIdempotencyKey('create-project'),
+        data: {'title': t, 'summary': summary.text.trim(), 'status': 'active'},
+      );
       ref.invalidate(projectsProvider);
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e is AppException ? e.message : 'Failed to create project')),
+          SnackBar(
+            content: Text(
+              e is AppException ? e.message : 'Failed to create project',
+            ),
+          ),
         );
       }
     }

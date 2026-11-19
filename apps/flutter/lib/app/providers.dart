@@ -10,9 +10,9 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 
 final sessionControllerProvider =
     StateNotifierProvider<SessionController, AuthState>((ref) {
-  final api = ref.watch(apiClientProvider);
-  final controller = SessionController(api);
-  // bootstrap asynchronously; UI shows loading until state resolves
-  Future.microtask(controller.bootstrap);
-  return controller;
-});
+      final api = ref.watch(apiClientProvider);
+      final controller = SessionController(api);
+      // bootstrap asynchronously; UI shows loading until state resolves
+      Future.microtask(controller.bootstrap);
+      return controller;
+    });

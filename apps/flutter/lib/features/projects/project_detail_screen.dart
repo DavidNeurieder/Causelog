@@ -5,15 +5,17 @@ import 'package:go_router/go_router.dart';
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
 
-final projectProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
-  final api = ref.watch(apiClientProvider);
-  return api.getJson('/api/v1/projects/$id');
-});
+final projectProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>((ref, id) async {
+      final api = ref.watch(apiClientProvider);
+      return api.getJson('/api/v1/projects/$id');
+    });
 
-final projectStatsProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
-  final api = ref.watch(apiClientProvider);
-  return api.getJson('/api/v1/projects/$id/stats');
-});
+final projectStatsProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>((ref, id) async {
+      final api = ref.watch(apiClientProvider);
+      return api.getJson('/api/v1/projects/$id/stats');
+    });
 
 class ProjectDetailScreen extends ConsumerWidget {
   final String id;
@@ -77,8 +79,14 @@ class ProjectDetailScreen extends ConsumerWidget {
                 runSpacing: 8,
                 children: [
                   _StatCard(label: 'Goals', value: '${s['goals_total'] ?? 0}'),
-                  _StatCard(label: 'Decisions', value: '${s['decisions_total'] ?? 0}'),
-                  _StatCard(label: 'Experiments', value: '${s['experiments_total'] ?? 0}'),
+                  _StatCard(
+                    label: 'Decisions',
+                    value: '${s['decisions_total'] ?? 0}',
+                  ),
+                  _StatCard(
+                    label: 'Experiments',
+                    value: '${s['experiments_total'] ?? 0}',
+                  ),
                   _StatCard(label: 'Notes', value: '${s['notes_total'] ?? 0}'),
                 ],
               ),
@@ -86,39 +94,92 @@ class ProjectDetailScreen extends ConsumerWidget {
                 padding: EdgeInsets.all(16),
                 child: CircularProgressIndicator(),
               ),
-              error: (e, _) => Text('Stats unavailable: ${e is AppException ? e.message : e}'),
+              error: (e, _) => Text(
+                'Stats unavailable: ${e is AppException ? e.message : e}',
+              ),
             ),
             const SizedBox(height: 24),
             Text('Sections', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
-            _SectionTile(title: 'Goals', subtitle: 'Track objectives', onTap: () => context.go('/projects/$id/goals')),
-            _SectionTile(title: 'Decisions', subtitle: 'Options, rationale, revisions', onTap: () => context.go('/projects/$id/decisions')),
-            _SectionTile(title: 'Experiments', subtitle: 'Hypotheses and observations', onTap: () => context.go('/projects/$id/experiments')),
-            _SectionTile(title: 'Notes', subtitle: 'Lessons and knowledge', onTap: () => context.go('/projects/$id/notes')),
-            _SectionTile(title: 'Timeline', subtitle: 'Chronological history', onTap: () => context.go('/projects/$id/timeline')),
-            _SectionTile(title: 'Graph', subtitle: 'Relationships', onTap: () => context.go('/projects/$id/graph')),
-            _SectionTile(title: 'Search', subtitle: 'Find knowledge', onTap: () => context.go('/projects/$id/search')),
-            _SectionTile(title: 'Members', subtitle: 'Project access', onTap: () => context.go('/projects/$id/members')),
-            _SectionTile(title: 'Exports', subtitle: 'Download project data', onTap: () => context.go('/projects/$id/exports')),
+            _SectionTile(
+              title: 'Goals',
+              subtitle: 'Track objectives',
+              onTap: () => context.go('/projects/$id/goals'),
+            ),
+            _SectionTile(
+              title: 'Decisions',
+              subtitle: 'Options, rationale, revisions',
+              onTap: () => context.go('/projects/$id/decisions'),
+            ),
+            _SectionTile(
+              title: 'Experiments',
+              subtitle: 'Hypotheses and observations',
+              onTap: () => context.go('/projects/$id/experiments'),
+            ),
+            _SectionTile(
+              title: 'Notes',
+              subtitle: 'Lessons and knowledge',
+              onTap: () => context.go('/projects/$id/notes'),
+            ),
+            _SectionTile(
+              title: 'Timeline',
+              subtitle: 'Chronological history',
+              onTap: () => context.go('/projects/$id/timeline'),
+            ),
+            _SectionTile(
+              title: 'Graph',
+              subtitle: 'Relationships',
+              onTap: () => context.go('/projects/$id/graph'),
+            ),
+            _SectionTile(
+              title: 'Search',
+              subtitle: 'Find knowledge',
+              onTap: () => context.go('/projects/$id/search'),
+            ),
+            _SectionTile(
+              title: 'Members',
+              subtitle: 'Project access',
+              onTap: () => context.go('/projects/$id/members'),
+            ),
+            _SectionTile(
+              title: 'Exports',
+              subtitle: 'Download project data',
+              onTap: () => context.go('/projects/$id/exports'),
+            ),
           ],
         ),
       ),
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) {
         if (e is AppException && e.statusCode == 401) {
-          Future.microtask(() => ref.read(sessionControllerProvider.notifier).logout());
+          Future.microtask(
+            () => ref.read(sessionControllerProvider.notifier).logout(),
+          );
         }
         return Scaffold(
           appBar: AppBar(title: const Text('Project')),
-          body: Center(child: Text(e is AppException ? e.message : 'Failed to load project')),
+          body: Center(
+            child: Text(
+              e is AppException ? e.message : 'Failed to load project',
+            ),
+          ),
         );
       },
     );
   }
 
-  Future<void> _editProject(BuildContext context, WidgetRef ref, Map<String, dynamic> project) async {
-    final title = TextEditingController(text: project['title'] as String? ?? '');
-    final summary = TextEditingController(text: project['summary'] as String? ?? '');
+  Future<void> _editProject(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> project,
+  ) async {
+    final title = TextEditingController(
+      text: project['title'] as String? ?? '',
+    );
+    final summary = TextEditingController(
+      text: project['summary'] as String? ?? '',
+    );
     String status = project['status'] as String? ?? 'active';
     final ok = await showDialog<bool>(
       context: context,
@@ -127,12 +188,20 @@ class ProjectDetailScreen extends ConsumerWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: title, decoration: const InputDecoration(labelText: 'Title')),
+            TextField(
+              controller: title,
+              decoration: const InputDecoration(labelText: 'Title'),
+            ),
             const SizedBox(height: 8),
-            TextField(controller: summary, decoration: const InputDecoration(labelText: 'Summary')),
+            TextField(
+              controller: summary,
+              decoration: const InputDecoration(labelText: 'Summary'),
+            ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              initialValue: ['active', 'paused', 'archived'].contains(status) ? status : 'active',
+              initialValue: ['active', 'paused', 'archived'].contains(status)
+                  ? status
+                  : 'active',
               decoration: const InputDecoration(labelText: 'Status'),
               items: const [
                 DropdownMenuItem(value: 'active', child: Text('Active')),
@@ -144,23 +213,34 @@ class ProjectDetailScreen extends ConsumerWidget {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
     if (ok != true) return;
     try {
       final api = ref.read(apiClientProvider);
-      await api.patchJson('/api/v1/projects/$id', data: {
-        'title': title.text.trim(),
-        'summary': summary.text.trim(),
-        'status': status,
-      });
+      await api.patchJson(
+        '/api/v1/projects/$id',
+        data: {
+          'title': title.text.trim(),
+          'summary': summary.text.trim(),
+          'status': status,
+        },
+      );
       ref.invalidate(projectProvider(id));
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppException ? e.message : '$e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is AppException ? e.message : '$e')),
+        );
       }
     }
   }
@@ -172,8 +252,14 @@ class ProjectDetailScreen extends ConsumerWidget {
         title: const Text('Delete project?'),
         content: const Text('This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -184,7 +270,9 @@ class ProjectDetailScreen extends ConsumerWidget {
       if (context.mounted) context.go('/projects');
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppException ? e.message : '$e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is AppException ? e.message : '$e')),
+        );
       }
     }
   }
@@ -216,7 +304,11 @@ class _SectionTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-  const _SectionTile({required this.title, required this.subtitle, required this.onTap});
+  const _SectionTile({
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {

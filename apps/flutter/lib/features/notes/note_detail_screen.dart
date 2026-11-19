@@ -5,27 +5,34 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
 
-final noteDetailProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, id) async {
-  final api = ref.watch(apiClientProvider);
-  return api.getJson('/api/v1/notes/$id');
-});
+final noteDetailProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>((ref, id) async {
+      final api = ref.watch(apiClientProvider);
+      return api.getJson('/api/v1/notes/$id');
+    });
 
-final noteRevisionsProvider = FutureProvider.autoDispose.family<List<dynamic>, String>((ref, id) async {
-  final api = ref.watch(apiClientProvider);
-  final json = await api.getJson('/api/v1/notes/$id/revisions');
-  return (json['items'] as List?) ?? const [];
-});
+final noteRevisionsProvider = FutureProvider.autoDispose
+    .family<List<dynamic>, String>((ref, id) async {
+      final api = ref.watch(apiClientProvider);
+      final json = await api.getJson('/api/v1/notes/$id/revisions');
+      return (json['items'] as List?) ?? const [];
+    });
 
 class NoteDetailScreen extends ConsumerStatefulWidget {
   final String projectId;
   final String noteId;
-  const NoteDetailScreen({super.key, required this.projectId, required this.noteId});
+  const NoteDetailScreen({
+    super.key,
+    required this.projectId,
+    required this.noteId,
+  });
 
   @override
   ConsumerState<NoteDetailScreen> createState() => _NoteDetailScreenState();
 }
 
-class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with SingleTickerProviderStateMixin {
+class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabs;
   bool _saving = false;
   bool _comparing = false;
@@ -66,7 +73,14 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with Single
                 onPressed: _saving ? null : () => _save(note),
               ),
             ],
-            bottom: TabBar(controller: _tabs, tabs: const [Tab(text: 'Edit'), Tab(text: 'Preview'), Tab(text: 'History')]),
+            bottom: TabBar(
+              controller: _tabs,
+              tabs: const [
+                Tab(text: 'Edit'),
+                Tab(text: 'Preview'),
+                Tab(text: 'History'),
+              ],
+            ),
           ),
           body: TabBarView(
             controller: _tabs,
@@ -78,8 +92,12 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with Single
           ),
         );
       },
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, _) => Scaffold(appBar: AppBar(), body: Center(child: Text(e is AppException ? e.message : '$e'))),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) => Scaffold(
+        appBar: AppBar(),
+        body: Center(child: Text(e is AppException ? e.message : '$e')),
+      ),
     );
   }
 
@@ -87,9 +105,16 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with Single
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        TextField(controller: _title, decoration: const InputDecoration(labelText: 'Title')),
+        TextField(
+          controller: _title,
+          decoration: const InputDecoration(labelText: 'Title'),
+        ),
         const SizedBox(height: 12),
-        TextField(controller: _body, decoration: const InputDecoration(labelText: 'Body (Markdown)'), maxLines: 16),
+        TextField(
+          controller: _body,
+          decoration: const InputDecoration(labelText: 'Body (Markdown)'),
+          maxLines: 16,
+        ),
       ],
     );
   }
@@ -98,25 +123,33 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with Single
     final revs = ref.watch(noteRevisionsProvider(widget.noteId));
     return revs.when(
       data: (items) {
-        if (items.isEmpty) return const Center(child: Text('No revisions yet.'));
+        if (items.isEmpty)
+          return const Center(child: Text('No revisions yet.'));
         final revList = items.whereType<Map<String, dynamic>>().toList();
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
             if (revList.length >= 2) ...[
-              Text('Compare revisions', style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                'Compare revisions',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 // ignore: deprecated_member_use
                 value: _revFrom,
                 decoration: const InputDecoration(labelText: 'From'),
-                items: [
-                  for (int i = 0; i < revList.length; i++)
-                    DropdownMenuItem(
-                      value: revList[i]['id'] as String?,
-                      child: Text('Revision ${i + 1}'),
-                    ),
-                ].where((e) => e.value != null).cast<DropdownMenuItem<String>>().toList(),
+                items:
+                    [
+                          for (int i = 0; i < revList.length; i++)
+                            DropdownMenuItem(
+                              value: revList[i]['id'] as String?,
+                              child: Text('Revision ${i + 1}'),
+                            ),
+                        ]
+                        .where((e) => e.value != null)
+                        .cast<DropdownMenuItem<String>>()
+                        .toList(),
                 onChanged: (v) => setState(() => _revFrom = v),
               ),
               const SizedBox(height: 8),
@@ -124,26 +157,39 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with Single
                 // ignore: deprecated_member_use
                 value: _revTo,
                 decoration: const InputDecoration(labelText: 'To'),
-                items: [
-                  for (int i = 0; i < revList.length; i++)
-                    DropdownMenuItem(
-                      value: revList[i]['id'] as String?,
-                      child: Text('Revision ${i + 1}'),
-                    ),
-                ].where((e) => e.value != null).cast<DropdownMenuItem<String>>().toList(),
+                items:
+                    [
+                          for (int i = 0; i < revList.length; i++)
+                            DropdownMenuItem(
+                              value: revList[i]['id'] as String?,
+                              child: Text('Revision ${i + 1}'),
+                            ),
+                        ]
+                        .where((e) => e.value != null)
+                        .cast<DropdownMenuItem<String>>()
+                        .toList(),
                 onChanged: (v) => setState(() => _revTo = v),
               ),
               const SizedBox(height: 8),
               FilledButton.icon(
-                onPressed: (_comparing || _revFrom == null || _revTo == null) ? null : _compareRevisions,
+                onPressed: (_comparing || _revFrom == null || _revTo == null)
+                    ? null
+                    : _compareRevisions,
                 icon: _comparing
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Icon(Icons.compare_arrows),
                 label: const Text('Compare'),
               ),
               if (_diffError != null) ...[
                 const SizedBox(height: 8),
-                Text(_diffError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                Text(
+                  _diffError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               ],
               if (_diff != null) ...[
                 const SizedBox(height: 12),
@@ -152,7 +198,10 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with Single
                     padding: const EdgeInsets.all(12),
                     child: SelectableText(
                       _diff!.isEmpty ? 'No differences.' : _diff!,
-                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                 ),
@@ -166,11 +215,15 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with Single
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ExpansionTile(
                   title: Text('Revision ${i + 1}'),
-                  subtitle: Text('Created: ${revList[i]['created_at_ms'] ?? ''}'),
+                  subtitle: Text(
+                    'Created: ${revList[i]['created_at_ms'] ?? ''}',
+                  ),
                   children: [
                     Padding(
                       padding: const EdgeInsets.all(12),
-                      child: SelectableText(revList[i]['snapshot'] as String? ?? ''),
+                      child: SelectableText(
+                        revList[i]['snapshot'] as String? ?? '',
+                      ),
                     ),
                   ],
                 ),
@@ -179,7 +232,8 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with Single
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text(e is AppException ? e.message : '$e')),
+      error: (e, _) =>
+          Center(child: Text(e is AppException ? e.message : '$e')),
     );
   }
 
@@ -208,15 +262,24 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> with Single
     setState(() => _saving = true);
     try {
       final api = ref.read(apiClientProvider);
-      await api.patchJson('/api/v1/notes/${widget.noteId}', data: {
-        'title': _title?.text.trim() ?? note['title'],
-        'body': _body?.text ?? note['body'],
-      });
+      await api.patchJson(
+        '/api/v1/notes/${widget.noteId}',
+        data: {
+          'title': _title?.text.trim() ?? note['title'],
+          'body': _body?.text ?? note['body'],
+        },
+      );
       ref.invalidate(noteDetailProvider(widget.noteId));
       ref.invalidate(noteRevisionsProvider(widget.noteId));
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Saved')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppException ? e.message : '$e')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is AppException ? e.message : '$e')),
+        );
     } finally {
       if (mounted) setState(() => _saving = false);
     }

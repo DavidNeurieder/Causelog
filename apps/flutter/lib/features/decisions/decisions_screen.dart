@@ -6,12 +6,13 @@ import '../../app/providers.dart';
 import '../../core/api/api_client.dart';
 import '../../core/errors/app_exception.dart';
 
-final decisionsProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, projectId) async {
-  final api = ref.watch(apiClientProvider);
-  final json = await api.getJson('/api/v1/projects/$projectId/decisions');
-  final items = (json['items'] as List?) ?? const [];
-  return items.whereType<Map<String, dynamic>>().toList();
-});
+final decisionsProvider = FutureProvider.autoDispose
+    .family<List<Map<String, dynamic>>, String>((ref, projectId) async {
+      final api = ref.watch(apiClientProvider);
+      final json = await api.getJson('/api/v1/projects/$projectId/decisions');
+      final items = (json['items'] as List?) ?? const [];
+      return items.whereType<Map<String, dynamic>>().toList();
+    });
 
 class DecisionsScreen extends ConsumerWidget {
   final String projectId;
@@ -28,7 +29,8 @@ class DecisionsScreen extends ConsumerWidget {
       ),
       body: decisions.when(
         data: (items) {
-          if (items.isEmpty) return const Center(child: Text('No decisions yet.'));
+          if (items.isEmpty)
+            return const Center(child: Text('No decisions yet.'));
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: items.length,
@@ -39,7 +41,8 @@ class DecisionsScreen extends ConsumerWidget {
                 child: ListTile(
                   title: Text(d['title'] as String? ?? '(untitled)'),
                   subtitle: Text(d['status'] as String? ?? 'open'),
-                  onTap: () => context.go('/projects/$projectId/decisions/${d['id']}'),
+                  onTap: () =>
+                      context.go('/projects/$projectId/decisions/${d['id']}'),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline),
                     onPressed: () => _delete(context, ref, d['id'] as String),
@@ -50,7 +53,11 @@ class DecisionsScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is AppException ? e.message : 'Failed to load decisions')),
+        error: (e, _) => Center(
+          child: Text(
+            e is AppException ? e.message : 'Failed to load decisions',
+          ),
+        ),
       ),
     );
   }
@@ -65,28 +72,48 @@ class DecisionsScreen extends ConsumerWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: title, decoration: const InputDecoration(labelText: 'Title')),
+            TextField(
+              controller: title,
+              decoration: const InputDecoration(labelText: 'Title'),
+            ),
             const SizedBox(height: 8),
-            TextField(controller: contextCtrl, decoration: const InputDecoration(labelText: 'Context'), maxLines: 3),
+            TextField(
+              controller: contextCtrl,
+              decoration: const InputDecoration(labelText: 'Context'),
+              maxLines: 3,
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Create'),
+          ),
         ],
       ),
     );
     if (ok != true || title.text.trim().isEmpty) return;
     try {
       final api = ref.read(apiClientProvider);
-      await api.postJson('/api/v1/projects/$projectId/decisions', idempotencyKey: ApiClient.newIdempotencyKey('create-decision'), data: {
-        'title': title.text.trim(),
-        'context': contextCtrl.text.trim(),
-      });
+      await api.postJson(
+        '/api/v1/projects/$projectId/decisions',
+        idempotencyKey: ApiClient.newIdempotencyKey('create-decision'),
+        data: {'title': title.text.trim(), 'context': contextCtrl.text.trim()},
+      );
       ref.invalidate(decisionsProvider(projectId));
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppException ? e.message : 'Failed to create decision')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is AppException ? e.message : 'Failed to create decision',
+            ),
+          ),
+        );
       }
     }
   }
@@ -98,7 +125,13 @@ class DecisionsScreen extends ConsumerWidget {
       ref.invalidate(decisionsProvider(projectId));
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppException ? e.message : 'Failed to delete decision')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is AppException ? e.message : 'Failed to delete decision',
+            ),
+          ),
+        );
       }
     }
   }

@@ -6,11 +6,11 @@ import '../../core/errors/app_exception.dart';
 
 final projectMembersProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, projectId) async {
-  final api = ref.watch(apiClientProvider);
-  final json = await api.getJson('/api/v1/projects/$projectId/members');
-  final items = (json['items'] as List?) ?? const [];
-  return items.whereType<Map<String, dynamic>>().toList();
-});
+      final api = ref.watch(apiClientProvider);
+      final json = await api.getJson('/api/v1/projects/$projectId/members');
+      final items = (json['items'] as List?) ?? const [];
+      return items.whereType<Map<String, dynamic>>().toList();
+    });
 
 class ProjectMembersScreen extends ConsumerWidget {
   final String projectId;
@@ -32,8 +32,10 @@ class ProjectMembersScreen extends ConsumerWidget {
             separatorBuilder: (_, _) => const SizedBox(height: 8),
             itemBuilder: (context, i) {
               final m = items[i];
-              final user = (m['user'] as Map?)?.cast<String, dynamic>() ?? const {};
-              final name = (user['display_name'] as String?)?.trim().isNotEmpty == true
+              final user =
+                  (m['user'] as Map?)?.cast<String, dynamic>() ?? const {};
+              final name =
+                  (user['display_name'] as String?)?.trim().isNotEmpty == true
                   ? user['display_name'] as String
                   : (user['username'] as String? ?? 'Unknown');
               final username = user['username'] as String? ?? '';
@@ -53,7 +55,9 @@ class ProjectMembersScreen extends ConsumerWidget {
         error: (e, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text(e is AppException ? e.message : 'Failed to load members'),
+            child: Text(
+              e is AppException ? e.message : 'Failed to load members',
+            ),
           ),
         ),
       ),

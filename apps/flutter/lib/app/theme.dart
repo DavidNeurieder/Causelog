@@ -20,10 +20,7 @@ class AppTheme {
         border: OutlineInputBorder(),
         isDense: true,
       ),
-      cardTheme: const CardThemeData(
-        elevation: 0,
-        margin: EdgeInsets.zero,
-      ),
+      cardTheme: const CardThemeData(elevation: 0, margin: EdgeInsets.zero),
       visualDensity: VisualDensity.standard,
     );
   }

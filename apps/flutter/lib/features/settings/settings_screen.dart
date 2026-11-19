@@ -24,9 +24,14 @@ class SettingsScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Account', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Account',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 8),
-                  Text('User: ${user?.displayName ?? user?.username ?? 'Unknown'}'),
+                  Text(
+                    'User: ${user?.displayName ?? user?.username ?? 'Unknown'}',
+                  ),
                   if (user != null) Text('Username: ${user.username}'),
                   if (user != null) Text('Role: ${user.role}'),
                 ],
@@ -40,7 +45,10 @@ class SettingsScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Server', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Server',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 8),
                   Text(api.baseUrl ?? 'Not configured'),
                 ],

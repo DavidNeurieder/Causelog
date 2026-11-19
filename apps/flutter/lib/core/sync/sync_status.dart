@@ -1,9 +1,4 @@
-enum SyncState {
-  idle,
-  syncing,
-  offline,
-  error,
-}
+enum SyncState { idle, syncing, offline, error }
 
 class SyncStatus {
   final SyncState state;
@@ -19,9 +14,9 @@ class SyncStatus {
   });
 
   const SyncStatus.idle({DateTime? lastSyncedAt, int pendingChanges = 0})
-      : this(
-          state: SyncState.idle,
-          lastSyncedAt: lastSyncedAt,
-          pendingChanges: pendingChanges,
-        );
+    : this(
+        state: SyncState.idle,
+        lastSyncedAt: lastSyncedAt,
+        pendingChanges: pendingChanges,
+      );
 }

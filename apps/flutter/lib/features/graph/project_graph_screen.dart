@@ -5,10 +5,11 @@ import 'package:go_router/go_router.dart';
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
 
-final graphProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, projectId) async {
-  final api = ref.watch(apiClientProvider);
-  return api.getJson('/api/v1/projects/$projectId/graph');
-});
+final graphProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>((ref, projectId) async {
+      final api = ref.watch(apiClientProvider);
+      return api.getJson('/api/v1/projects/$projectId/graph');
+    });
 
 class ProjectGraphScreen extends ConsumerWidget {
   final String projectId;
@@ -43,30 +44,41 @@ class ProjectGraphScreen extends ConsumerWidget {
         data: (data) {
           final nodes = (data['nodes'] as List?) ?? const [];
           final edges = (data['edges'] as List?) ?? const [];
-          if (nodes.isEmpty) return const Center(child: Text('No graph data yet.'));
+          if (nodes.isEmpty)
+            return const Center(child: Text('No graph data yet.'));
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Text('Nodes (${nodes.length})', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                'Nodes (${nodes.length})',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 8),
               for (final n in nodes.whereType<Map>())
                 Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
-                    title: Text(n['title'] as String? ?? n['id'] as String? ?? ''),
+                    title: Text(
+                      n['title'] as String? ?? n['id'] as String? ?? '',
+                    ),
                     subtitle: Text(n['entity_type'] as String? ?? ''),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => _openNode(context, n),
                   ),
                 ),
               const SizedBox(height: 16),
-              Text('Edges (${edges.length})', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                'Edges (${edges.length})',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 8),
               for (final e in edges.whereType<Map>())
                 Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
-                    title: Text('${e['kind'] ?? 'edge'} (${e['source'] ?? ''})'),
+                    title: Text(
+                      '${e['kind'] ?? 'edge'} (${e['source'] ?? ''})',
+                    ),
                     subtitle: Text(
                       '${e['from_type'] ?? ''}: ${e['from_id'] ?? ''}\n→ ${e['to_type'] ?? ''}: ${e['to_id'] ?? ''}',
                     ),
@@ -77,7 +89,8 @@ class ProjectGraphScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is AppException ? e.message : '$e')),
+        error: (e, _) =>
+            Center(child: Text(e is AppException ? e.message : '$e')),
       ),
     );
   }

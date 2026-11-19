@@ -38,7 +38,9 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
       await api.configure(url.startsWith('http') ? url : 'https://$url');
       // quick connectivity check
       await api.getJson('/api/v1/capabilities');
-      await ref.read(sessionControllerProvider.notifier).setServer(api.baseUrl!);
+      await ref
+          .read(sessionControllerProvider.notifier)
+          .setServer(api.baseUrl!);
       if (mounted) setState(() => _info = 'Connected');
     } catch (e) {
       setState(() => _error = 'Could not connect: $e');
@@ -60,7 +62,10 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Connect to Causelog', style: Theme.of(context).textTheme.headlineSmall),
+                  Text(
+                    'Connect to Causelog',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
                   const SizedBox(height: 8),
                   const Text('Enter the URL of your Causelog server.'),
                   const SizedBox(height: 16),
@@ -77,17 +82,31 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
                     ),
                   if (_info != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(_info!, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+                      child: Text(
+                        _info!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
                     ),
                   FilledButton(
                     onPressed: _busy ? null : _connect,
                     child: _busy
-                        ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Text('Connect'),
                   ),
                 ],

@@ -16,13 +16,14 @@ class ApiUser {
   });
 
   factory ApiUser.fromJson(Map<String, dynamic> json) => ApiUser(
-        id: json['id'] as String,
-        username: json['username'] as String? ?? '',
-        displayName: json['display_name'] as String? ?? json['username'] as String? ?? '',
-        role: json['role'] as String? ?? 'user',
-        approved: json['approved'] as bool? ?? false,
-        createdAtMs: (json['created_at_ms'] as num?)?.toInt() ?? 0,
-      );
+    id: json['id'] as String,
+    username: json['username'] as String? ?? '',
+    displayName:
+        json['display_name'] as String? ?? json['username'] as String? ?? '',
+    role: json['role'] as String? ?? 'user',
+    approved: json['approved'] as bool? ?? false,
+    createdAtMs: (json['created_at_ms'] as num?)?.toInt() ?? 0,
+  );
 }
 
 sealed class AuthState {

@@ -21,23 +21,31 @@ class PendingApprovalScreen extends ConsumerWidget {
             children: [
               const Icon(Icons.hourglass_top, size: 48),
               const SizedBox(height: 16),
-              Text('Account pending approval', style: Theme.of(context).textTheme.headlineSmall),
+              Text(
+                'Account pending approval',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
               if (name.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text('Signed in as $name'),
               ],
               const SizedBox(height: 12),
-              const Text('An administrator must approve your account before you can access projects.'),
+              const Text(
+                'An administrator must approve your account before you can access projects.',
+              ),
               const SizedBox(height: 20),
               Wrap(
                 spacing: 12,
                 children: [
                   FilledButton.tonal(
-                    onPressed: () => ref.read(sessionControllerProvider.notifier).refreshSession(),
+                    onPressed: () => ref
+                        .read(sessionControllerProvider.notifier)
+                        .refreshSession(),
                     child: const Text('Check again'),
                   ),
                   TextButton(
-                    onPressed: () => ref.read(sessionControllerProvider.notifier).logout(),
+                    onPressed: () =>
+                        ref.read(sessionControllerProvider.notifier).logout(),
                     child: const Text('Sign out'),
                   ),
                 ],

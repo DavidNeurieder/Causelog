@@ -30,9 +30,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   Future<void> _submit() async {
     final user = _username.text.trim();
-    final display = _displayName.text.trim().isEmpty ? user : _displayName.text.trim();
+    final display = _displayName.text.trim().isEmpty
+        ? user
+        : _displayName.text.trim();
     if (user.isEmpty || _password.text.length < 8) {
-      setState(() => _error = 'Username required and password must be at least 8 characters');
+      setState(
+        () => _error =
+            'Username required and password must be at least 8 characters',
+      );
       return;
     }
     setState(() {
@@ -40,10 +45,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       _error = null;
     });
     try {
-      await ref.read(sessionControllerProvider.notifier).register(user, display, _password.text);
+      await ref
+          .read(sessionControllerProvider.notifier)
+          .register(user, display, _password.text);
       if (mounted) setState(() => _done = true);
     } catch (e) {
-      setState(() => _error = e is AppException ? e.message : 'Registration failed: $e');
+      setState(
+        () =>
+            _error = e is AppException ? e.message : 'Registration failed: $e',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -87,9 +97,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  TextField(controller: _username, decoration: const InputDecoration(labelText: 'Username')),
+                  TextField(
+                    controller: _username,
+                    decoration: const InputDecoration(labelText: 'Username'),
+                  ),
                   const SizedBox(height: 12),
-                  TextField(controller: _displayName, decoration: const InputDecoration(labelText: 'Display name (optional)')),
+                  TextField(
+                    controller: _displayName,
+                    decoration: const InputDecoration(
+                      labelText: 'Display name (optional)',
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _password,
@@ -101,12 +119,21 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
                     ),
                   FilledButton(
                     onPressed: _busy ? null : _submit,
                     child: _busy
-                        ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Text('Register'),
                   ),
                   const SizedBox(height: 8),

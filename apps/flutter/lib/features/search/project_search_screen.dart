@@ -9,7 +9,8 @@ class ProjectSearchScreen extends ConsumerStatefulWidget {
   const ProjectSearchScreen({super.key, required this.projectId});
 
   @override
-  ConsumerState<ProjectSearchScreen> createState() => _ProjectSearchScreenState();
+  ConsumerState<ProjectSearchScreen> createState() =>
+      _ProjectSearchScreenState();
 }
 
 class _ProjectSearchScreenState extends ConsumerState<ProjectSearchScreen> {
@@ -32,7 +33,10 @@ class _ProjectSearchScreenState extends ConsumerState<ProjectSearchScreen> {
 
   Future<List<Map<String, dynamic>>> _run(String q) async {
     final api = ref.read(apiClientProvider);
-    final json = await api.getJson('/api/v1/search', query: {'q': q, 'project_id': widget.projectId});
+    final json = await api.getJson(
+      '/api/v1/search',
+      query: {'q': q, 'project_id': widget.projectId},
+    );
     final items = (json['items'] as List?) ?? const [];
     return items.whereType<Map<String, dynamic>>().toList();
   }
@@ -50,7 +54,10 @@ class _ProjectSearchScreenState extends ConsumerState<ProjectSearchScreen> {
                 Expanded(
                   child: TextField(
                     controller: _controller,
-                    decoration: const InputDecoration(labelText: 'Search in project', hintText: 'Enter query'),
+                    decoration: const InputDecoration(
+                      labelText: 'Search in project',
+                      hintText: 'Enter query',
+                    ),
                     onSubmitted: (_) => _search(),
                   ),
                 ),
@@ -70,10 +77,13 @@ class _ProjectSearchScreenState extends ConsumerState<ProjectSearchScreen> {
                       }
                       if (snap.hasError) {
                         final e = snap.error;
-                        return Center(child: Text(e is AppException ? e.message : '$e'));
+                        return Center(
+                          child: Text(e is AppException ? e.message : '$e'),
+                        );
                       }
                       final items = snap.data ?? const [];
-                      if (items.isEmpty) return const Center(child: Text('No results.'));
+                      if (items.isEmpty)
+                        return const Center(child: Text('No results.'));
                       return ListView.separated(
                         padding: const EdgeInsets.all(16),
                         itemCount: items.length,
@@ -82,8 +92,14 @@ class _ProjectSearchScreenState extends ConsumerState<ProjectSearchScreen> {
                           final r = items[i];
                           return Card(
                             child: ListTile(
-                              title: Text(r['title'] as String? ?? '(untitled)'),
-                              subtitle: Text('${r['entity_type'] ?? ''} • ${r['snippet'] ?? ''}', maxLines: 3, overflow: TextOverflow.ellipsis),
+                              title: Text(
+                                r['title'] as String? ?? '(untitled)',
+                              ),
+                              subtitle: Text(
+                                '${r['entity_type'] ?? ''} • ${r['snippet'] ?? ''}',
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           );
                         },

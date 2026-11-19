@@ -30,7 +30,10 @@ import 'providers.dart';
 
 class RouterRefresh extends ChangeNotifier {
   RouterRefresh(Ref ref) {
-    ref.listen<AuthState>(sessionControllerProvider, (_, _) => notifyListeners());
+    ref.listen<AuthState>(
+      sessionControllerProvider,
+      (_, _) => notifyListeners(),
+    );
   }
 }
 
@@ -75,12 +78,24 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
-      GoRoute(path: '/connect', builder: (context, state) => const ServerConfigScreen()),
+      GoRoute(
+        path: '/connect',
+        builder: (context, state) => const ServerConfigScreen(),
+      ),
       GoRoute(path: '/setup', builder: (context, state) => const SetupScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
-      GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
-      GoRoute(path: '/pending', builder: (context, state) => const PendingApprovalScreen()),
-      GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
+      GoRoute(
+        path: '/register',
+        builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: '/pending',
+        builder: (context, state) => const PendingApprovalScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsScreen(),
+      ),
       GoRoute(
         path: '/projects',
         builder: (context, state) => const ProjectsScreen(),
@@ -153,8 +168,9 @@ final routerProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: 'timeline',
-                builder: (context, state) =>
-                    ProjectTimelineScreen(projectId: state.pathParameters['id']!),
+                builder: (context, state) => ProjectTimelineScreen(
+                  projectId: state.pathParameters['id']!,
+                ),
               ),
               GoRoute(
                 path: 'graph',
@@ -163,13 +179,15 @@ final routerProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: 'exports',
-                builder: (context, state) =>
-                    ProjectExportsScreen(projectId: state.pathParameters['id']!),
+                builder: (context, state) => ProjectExportsScreen(
+                  projectId: state.pathParameters['id']!,
+                ),
               ),
               GoRoute(
                 path: 'members',
-                builder: (context, state) =>
-                    ProjectMembersScreen(projectId: state.pathParameters['id']!),
+                builder: (context, state) => ProjectMembersScreen(
+                  projectId: state.pathParameters['id']!,
+                ),
               ),
               GoRoute(
                 path: 'capture',

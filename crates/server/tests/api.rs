@@ -4535,7 +4535,12 @@ fn post_json(uri: &str, body: &serde_json::Value) -> Request<Body> {
         .unwrap()
 }
 
-fn patch_json_authed(uri: &str, body: &serde_json::Value, cookie: &str, csrf: &str) -> Request<Body> {
+fn patch_json_authed(
+    uri: &str,
+    body: &serde_json::Value,
+    cookie: &str,
+    csrf: &str,
+) -> Request<Body> {
     let mut payload = body.clone();
     if let Some(obj) = payload.as_object_mut() {
         obj.entry("csrf_token").or_insert(json!(csrf));
@@ -4544,7 +4549,10 @@ fn patch_json_authed(uri: &str, body: &serde_json::Value, cookie: &str, csrf: &s
         .method("PATCH")
         .uri(uri)
         .header(header::CONTENT_TYPE, "application/json")
-        .header(header::COOKIE, header::HeaderValue::from_str(cookie).unwrap())
+        .header(
+            header::COOKIE,
+            header::HeaderValue::from_str(cookie).unwrap(),
+        )
         .header("x-csrf-token", csrf)
         .body(Body::from(serde_json::to_vec(&payload).unwrap()))
         .unwrap()
@@ -4554,10 +4562,15 @@ fn delete_authed(uri: &str, cookie: &str, csrf: &str) -> Request<Body> {
     Request::builder()
         .method("DELETE")
         .uri(uri)
-        .header(header::COOKIE, header::HeaderValue::from_str(cookie).unwrap())
+        .header(
+            header::COOKIE,
+            header::HeaderValue::from_str(cookie).unwrap(),
+        )
         .header("x-csrf-token", csrf)
         .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(serde_json::to_vec(&json!({"csrf_token": csrf})).unwrap()))
+        .body(Body::from(
+            serde_json::to_vec(&json!({"csrf_token": csrf})).unwrap(),
+        ))
         .unwrap()
 }
 
@@ -4626,7 +4639,10 @@ async fn api_v1_login_and_projects_crud() {
             .method("POST")
             .uri("/api/v1/projects")
             .header(header::CONTENT_TYPE, "application/json")
-            .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+            .header(
+                header::COOKIE,
+                header::HeaderValue::from_str(&cookie).unwrap(),
+            )
             .header("x-csrf-token", &csrf)
             .body(Body::from(serde_json::to_vec(&payload).unwrap()))
             .unwrap()
@@ -4641,7 +4657,13 @@ async fn api_v1_login_and_projects_crud() {
     let res = send(&app, with_cookie(get("/api/v1/projects"), &cookie)).await;
     assert_eq!(res.status(), StatusCode::OK);
     let list = json_response(res).await;
-    assert!(list["items"].as_array().unwrap().iter().any(|p| p["id"] == pid));
+    assert!(
+        list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["id"] == pid)
+    );
 
     // update
     let res = send(
@@ -4659,7 +4681,11 @@ async fn api_v1_login_and_projects_crud() {
     assert_eq!(updated["title"], "Alpha 2");
 
     // delete
-    let res = send(&app, delete_authed(&format!("/api/v1/projects/{pid}"), &cookie, &csrf)).await;
+    let res = send(
+        &app,
+        delete_authed(&format!("/api/v1/projects/{pid}"), &cookie, &csrf),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 }
 
@@ -4674,9 +4700,17 @@ async fn api_v1_goal_and_decision_flow() {
         .method("POST")
         .uri("/api/v1/projects")
         .header(header::CONTENT_TYPE, "application/json")
-        .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+        .header(
+            header::COOKIE,
+            header::HeaderValue::from_str(&cookie).unwrap(),
+        )
         .header("x-csrf-token", &csrf)
-        .body(Body::from(serde_json::to_vec(&json!({"csrf_token":csrf,"title":"P","summary":"","status":"active"})).unwrap()))
+        .body(Body::from(
+            serde_json::to_vec(
+                &json!({"csrf_token":csrf,"title":"P","summary":"","status":"active"}),
+            )
+            .unwrap(),
+        ))
         .unwrap();
     let res = send(&app, req).await;
     assert_eq!(res.status(), StatusCode::CREATED);
@@ -4688,9 +4722,14 @@ async fn api_v1_goal_and_decision_flow() {
         .method("POST")
         .uri(format!("/api/v1/projects/{pid}/goals"))
         .header(header::CONTENT_TYPE, "application/json")
-        .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+        .header(
+            header::COOKIE,
+            header::HeaderValue::from_str(&cookie).unwrap(),
+        )
         .header("x-csrf-token", &csrf)
-        .body(Body::from(serde_json::to_vec(&json!({"csrf_token":csrf,"title":"G1","body":"b"})).unwrap()))
+        .body(Body::from(
+            serde_json::to_vec(&json!({"csrf_token":csrf,"title":"G1","body":"b"})).unwrap(),
+        ))
         .unwrap();
     let res = send(&app, req).await;
     assert_eq!(res.status(), StatusCode::CREATED);
@@ -4702,9 +4741,17 @@ async fn api_v1_goal_and_decision_flow() {
         .method("POST")
         .uri(format!("/api/v1/projects/{pid}/decisions"))
         .header(header::CONTENT_TYPE, "application/json")
-        .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+        .header(
+            header::COOKIE,
+            header::HeaderValue::from_str(&cookie).unwrap(),
+        )
         .header("x-csrf-token", &csrf)
-        .body(Body::from(serde_json::to_vec(&json!({"csrf_token":csrf,"title":"D1","context":"ctx","options":[]})).unwrap()))
+        .body(Body::from(
+            serde_json::to_vec(
+                &json!({"csrf_token":csrf,"title":"D1","context":"ctx","options":[]}),
+            )
+            .unwrap(),
+        ))
         .unwrap();
     let res = send(&app, req).await;
     assert_eq!(res.status(), StatusCode::CREATED);
@@ -4717,15 +4764,27 @@ async fn api_v1_goal_and_decision_flow() {
             .method("POST")
             .uri(format!("/api/v1/decisions/{did}/resolve"))
             .header(header::CONTENT_TYPE, "application/json")
-            .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+            .header(
+                header::COOKIE,
+                header::HeaderValue::from_str(&cookie).unwrap(),
+            )
             .header("x-csrf-token", &csrf)
-            .body(Body::from(serde_json::to_vec(&json!({"csrf_token":csrf,"status":"decided","rationale":"because"})).unwrap()))
+            .body(Body::from(
+                serde_json::to_vec(
+                    &json!({"csrf_token":csrf,"status":"decided","rationale":"because"}),
+                )
+                .unwrap(),
+            ))
             .unwrap(),
     )
     .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let res = send(&app, with_cookie(get(&format!("/api/v1/decisions/{did}/revisions")), &cookie)).await;
+    let res = send(
+        &app,
+        with_cookie(get(&format!("/api/v1/decisions/{did}/revisions")), &cookie),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     let revs = json_response(res).await;
     assert!(revs["items"].as_array().unwrap().len() >= 1);
@@ -4761,7 +4820,10 @@ async fn api_v1_idempotency_replays_and_conflicts() {
             .method("POST")
             .uri("/api/v1/projects")
             .header(header::CONTENT_TYPE, "application/json")
-            .header(header::COOKIE, header::HeaderValue::from_str(&cookie).unwrap())
+            .header(
+                header::COOKIE,
+                header::HeaderValue::from_str(&cookie).unwrap(),
+            )
             .header("x-csrf-token", &csrf)
             .header("idempotency-key", key)
             .body(Body::from(serde_json::to_vec(payload).unwrap()))
@@ -4798,7 +4860,13 @@ async fn api_v1_idempotency_replays_and_conflicts() {
     assert_eq!(res.status(), StatusCode::OK);
     let list = json_response(res).await;
     let items = list["items"].as_array().unwrap();
-    assert_eq!(items.iter().filter(|p| p["title"] == "Idem Project").count(), 1);
+    assert_eq!(
+        items
+            .iter()
+            .filter(|p| p["title"] == "Idem Project")
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -4824,7 +4892,10 @@ async fn api_v1_core_workflow_endpoints() {
             .method("POST")
             .uri(uri)
             .header(header::CONTENT_TYPE, "application/json")
-            .header(header::COOKIE, header::HeaderValue::from_str(cookie).unwrap())
+            .header(
+                header::COOKIE,
+                header::HeaderValue::from_str(cookie).unwrap(),
+            )
             .header("x-csrf-token", csrf)
             .body(Body::from(serde_json::to_vec(&payload).unwrap()))
             .unwrap()
@@ -4903,7 +4974,11 @@ async fn api_v1_core_workflow_endpoints() {
     let event = json_response(res).await;
     assert_eq!(event["kind"], "observation");
 
-    let res = send(&app, with_cookie(get(&format!("/api/v1/experiments/{eid}")), &cookie)).await;
+    let res = send(
+        &app,
+        with_cookie(get(&format!("/api/v1/experiments/{eid}")), &cookie),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     let exp_detail = json_response(res).await;
     assert_eq!(exp_detail["id"], eid);
@@ -4936,7 +5011,11 @@ async fn api_v1_core_workflow_endpoints() {
     .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let res = send(&app, with_cookie(get(&format!("/api/v1/notes/{nid}/revisions")), &cookie)).await;
+    let res = send(
+        &app,
+        with_cookie(get(&format!("/api/v1/notes/{nid}/revisions")), &cookie),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     let revs = json_response(res).await;
     assert!(revs["items"].as_array().unwrap().len() >= 1);
@@ -4973,25 +5052,51 @@ async fn api_v1_core_workflow_endpoints() {
     let res = send(&app, with_cookie(get("/api/v1/search?q=Workflow"), &cookie)).await;
     assert_eq!(res.status(), StatusCode::OK);
     let search = json_response(res).await;
-    assert!(search["items"].as_array().unwrap().iter().any(|i| i["entity_type"] == "project"));
+    assert!(
+        search["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["entity_type"] == "project")
+    );
 
-    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/timeline")), &cookie)).await;
+    let res = send(
+        &app,
+        with_cookie(get(&format!("/api/v1/projects/{pid}/timeline")), &cookie),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     let timeline = json_response(res).await;
     assert!(timeline["items"].is_array());
 
-    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/activity")), &cookie)).await;
+    let res = send(
+        &app,
+        with_cookie(get(&format!("/api/v1/projects/{pid}/activity")), &cookie),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/graph")), &cookie)).await;
+    let res = send(
+        &app,
+        with_cookie(get(&format!("/api/v1/projects/{pid}/graph")), &cookie),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     let graph = json_response(res).await;
     assert!(graph["nodes"].is_array() && graph["edges"].is_array());
 
-    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/stats")), &cookie)).await;
+    let res = send(
+        &app,
+        with_cookie(get(&format!("/api/v1/projects/{pid}/stats")), &cookie),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let res = send(&app, with_cookie(get(&format!("/api/v1/projects/{pid}/exports")), &cookie)).await;
+    let res = send(
+        &app,
+        with_cookie(get(&format!("/api/v1/projects/{pid}/exports")), &cookie),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     let exports = json_response(res).await;
     assert!(exports["items"].as_array().unwrap().len() >= 1);

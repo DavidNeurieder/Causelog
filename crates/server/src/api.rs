@@ -29,7 +29,9 @@ pub fn router() -> Router<AppState> {
         .route("/projects", get(list_projects).post(create_project))
         .route(
             "/projects/{id}",
-            get(get_project).patch(update_project).delete(delete_project),
+            get(get_project)
+                .patch(update_project)
+                .delete(delete_project),
         )
         .route(
             "/projects/{id}/members",
@@ -39,10 +41,7 @@ pub fn router() -> Router<AppState> {
             "/projects/{id}/members/{user_id}",
             delete(remove_project_member),
         )
-        .route(
-            "/projects/{id}/goals",
-            get(list_goals).post(create_goal),
-        )
+        .route("/projects/{id}/goals", get(list_goals).post(create_goal))
         .route(
             "/goals/{id}",
             get(get_goal).patch(update_goal).delete(delete_goal),
@@ -79,19 +78,13 @@ pub fn router() -> Router<AppState> {
             delete(delete_experiment_event),
         )
         .route("/experiments/{id}/extract", post(extract_lesson))
-        .route(
-            "/projects/{id}/notes",
-            get(list_notes).post(create_note),
-        )
+        .route("/projects/{id}/notes", get(list_notes).post(create_note))
         .route(
             "/notes/{id}",
             get(get_note).patch(update_note).delete(delete_note),
         )
         .route("/notes/{id}/revisions", get(list_note_revisions))
-        .route(
-            "/notes/{id}/revisions/compare",
-            get(compare_note_revisions),
-        )
+        .route("/notes/{id}/revisions/compare", get(compare_note_revisions))
         .route("/projects/{id}/links", post(create_link))
         .route("/projects/{id}/links/{link_id}", delete(delete_link))
         .route("/capture", post(capture))
@@ -159,7 +152,10 @@ async fn require_session(state: &AppState, headers: &HeaderMap) -> Result<AuthUs
         .ok_or_else(ApiError::unauthorized)
 }
 
-async fn require_approved_user(state: &AppState, headers: &HeaderMap) -> Result<AuthUser, ApiError> {
+async fn require_approved_user(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<AuthUser, ApiError> {
     let auth_user = require_session(state, headers).await?;
     if !auth::is_approved(&auth_user.user) {
         return Err(ApiError::forbidden());
@@ -167,7 +163,11 @@ async fn require_approved_user(state: &AppState, headers: &HeaderMap) -> Result<
     Ok(auth_user)
 }
 
-fn require_csrf(headers: &HeaderMap, csrf_token: Option<&str>, auth_user: &AuthUser) -> Result<(), ApiError> {
+fn require_csrf(
+    headers: &HeaderMap,
+    csrf_token: Option<&str>,
+    auth_user: &AuthUser,
+) -> Result<(), ApiError> {
     auth::verify_csrf_form(headers, csrf_token, &auth_user.csrf_token)
 }
 
@@ -279,8 +279,9 @@ async fn idempotency_check(
             ));
         }
         let status = StatusCode::from_u16(rec.status_code as u16).unwrap_or(StatusCode::OK);
-        let body: serde_json::Value = serde_json::from_str(&rec.response_body)
-            .unwrap_or_else(|_| serde_json::json!({"error":"invalid stored response","code":"internal"}));
+        let body: serde_json::Value = serde_json::from_str(&rec.response_body).unwrap_or_else(
+            |_| serde_json::json!({"error":"invalid stored response","code":"internal"}),
+        );
         return Ok(IdempotencyState::Replay(
             (status, Json(body)).into_response(),
         ));
@@ -377,11 +378,7 @@ async fn setup(
         return Err(ApiError::conflict("setup already complete"));
     }
     let username = body.username.trim();
-    let display = body
-        .display_name
-        .as_deref()
-        .unwrap_or(username)
-        .trim();
+    let display = body.display_name.as_deref().unwrap_or(username).trim();
     if username.is_empty() || body.password.len() < 8 {
         return Err(ApiError::bad_request(
             "username required and password must be at least 8 characters",
@@ -406,21 +403,14 @@ async fn register(
     Json(body): Json<RegisterRequest>,
 ) -> Result<Response, ApiError> {
     let username = body.username.trim();
-    let display = body
-        .display_name
-        .as_deref()
-        .unwrap_or(username)
-        .trim();
+    let display = body.display_name.as_deref().unwrap_or(username).trim();
     if username.is_empty() || body.password.len() < 8 {
         return Err(ApiError::bad_request(
             "username required and password must be at least 8 characters",
         ));
     }
     let hash = auth::hash_password(&body.password)?;
-    state
-        .repo
-        .create_user(username, display, &hash)
-        .await?;
+    state.repo.create_user(username, display, &hash).await?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "pending_approval": true })),
@@ -685,10 +675,7 @@ async fn add_project_member(
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     // Only admin or project owner may add members
     if !auth::is_admin(&auth_user.user) {
-        let role = state
-            .repo
-            .user_project_role(auth_user.user.id, pid)
-            .await?;
+        let role = state.repo.user_project_role(auth_user.user.id, pid).await?;
         if role.as_deref() != Some("owner") {
             return Err(ApiError::forbidden());
         }
@@ -697,7 +684,10 @@ async fn add_project_member(
     if !matches!(role, "owner" | "member") {
         return Err(ApiError::bad_request("invalid member role"));
     }
-    state.repo.add_project_member(pid, body.user_id, role).await?;
+    state
+        .repo
+        .add_project_member(pid, body.user_id, role)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -714,10 +704,7 @@ async fn remove_project_member(
     let uid = parse_uuid_param(&user_id)?;
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     if !auth::is_admin(&auth_user.user) {
-        let role = state
-            .repo
-            .user_project_role(auth_user.user.id, pid)
-            .await?;
+        let role = state.repo.user_project_role(auth_user.user.id, pid).await?;
         if role.as_deref() != Some("owner") {
             return Err(ApiError::forbidden());
         }
@@ -937,7 +924,10 @@ async fn list_decisions(
     if let Some(status) = q.status.as_deref() {
         items.retain(|d| d.status == status);
     }
-    let pq = PageQuery { page: q.page, per_page: q.per_page };
+    let pq = PageQuery {
+        page: q.page,
+        per_page: q.per_page,
+    };
     let (items, page) = paginate(items, &pq);
     Ok(Json(serde_json::json!({ "items": items, "page": page })))
 }
@@ -949,7 +939,11 @@ async fn get_decision(
 ) -> Result<Json<Decision>, ApiError> {
     let auth_user = require_approved_user(&state, &headers).await?;
     let did = parse_uuid_param(&id)?;
-    let decision = state.repo.find_decision(did).await?.ok_or_else(|| ApiError::not_found("decision not found"))?;
+    let decision = state
+        .repo
+        .find_decision(did)
+        .await?
+        .ok_or_else(|| ApiError::not_found("decision not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, decision.project_id).await?;
     Ok(Json(decision))
 }
@@ -1065,7 +1059,11 @@ async fn delete_decision(
     let csrf = body.as_ref().and_then(|b| b.csrf_token.as_deref());
     require_csrf(&headers, csrf, &auth_user)?;
     let did = parse_uuid_param(&id)?;
-    let d = state.repo.find_decision(did).await?.ok_or_else(|| ApiError::not_found("decision not found"))?;
+    let d = state
+        .repo
+        .find_decision(did)
+        .await?
+        .ok_or_else(|| ApiError::not_found("decision not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, d.project_id).await?;
     state.repo.delete_decision(did).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -1353,7 +1351,10 @@ async fn get_experiment(
     let events = state.repo.list_events(eid).await?;
     let mut value = serde_json::to_value(exp).map_err(|e| ApiError::internal(e.to_string()))?;
     if let Some(obj) = value.as_object_mut() {
-        obj.insert("events".to_string(), serde_json::to_value(events).map_err(|e| ApiError::internal(e.to_string()))?);
+        obj.insert(
+            "events".to_string(),
+            serde_json::to_value(events).map_err(|e| ApiError::internal(e.to_string()))?,
+        );
     }
     Ok(Json(value))
 }
@@ -1373,15 +1374,27 @@ async fn update_experiment(
         .await?
         .ok_or_else(|| ApiError::not_found("experiment not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, exp.project_id).await?;
-    let title = body.title.as_deref().unwrap_or(&exp.title).trim().to_string();
-    let hypothesis = body.hypothesis.as_deref().unwrap_or(&exp.hypothesis).to_string();
+    let title = body
+        .title
+        .as_deref()
+        .unwrap_or(&exp.title)
+        .trim()
+        .to_string();
+    let hypothesis = body
+        .hypothesis
+        .as_deref()
+        .unwrap_or(&exp.hypothesis)
+        .to_string();
     let status = body.status.as_deref().unwrap_or(&exp.status).to_string();
     let result = body.result.as_deref().unwrap_or(&exp.result).to_string();
     let lesson = body.lesson.as_deref().unwrap_or(&exp.lesson).to_string();
     if title.is_empty() {
         return Err(ApiError::bad_request("title is required"));
     }
-    if !matches!(status.as_str(), "planned" | "ongoing" | "done" | "abandoned") {
+    if !matches!(
+        status.as_str(),
+        "planned" | "ongoing" | "done" | "abandoned"
+    ) {
         return Err(ApiError::bad_request("invalid experiment status"));
     }
     let exp = state
@@ -1448,7 +1461,10 @@ async fn create_experiment_event(
         .await?
         .ok_or_else(|| ApiError::not_found("experiment not found"))?;
     let _ = require_project_member_api(&state, &auth_user.user, exp.project_id).await?;
-    if !matches!(body.kind.as_str(), "observation" | "measurement" | "milestone") {
+    if !matches!(
+        body.kind.as_str(),
+        "observation" | "measurement" | "milestone"
+    ) {
         return Err(ApiError::bad_request("invalid event kind"));
     }
     let note = body.note.trim();
@@ -1456,7 +1472,10 @@ async fn create_experiment_event(
         return Err(ApiError::bad_request("note is required"));
     }
     let at_ms = body.at_ms.unwrap_or_else(causelog_content::now_ms);
-    let event = state.repo.create_event(eid, &body.kind, at_ms, note).await?;
+    let event = state
+        .repo
+        .create_event(eid, &body.kind, at_ms, note)
+        .await?;
     let resp_val = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
     if let IdempotencyState::Fresh(pending) = idem {
         idempotency_save(
@@ -1836,7 +1855,9 @@ async fn create_link(
     let _ = require_project_member_api(&state, &auth_user.user, pid).await?;
     let valid_types = ["note", "decision", "experiment"];
     let valid_kinds = ["related", "supports", "rejects", "follows"];
-    if !valid_types.contains(&body.from_type.as_str()) || !valid_types.contains(&body.to_type.as_str()) {
+    if !valid_types.contains(&body.from_type.as_str())
+        || !valid_types.contains(&body.to_type.as_str())
+    {
         return Err(ApiError::bad_request("invalid link entity type"));
     }
     if !valid_kinds.contains(&body.kind.as_str()) {
@@ -1934,7 +1955,14 @@ async fn capture(
         "note" => {
             let note = state
                 .repo
-                .create_note(project.id, title, &text, None, None, Some(auth_user.user.id))
+                .create_note(
+                    project.id,
+                    title,
+                    &text,
+                    None,
+                    None,
+                    Some(auth_user.user.id),
+                )
                 .await?;
             serde_json::json!({"kind":"note","id":note.id})
         }
@@ -1948,7 +1976,9 @@ async fn capture(
                 .await?
                 .ok_or_else(|| ApiError::not_found("experiment not found"))?;
             if exp.project_id != project.id {
-                return Err(ApiError::bad_request("experiment does not belong to project"));
+                return Err(ApiError::bad_request(
+                    "experiment does not belong to project",
+                ));
             }
             let note_text = if text.is_empty() { title } else { &text };
             let event = state
@@ -2008,7 +2038,9 @@ async fn search(
     let auth_user = require_approved_user(&state, &headers).await?;
     let query = q.q.as_deref().unwrap_or("").trim();
     if query.is_empty() {
-        return Ok(Json(serde_json::json!({"items":[],"page": PageInfo{page:1,per_page:q.per_page.unwrap_or(50).clamp(1,200),total:0,total_pages:1}})));
+        return Ok(Json(
+            serde_json::json!({"items":[],"page": PageInfo{page:1,per_page:q.per_page.unwrap_or(50).clamp(1,200),total:0,total_pages:1}}),
+        ));
     }
     let rows = if let Some(pid) = q.project_id.as_deref().filter(|s| !s.is_empty()) {
         let pid = parse_uuid_param(pid)?;
@@ -2037,7 +2069,10 @@ async fn search(
             rank: r.rank,
         })
         .collect();
-    let pq = PageQuery { page: q.page, per_page: q.per_page };
+    let pq = PageQuery {
+        page: q.page,
+        per_page: q.per_page,
+    };
     let (items, page) = paginate(dto, &pq);
     Ok(Json(serde_json::json!({ "items": items, "page": page })))
 }
@@ -2187,7 +2222,10 @@ async fn get_graph(
         .edges
         .into_iter()
         .map(|e| {
-            let source = if matches!(e.kind.as_str(), "related" | "supports" | "rejects" | "follows") {
+            let source = if matches!(
+                e.kind.as_str(),
+                "related" | "supports" | "rejects" | "follows"
+            ) {
                 "explicit"
             } else {
                 "structural"

@@ -53,7 +53,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         title: const Text('Sign in'),
         actions: [
           TextButton(
-            onPressed: () => ref.read(sessionControllerProvider.notifier).clearServer(),
+            onPressed: () =>
+                ref.read(sessionControllerProvider.notifier).clearServer(),
             child: const Text('Change server'),
           ),
         ],
@@ -68,11 +69,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Causelog', style: Theme.of(context).textTheme.headlineSmall),
+                  Text(
+                    'Causelog',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
                   if (api.baseUrl != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 4, bottom: 12),
-                      child: Text(api.baseUrl!, style: Theme.of(context).textTheme.bodySmall),
+                      child: Text(
+                        api.baseUrl!,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
                   TextField(
                     controller: _username,
@@ -90,12 +97,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
                     ),
                   FilledButton(
                     onPressed: _busy ? null : _login,
                     child: _busy
-                        ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Text('Sign in'),
                   ),
                   const SizedBox(height: 8),

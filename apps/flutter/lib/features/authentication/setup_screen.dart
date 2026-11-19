@@ -30,9 +30,14 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   Future<void> _submit() async {
     final user = _username.text.trim();
-    final display = _displayName.text.trim().isEmpty ? user : _displayName.text.trim();
+    final display = _displayName.text.trim().isEmpty
+        ? user
+        : _displayName.text.trim();
     if (user.isEmpty || _password.text.length < 8) {
-      setState(() => _error = 'Username required and password must be at least 8 characters');
+      setState(
+        () => _error =
+            'Username required and password must be at least 8 characters',
+      );
       return;
     }
     if (_password.text != _confirm.text) {
@@ -44,9 +49,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       _error = null;
     });
     try {
-      await ref.read(sessionControllerProvider.notifier).setup(user, display, _password.text);
+      await ref
+          .read(sessionControllerProvider.notifier)
+          .setup(user, display, _password.text);
     } catch (e) {
-      setState(() => _error = e is AppException ? e.message : 'Setup failed: $e');
+      setState(
+        () => _error = e is AppException ? e.message : 'Setup failed: $e',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -60,7 +69,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         title: const Text('Initial setup'),
         actions: [
           TextButton(
-            onPressed: () => ref.read(sessionControllerProvider.notifier).clearServer(),
+            onPressed: () =>
+                ref.read(sessionControllerProvider.notifier).clearServer(),
             child: const Text('Change server'),
           ),
         ],
@@ -75,21 +85,41 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Create admin account', style: Theme.of(context).textTheme.headlineSmall),
+                  Text(
+                    'Create admin account',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
                   if (api.baseUrl != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 4, bottom: 12),
-                      child: Text(api.baseUrl!, style: Theme.of(context).textTheme.bodySmall),
+                      child: Text(
+                        api.baseUrl!,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
-                  TextField(controller: _username, decoration: const InputDecoration(labelText: 'Username')),
+                  TextField(
+                    controller: _username,
+                    decoration: const InputDecoration(labelText: 'Username'),
+                  ),
                   const SizedBox(height: 12),
-                  TextField(controller: _displayName, decoration: const InputDecoration(labelText: 'Display name (optional)')),
+                  TextField(
+                    controller: _displayName,
+                    decoration: const InputDecoration(
+                      labelText: 'Display name (optional)',
+                    ),
+                  ),
                   const SizedBox(height: 12),
-                  TextField(controller: _password, decoration: const InputDecoration(labelText: 'Password'), obscureText: true),
+                  TextField(
+                    controller: _password,
+                    decoration: const InputDecoration(labelText: 'Password'),
+                    obscureText: true,
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _confirm,
-                    decoration: const InputDecoration(labelText: 'Confirm password'),
+                    decoration: const InputDecoration(
+                      labelText: 'Confirm password',
+                    ),
                     obscureText: true,
                     onSubmitted: (_) => _busy ? null : _submit(),
                   ),
@@ -97,12 +127,21 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
                     ),
                   FilledButton(
                     onPressed: _busy ? null : _submit,
                     child: _busy
-                        ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Text('Create account'),
                   ),
                 ],

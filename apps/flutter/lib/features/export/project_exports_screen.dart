@@ -5,11 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../core/errors/app_exception.dart';
 
-final exportsProvider = FutureProvider.autoDispose.family<List<dynamic>, String>((ref, projectId) async {
-  final api = ref.watch(apiClientProvider);
-  final json = await api.getJson('/api/v1/projects/$projectId/exports');
-  return (json['items'] as List?) ?? const [];
-});
+final exportsProvider = FutureProvider.autoDispose
+    .family<List<dynamic>, String>((ref, projectId) async {
+      final api = ref.watch(apiClientProvider);
+      final json = await api.getJson('/api/v1/projects/$projectId/exports');
+      return (json['items'] as List?) ?? const [];
+    });
 
 class ProjectExportsScreen extends ConsumerWidget {
   final String projectId;
@@ -23,7 +24,8 @@ class ProjectExportsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Exports')),
       body: async.when(
         data: (items) {
-          if (items.isEmpty) return const Center(child: Text('No export formats available.'));
+          if (items.isEmpty)
+            return const Center(child: Text('No export formats available.'));
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: items.length,
@@ -31,10 +33,14 @@ class ProjectExportsScreen extends ConsumerWidget {
             itemBuilder: (context, i) {
               final e = items[i] as Map<String, dynamic>;
               final urlPath = e['url'] as String? ?? '';
-              final fullUrl = urlPath.startsWith('http') ? urlPath : '$baseUrl$urlPath';
+              final fullUrl = urlPath.startsWith('http')
+                  ? urlPath
+                  : '$baseUrl$urlPath';
               return Card(
                 child: ListTile(
-                  title: Text((e['format'] as String? ?? 'export').toUpperCase()),
+                  title: Text(
+                    (e['format'] as String? ?? 'export').toUpperCase(),
+                  ),
                   subtitle: Text('${e['description'] ?? ''}\n$fullUrl'),
                   isThreeLine: true,
                   trailing: IconButton(
@@ -43,7 +49,9 @@ class ProjectExportsScreen extends ConsumerWidget {
                     onPressed: () async {
                       await Clipboard.setData(ClipboardData(text: fullUrl));
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export URL copied')));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Export URL copied')),
+                        );
                       }
                     },
                   ),
@@ -53,7 +61,8 @@ class ProjectExportsScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e is AppException ? e.message : '$e')),
+        error: (e, _) =>
+            Center(child: Text(e is AppException ? e.message : '$e')),
       ),
     );
   }

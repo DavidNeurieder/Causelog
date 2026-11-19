@@ -33,25 +33,31 @@ class ApiClient {
     await Directory(cookiePath).create(recursive: true);
     _cookieJar = PersistCookieJar(storage: FileStorage(cookiePath));
 
-    final dio = Dio(BaseOptions(
-      baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 30),
-      headers: const {'Accept': 'application/json'},
-      // Let us inspect 4xx responses ourselves.
-      validateStatus: (s) => s != null && s < 500,
-    ));
+    final dio = Dio(
+      BaseOptions(
+        baseUrl: baseUrl,
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 30),
+        headers: const {'Accept': 'application/json'},
+        // Let us inspect 4xx responses ourselves.
+        validateStatus: (s) => s != null && s < 500,
+      ),
+    );
     dio.interceptors.add(CookieManager(_cookieJar!));
-    dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
-      final method = options.method.toUpperCase();
-      if (method != 'GET' && method != 'HEAD' && csrfToken != null) {
-        options.headers['X-CSRF-Token'] = csrfToken;
-        if (options.data is Map) {
-          (options.data as Map).putIfAbsent('csrf_token', () => csrfToken);
-        }
-      }
-      handler.next(options);
-    }));
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final method = options.method.toUpperCase();
+          if (method != 'GET' && method != 'HEAD' && csrfToken != null) {
+            options.headers['X-CSRF-Token'] = csrfToken;
+            if (options.data is Map) {
+              (options.data as Map).putIfAbsent('csrf_token', () => csrfToken);
+            }
+          }
+          handler.next(options);
+        },
+      ),
+    );
     _dio = dio;
   }
 
@@ -65,7 +71,11 @@ class ApiClient {
     }
     final status = response.statusCode;
     if (status == 401) {
-      throw AppException(message, code: code ?? 'unauthenticated', statusCode: 401);
+      throw AppException(
+        message,
+        code: code ?? 'unauthenticated',
+        statusCode: 401,
+      );
     }
     if (status == 403) {
       throw AppException(message, code: code ?? 'forbidden', statusCode: 403);
@@ -86,11 +96,15 @@ class ApiClient {
     return '$prefix-$a-$b';
   }
 
-  Future<Map<String, dynamic>> getJson(String path, {Map<String, dynamic>? query}) async {
+  Future<Map<String, dynamic>> getJson(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
     try {
       final res = await dio.get(path, queryParameters: query);
       if (res.statusCode != null && res.statusCode! >= 400) throwFor(res);
-      if (res.data is Map<String, dynamic>) return res.data as Map<String, dynamic>;
+      if (res.data is Map<String, dynamic>)
+        return res.data as Map<String, dynamic>;
       return {'data': res.data};
     } on DioException catch (e) {
       throw _mapDio(e);

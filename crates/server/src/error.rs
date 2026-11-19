@@ -80,6 +80,10 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = self.status_and_message();
         let code = self.code();
-        (status, Json(serde_json::json!({ "error": message, "code": code }))).into_response()
+        (
+            status,
+            Json(serde_json::json!({ "error": message, "code": code })),
+        )
+            .into_response()
     }
 }

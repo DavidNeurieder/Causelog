@@ -84,12 +84,15 @@ class SessionController extends StateNotifier<AuthState> {
   }
 
   Future<void> login(String username, String password) async {
-    final data = await api.postJson('/api/v1/auth/login', data: {
-      'username': username,
-      'password': password,
-    });
+    final data = await api.postJson(
+      '/api/v1/auth/login',
+      data: {'username': username, 'password': password},
+    );
     if (data is! Map<String, dynamic>) {
-      throw const AppException('Invalid login response', code: 'invalid_response');
+      throw const AppException(
+        'Invalid login response',
+        code: 'invalid_response',
+      );
     }
     final user = ApiUser.fromJson(data['user'] as Map<String, dynamic>);
     final csrf = data['csrf_token'] as String? ?? '';
@@ -101,20 +104,34 @@ class SessionController extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> register(String username, String displayName, String password) async {
-    await api.postJson('/api/v1/auth/register', data: {
-      'username': username,
-      'display_name': displayName,
-      'password': password,
-    });
+  Future<void> register(
+    String username,
+    String displayName,
+    String password,
+  ) async {
+    await api.postJson(
+      '/api/v1/auth/register',
+      data: {
+        'username': username,
+        'display_name': displayName,
+        'password': password,
+      },
+    );
   }
 
-  Future<void> setup(String username, String displayName, String password) async {
-    final data = await api.postJson('/api/v1/setup', data: {
-      'username': username,
-      'display_name': displayName,
-      'password': password,
-    });
+  Future<void> setup(
+    String username,
+    String displayName,
+    String password,
+  ) async {
+    final data = await api.postJson(
+      '/api/v1/setup',
+      data: {
+        'username': username,
+        'display_name': displayName,
+        'password': password,
+      },
+    );
     if (data is Map<String, dynamic>) {
       final user = ApiUser.fromJson(data['user'] as Map<String, dynamic>);
       final csrf = data['csrf_token'] as String? ?? '';
