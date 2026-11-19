@@ -106,34 +106,29 @@ class _SyncRailIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Widget? child;
     if (sync.state == SyncState.syncing) {
-      return const Padding(
-        padding: EdgeInsets.all(12),
-        child: SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
+      child = const SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    } else if (sync.pendingConflicts > 0 || sync.state == SyncState.error) {
+      child = Icon(
+        Icons.sync_problem,
+        color: Theme.of(context).colorScheme.error,
+      );
+    } else if (sync.pendingChanges > 0) {
+      child = Badge(
+        label: Text('${sync.pendingChanges}'),
+        child: const Icon(Icons.sync),
       );
     }
-    if (sync.pendingConflicts > 0 || sync.state == SyncState.error) {
-      return Padding(
-        padding: const EdgeInsets.all(12),
-        child: Icon(
-          Icons.sync_problem,
-          color: Theme.of(context).colorScheme.error,
-        ),
-      );
-    }
-    if (sync.pendingChanges > 0) {
-      return Padding(
-        padding: const EdgeInsets.all(12),
-        child: Badge(
-          label: Text('${sync.pendingChanges}'),
-          child: const Icon(Icons.sync),
-        ),
-      );
-    }
-    return const SizedBox.shrink();
+    if (child == null) return const SizedBox.shrink();
+    return IconButton(
+      tooltip: 'Sync status',
+      onPressed: () => context.go('/settings'),
+      icon: child,
+    );
   }
 }
