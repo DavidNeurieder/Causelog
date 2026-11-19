@@ -30,29 +30,34 @@ class NotesScreen extends ConsumerWidget {
       body: notes.when(
         data: (items) {
           if (items.isEmpty) return const Center(child: Text('No notes yet.'));
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, i) {
-              final n = items[i];
-              return Card(
-                child: ListTile(
-                  title: Text(n['title'] as String? ?? '(untitled)'),
-                  subtitle: Text(
-                    (n['body'] as String? ?? '').trim(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () =>
-                      context.go('/projects/$projectId/notes/${n['id']}'),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => _delete(context, ref, n['id'] as String),
-                  ),
-                ),
-              );
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(notesProvider(projectId));
             },
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, i) {
+                final n = items[i];
+                return Card(
+                  child: ListTile(
+                    title: Text(n['title'] as String? ?? '(untitled)'),
+                    subtitle: Text(
+                      (n['body'] as String? ?? '').trim(),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () =>
+                        context.go('/projects/$projectId/notes/${n['id']}'),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _delete(context, ref, n['id'] as String),
+                    ),
+                  ),
+                );
+              },
+            ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),

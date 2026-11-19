@@ -70,27 +70,32 @@ class ProjectsScreen extends ConsumerWidget {
               ),
             );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, i) {
-              final p = items[i];
-              return Card(
-                child: ListTile(
-                  title: Text(p['title'] as String? ?? '(untitled)'),
-                  subtitle: Text(
-                    (p['summary'] as String?)?.trim().isNotEmpty == true
-                        ? p['summary'] as String
-                        : 'Status: ${p['status'] ?? 'active'}',
-                  ),
-                  trailing: Chip(
-                    label: Text(p['status'] as String? ?? 'active'),
-                  ),
-                  onTap: () => context.go('/projects/${p['id']}'),
-                ),
-              );
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(projectsProvider);
             },
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, i) {
+                final p = items[i];
+                return Card(
+                  child: ListTile(
+                    title: Text(p['title'] as String? ?? '(untitled)'),
+                    subtitle: Text(
+                      (p['summary'] as String?)?.trim().isNotEmpty == true
+                          ? p['summary'] as String
+                          : 'Status: ${p['status'] ?? 'active'}',
+                    ),
+                    trailing: Chip(
+                      label: Text(p['status'] as String? ?? 'active'),
+                    ),
+                    onTap: () => context.go('/projects/${p['id']}'),
+                  ),
+                );
+              },
+            ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),

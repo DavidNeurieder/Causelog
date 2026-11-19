@@ -31,25 +31,31 @@ class ExperimentsScreen extends ConsumerWidget {
         data: (items) {
           if (items.isEmpty)
             return const Center(child: Text('No experiments yet.'));
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, i) {
-              final e = items[i];
-              return Card(
-                child: ListTile(
-                  title: Text(e['title'] as String? ?? '(untitled)'),
-                  subtitle: Text(e['status'] as String? ?? 'planned'),
-                  onTap: () =>
-                      context.go('/projects/$projectId/experiments/${e['id']}'),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => _delete(context, ref, e['id'] as String),
-                  ),
-                ),
-              );
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(experimentsProvider(projectId));
             },
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, i) {
+                final e = items[i];
+                return Card(
+                  child: ListTile(
+                    title: Text(e['title'] as String? ?? '(untitled)'),
+                    subtitle: Text(e['status'] as String? ?? 'planned'),
+                    onTap: () => context.go(
+                      '/projects/$projectId/experiments/${e['id']}',
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _delete(context, ref, e['id'] as String),
+                    ),
+                  ),
+                );
+              },
+            ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
