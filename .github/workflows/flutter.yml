@@ -37,3 +37,37 @@ jobs:
 
       - name: Test
         run: flutter test
+
+  build:
+    name: build · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: apps/flutter
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            flutter build linux
+            flutter build apk
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            flutter build macos
+            flutter build ios --no-codesign
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            flutter build windows
+          fi
