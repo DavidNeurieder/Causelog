@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -26,146 +27,171 @@ class ProjectDetailScreen extends ConsumerWidget {
     final projectAsync = ref.watch(projectProvider(id));
     final statsAsync = ref.watch(projectStatsProvider(id));
 
-    return projectAsync.when(
-      data: (project) => Scaffold(
-        appBar: AppBar(
-          title: Text(project['title'] as String? ?? 'Project'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: () {
-                ref.invalidate(projectProvider(id));
-                ref.invalidate(projectStatsProvider(id));
-              },
-            ),
-            PopupMenuButton<String>(
-              onSelected: (v) {
-                if (v == 'edit') _editProject(context, ref, project);
-                if (v == 'delete') _deleteProject(context, ref);
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem(value: 'edit', child: Text('Edit project')),
-                PopupMenuItem(value: 'delete', child: Text('Delete project')),
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true): () =>
+            context.go('/projects/$id/search'),
+        const SingleActivator(LogicalKeyboardKey.keyN, control: true): () =>
+            context.go('/projects/$id/capture'),
+      },
+      child: Focus(
+        autofocus: true,
+        child: projectAsync.when(
+          data: (project) => Scaffold(
+            appBar: AppBar(
+              title: Text(project['title'] as String? ?? 'Project'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: () {
+                    ref.invalidate(projectProvider(id));
+                    ref.invalidate(projectStatsProvider(id));
+                  },
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (v) {
+                    if (v == 'edit') _editProject(context, ref, project);
+                    if (v == 'delete') _deleteProject(context, ref);
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Edit project')),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Text('Delete project'),
+                    ),
+                  ],
+                ),
               ],
             ),
-          ],
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => context.go('/projects/$id/capture'),
-          icon: const Icon(Icons.bolt),
-          label: const Text('Quick capture'),
-        ),
-        body: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if ((project['summary'] as String?)?.trim().isNotEmpty == true)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(project['summary'] as String),
-              ),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            floatingActionButton: FloatingActionButton.extended(
+              onPressed: () => context.go('/projects/$id/capture'),
+              icon: const Icon(Icons.bolt),
+              label: const Text('Quick capture'),
+            ),
+            body: ListView(
+              padding: const EdgeInsets.all(16),
               children: [
-                Chip(label: Text('Status: ${project['status'] ?? 'active'}')),
+                if ((project['summary'] as String?)?.trim().isNotEmpty == true)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(project['summary'] as String),
+                  ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Chip(
+                      label: Text('Status: ${project['status'] ?? 'active'}'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text('Overview', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                statsAsync.when(
+                  data: (s) => Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _StatCard(
+                        label: 'Goals',
+                        value: '${s['goals_total'] ?? 0}',
+                      ),
+                      _StatCard(
+                        label: 'Decisions',
+                        value: '${s['decisions_total'] ?? 0}',
+                      ),
+                      _StatCard(
+                        label: 'Experiments',
+                        value: '${s['experiments_total'] ?? 0}',
+                      ),
+                      _StatCard(
+                        label: 'Notes',
+                        value: '${s['notes_total'] ?? 0}',
+                      ),
+                    ],
+                  ),
+                  loading: () => const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: CircularProgressIndicator(),
+                  ),
+                  error: (e, _) => Text(
+                    'Stats unavailable: ${e is AppException ? e.message : e}',
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Sections',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                _SectionTile(
+                  title: 'Goals',
+                  subtitle: 'Track objectives',
+                  onTap: () => context.go('/projects/$id/goals'),
+                ),
+                _SectionTile(
+                  title: 'Decisions',
+                  subtitle: 'Options, rationale, revisions',
+                  onTap: () => context.go('/projects/$id/decisions'),
+                ),
+                _SectionTile(
+                  title: 'Experiments',
+                  subtitle: 'Hypotheses and observations',
+                  onTap: () => context.go('/projects/$id/experiments'),
+                ),
+                _SectionTile(
+                  title: 'Notes',
+                  subtitle: 'Lessons and knowledge',
+                  onTap: () => context.go('/projects/$id/notes'),
+                ),
+                _SectionTile(
+                  title: 'Timeline',
+                  subtitle: 'Chronological history',
+                  onTap: () => context.go('/projects/$id/timeline'),
+                ),
+                _SectionTile(
+                  title: 'Graph',
+                  subtitle: 'Relationships',
+                  onTap: () => context.go('/projects/$id/graph'),
+                ),
+                _SectionTile(
+                  title: 'Search',
+                  subtitle: 'Find knowledge',
+                  onTap: () => context.go('/projects/$id/search'),
+                ),
+                _SectionTile(
+                  title: 'Members',
+                  subtitle: 'Project access',
+                  onTap: () => context.go('/projects/$id/members'),
+                ),
+                _SectionTile(
+                  title: 'Exports',
+                  subtitle: 'Download project data',
+                  onTap: () => context.go('/projects/$id/exports'),
+                ),
               ],
-            ),
-            const SizedBox(height: 16),
-            Text('Overview', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            statsAsync.when(
-              data: (s) => Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _StatCard(label: 'Goals', value: '${s['goals_total'] ?? 0}'),
-                  _StatCard(
-                    label: 'Decisions',
-                    value: '${s['decisions_total'] ?? 0}',
-                  ),
-                  _StatCard(
-                    label: 'Experiments',
-                    value: '${s['experiments_total'] ?? 0}',
-                  ),
-                  _StatCard(label: 'Notes', value: '${s['notes_total'] ?? 0}'),
-                ],
-              ),
-              loading: () => const Padding(
-                padding: EdgeInsets.all(16),
-                child: CircularProgressIndicator(),
-              ),
-              error: (e, _) => Text(
-                'Stats unavailable: ${e is AppException ? e.message : e}',
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text('Sections', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            _SectionTile(
-              title: 'Goals',
-              subtitle: 'Track objectives',
-              onTap: () => context.go('/projects/$id/goals'),
-            ),
-            _SectionTile(
-              title: 'Decisions',
-              subtitle: 'Options, rationale, revisions',
-              onTap: () => context.go('/projects/$id/decisions'),
-            ),
-            _SectionTile(
-              title: 'Experiments',
-              subtitle: 'Hypotheses and observations',
-              onTap: () => context.go('/projects/$id/experiments'),
-            ),
-            _SectionTile(
-              title: 'Notes',
-              subtitle: 'Lessons and knowledge',
-              onTap: () => context.go('/projects/$id/notes'),
-            ),
-            _SectionTile(
-              title: 'Timeline',
-              subtitle: 'Chronological history',
-              onTap: () => context.go('/projects/$id/timeline'),
-            ),
-            _SectionTile(
-              title: 'Graph',
-              subtitle: 'Relationships',
-              onTap: () => context.go('/projects/$id/graph'),
-            ),
-            _SectionTile(
-              title: 'Search',
-              subtitle: 'Find knowledge',
-              onTap: () => context.go('/projects/$id/search'),
-            ),
-            _SectionTile(
-              title: 'Members',
-              subtitle: 'Project access',
-              onTap: () => context.go('/projects/$id/members'),
-            ),
-            _SectionTile(
-              title: 'Exports',
-              subtitle: 'Download project data',
-              onTap: () => context.go('/projects/$id/exports'),
-            ),
-          ],
-        ),
-      ),
-      loading: () =>
-          const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, _) {
-        if (e is AppException && e.statusCode == 401) {
-          Future.microtask(
-            () => ref.read(sessionControllerProvider.notifier).logout(),
-          );
-        }
-        return Scaffold(
-          appBar: AppBar(title: const Text('Project')),
-          body: Center(
-            child: Text(
-              e is AppException ? e.message : 'Failed to load project',
             ),
           ),
-        );
-      },
+          loading: () =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+          error: (e, _) {
+            if (e is AppException && e.statusCode == 401) {
+              Future.microtask(
+                () => ref.read(sessionControllerProvider.notifier).logout(),
+              );
+            }
+            return Scaffold(
+              appBar: AppBar(title: const Text('Project')),
+              body: Center(
+                child: Text(
+                  e is AppException ? e.message : 'Failed to load project',
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 
