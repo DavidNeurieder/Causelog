@@ -65,6 +65,10 @@ class _ExperimentDetailScreenState
                 icon: const Icon(Icons.save),
                 onPressed: _saving ? null : () => _save(exp, status),
               ),
+              IconButton(
+                icon: const Icon(Icons.note_add),
+                onPressed: () => _extractLesson(context),
+              ),
             ],
           ),
           floatingActionButton: FloatingActionButton(
@@ -126,9 +130,19 @@ class _ExperimentDetailScreenState
                   child: ListTile(
                     title: Text(e['kind'] as String? ?? 'event'),
                     subtitle: Text(e['note'] as String? ?? ''),
-                    trailing: Text(
-                      '${e['at_ms'] ?? ''}',
-                      style: Theme.of(context).textTheme.bodySmall,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${e['at_ms'] ?? ''}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () =>
+                              _deleteEvent(context, e['id'] as String? ?? ''),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -171,6 +185,52 @@ class _ExperimentDetailScreenState
         );
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _deleteEvent(BuildContext context, String eventId) async {
+    if (eventId.isEmpty) return;
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.deleteJson(
+        '/api/v1/experiments/${widget.experimentId}/events/$eventId',
+      );
+      ref.invalidate(experimentDetailProvider(widget.experimentId));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Event deleted')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is AppException ? e.message : '$e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _extractLesson(BuildContext context) async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final data = await api.postJson(
+        '/api/v1/experiments/${widget.experimentId}/extract',
+        data: {'title': _title?.text.trim(), 'body': _lesson?.text.trim()},
+      );
+      ref.invalidate(experimentDetailProvider(widget.experimentId));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lesson extracted: ${data is Map ? data['id'] : ''}'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is AppException ? e.message : '$e')),
+        );
+      }
     }
   }
 
