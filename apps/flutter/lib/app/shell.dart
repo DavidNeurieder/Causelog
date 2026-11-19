@@ -6,7 +6,12 @@ class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.child});
 
   int _selectedIndex(BuildContext context) {
-    final location = GoRouterState.of(context).uri.path;
+    String location = '';
+    try {
+      location = GoRouterState.of(context).uri.path;
+    } catch (_) {
+      location = '';
+    }
     if (location.startsWith('/settings')) return 1;
     return 0;
   }
